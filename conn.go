@@ -15,7 +15,10 @@
 package kvgo
 
 import (
+	"errors"
 	"os"
+	"path/filepath"
+	"sync"
 
 	"code.hooto.com/lynkdb/iomix/connect"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -23,9 +26,15 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/opt"
 )
 
+var (
+	conn_mu sync.Mutex
+	conns   = map[string]*Conn{}
+)
+
 type Conn struct {
-	db   *leveldb.DB
-	opts *options
+	db      *leveldb.DB
+	opts    *options
+	clients int
 }
 
 type options struct {
@@ -72,15 +81,26 @@ func (opts *options) fix() {
 
 func Open(copts connect.ConnOptions) (*Conn, error) {
 
+	conn_mu.Lock()
+	defer conn_mu.Unlock()
+
 	var (
 		cn = &Conn{
-			opts: &options{},
+			opts:    &options{},
+			clients: 1,
 		}
 		err error
 	)
 
-	if v, ok := copts.Items.Get("data_dir"); ok {
-		cn.opts.DataDir = v.String()
+	if v, ok := copts.Items.Get("data_dir"); !ok {
+		return nil, errors.New("No data_dir Found")
+	} else {
+		cn.opts.DataDir = filepath.Clean(v.String())
+	}
+
+	if pconn, ok := conns[cn.opts.DataDir]; ok {
+		pconn.clients++
+		return pconn, nil
 	}
 
 	if v, ok := copts.Items.Get("lynkdb/sskv/write_buffer"); ok {
@@ -118,14 +138,29 @@ func Open(copts connect.ConnOptions) (*Conn, error) {
 		cn.ttl_worker()
 	}
 
+	conns[cn.opts.DataDir] = cn
+
 	return cn, err
 }
 
 func (cn *Conn) Close() error {
 
-	if cn.db != nil {
-		return cn.db.Close()
+	conn_mu.Lock()
+	defer conn_mu.Unlock()
+
+	if pconn, ok := conns[cn.opts.DataDir]; ok {
+
+		if pconn.clients > 1 {
+			pconn.clients--
+			return nil
+		}
 	}
+
+	if cn.db != nil {
+		cn.db.Close()
+	}
+
+	delete(conns, cn.opts.DataDir)
 
 	return nil
 }
