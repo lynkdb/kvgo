@@ -19,7 +19,6 @@ import (
 	"testing"
 
 	"code.hooto.com/lynkdb/iomix/connect"
-	"code.hooto.com/lynkdb/iomix/iotypes"
 	"code.hooto.com/lynkdb/iomix/skv"
 )
 
@@ -106,8 +105,8 @@ func TestDataType(t *testing.T) {
 
 	// Json Encode/Decode
 	jsitem := object_test{
-		Code:    "Code",
-		Message: "Message",
+		Version: 400,
+		Name:    "Message",
 	}
 	jslen := 0
 	if rs := Data.KvPut([]byte("object"), jsitem, nil); !rs.OK() {
@@ -120,7 +119,7 @@ func TestDataType(t *testing.T) {
 		if err := rs.Decode(&jsitem2); err != nil {
 			t.Fatal(err)
 		}
-		if jsitem2.Code != "Code" {
+		if jsitem2.Version != 400 {
 			t.Fatal("KvGet Object/JsonDecode !OK")
 		}
 		jslen = len(rs.Data[0])
@@ -130,9 +129,9 @@ func TestDataType(t *testing.T) {
 	}
 
 	// ProtoBuf Encode/Decode
-	pbitem := &iotypes.ErrorMeta{
-		Code:    "Code",
-		Message: "Message",
+	pbitem := &skv.ValueMeta{
+		Version: 400,
+		Name:    "Message",
 	}
 	if rs := Data.KvPut([]byte("objectpb"), pbitem, nil); !rs.OK() {
 		t.Fatal("KvPut ObjectPB !OK")
@@ -140,11 +139,11 @@ func TestDataType(t *testing.T) {
 	if rs := Data.KvGet([]byte("objectpb")); !rs.OK() {
 		t.Fatal("KvGet ObjectPB !OK")
 	} else {
-		var pbitem2 iotypes.ErrorMeta
+		var pbitem2 skv.ValueMeta
 		if err := rs.Decode(&pbitem2); err != nil {
 			t.Fatal(err)
 		}
-		if pbitem2.Code != "Code" || pbitem2.Message != "Message" {
+		if pbitem2.Version != 400 || pbitem2.Name != "Message" {
 			t.Fatal("KvGet Object/ProtoBuf !OK")
 		}
 		if f := float32(len(rs.Data[0])) / float32(jslen); f > 0.5 {
@@ -155,6 +154,6 @@ func TestDataType(t *testing.T) {
 }
 
 type object_test struct {
-	Code    string
-	Message string
+	Version uint64
+	Name    string
 }

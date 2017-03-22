@@ -17,7 +17,6 @@ package kvgo
 import (
 	"sync"
 
-	"code.hooto.com/lynkdb/iomix/iotypes"
 	"code.hooto.com/lynkdb/iomix/skv"
 	"github.com/lessos/lessgo/types"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -200,7 +199,7 @@ func (cn *Conn) raw_ssttlat_put(key []byte, ttlat uint64) bool {
 	}
 
 	//
-	meta := iotypes.ValueMeta{}
+	meta := skv.ValueMeta{}
 
 	if rs := cn.RawGet(t_ns_cat(ns_meta, key)); rs.OK() {
 
