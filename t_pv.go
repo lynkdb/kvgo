@@ -24,17 +24,17 @@ import (
 )
 
 var (
-	_obj_meta_locker      sync.Mutex
-	_obj_grpstatus_locker sync.Mutex
-	_obj_event_handler    skv.PvEventHandler
-	_obj_options_def      = &skv.PvWriteOptions{}
+	t_pv_meta_locker       sync.Mutex
+	t_pv_grpstatus_locker  sync.Mutex
+	t_pv_event_handler     skv.PvEventHandler
+	t_pv_write_options_def = &skv.PvWriteOptions{}
 )
 
 func (cn *Conn) PvNew(path string, value interface{}, opts *skv.PvWriteOptions) *skv.Result {
 	return skv.NewResult(0)
 }
 
-func (cn *Conn) PvDel(path string) *skv.Result {
+func (cn *Conn) PvDel(path string, opts *skv.PvWriteOptions) *skv.Result {
 
 	var (
 		pvp = pv_path_parse(path)
@@ -63,7 +63,11 @@ func (cn *Conn) PvPut(path string, value interface{}, opts *skv.PvWriteOptions) 
 		return skv.NewResult(skv.ResultBadArgument)
 	}
 
-	return cn.RawPut(db_key, db_value, 0)
+	if opts == nil {
+		opts = t_pv_write_options_def
+	}
+
+	return cn.RawPut(db_key, db_value, opts.Ttl)
 }
 
 func (cn *Conn) PvGet(path string) *skv.Result {

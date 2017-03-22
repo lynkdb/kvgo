@@ -52,7 +52,7 @@ func (cn *Conn) KvPut(key []byte, value interface{}, opts *skv.KvWriteOptions) *
 		opts = t_kv_write_options_def
 	}
 
-	return cn.RawPut(t_ns_cat(ns_kv, key), value_enc, opts.TimeToLive)
+	return cn.RawPut(t_ns_cat(ns_kv, key), value_enc, opts.Ttl)
 }
 
 func (cn *Conn) KvGet(key []byte) *skv.Result {
