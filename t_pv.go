@@ -15,6 +15,7 @@
 package kvgo
 
 import (
+	"bytes"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -31,19 +32,29 @@ var (
 )
 
 func (cn *Conn) PvNew(path string, value interface{}, opts *skv.PvWriteOptions) *skv.Result {
-	return skv.NewResult(0)
+
+	db_value, err := skv.ValueEncode(value, nil)
+	if err != nil {
+		return skv.NewResult(skv.ResultBadArgument)
+	}
+
+	if opts == nil {
+		opts = t_pv_write_options_def
+	}
+
+	return cn.RawNew(pv_path_parse(path).entry_index(), db_value, opts.Ttl)
 }
 
 func (cn *Conn) PvDel(path string, opts *skv.PvWriteOptions) *skv.Result {
 
 	var (
-		pvp = pv_path_parse(path)
+		db_key = pv_path_parse(path).entry_index()
 	)
 
-	rs := cn.RawGet(pvp.entry_index())
+	rs := cn.RawGet(db_key)
 	if rs.Status == skv.ResultOK {
 
-		if rs = cn.RawDel(pvp.entry_index()); rs.Status != skv.ResultOK {
+		if rs = cn.RawDel(db_key); rs.Status != skv.ResultOK {
 			return rs
 		}
 	}
@@ -54,8 +65,7 @@ func (cn *Conn) PvDel(path string, opts *skv.PvWriteOptions) *skv.Result {
 func (cn *Conn) PvPut(path string, value interface{}, opts *skv.PvWriteOptions) *skv.Result {
 
 	var (
-		pvp    = pv_path_parse(path)
-		db_key = pvp.entry_index()
+		db_key = pv_path_parse(path).entry_index()
 	)
 
 	db_value, err := skv.ValueEncode(value, nil)
@@ -65,6 +75,21 @@ func (cn *Conn) PvPut(path string, value interface{}, opts *skv.PvWriteOptions) 
 
 	if opts == nil {
 		opts = t_pv_write_options_def
+	}
+
+	if opts.PrevValue != nil {
+
+		pdb_value, err := skv.ValueEncode(opts.PrevValue, nil)
+		if err != nil {
+			return skv.NewResult(skv.ResultBadArgument)
+		}
+
+		if rs := cn.RawGet(db_key); rs.OK() {
+
+			if bytes.Compare(rs.Bytes(), pdb_value) != 0 {
+				return skv.NewResult(skv.ResultBadArgument)
+			}
+		}
 	}
 
 	return cn.RawPut(db_key, db_value, opts.Ttl)
