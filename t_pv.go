@@ -153,6 +153,64 @@ func (cn *Conn) PvScan(fold, offset, cutset string, limit int) *skv.Result {
 	return rs
 }
 
+func (cn *Conn) PvRevScan(fold, offset, cutset string, limit int) *skv.Result {
+
+	var (
+		prefix = pv_path_fold_index(fold)
+		prelen = len(prefix)
+		off    = append(prefix, []byte(offset)...)
+		cut    = append(prefix, []byte(cutset)...)
+		rs     = skv.NewResult(0)
+	)
+
+	for i := len(off); i < 200; i++ {
+		off = append(off, 0x00)
+	}
+
+	for i := len(cut); i < 200; i++ {
+		cut = append(cut, 0xff)
+	}
+
+	if limit > skv.ScanLimitMax {
+		limit = skv.ScanLimitMax
+	} else if limit < 1 {
+		limit = 1
+	}
+
+	iter := cn.db.NewIterator(&util.Range{
+		Start: off,
+		Limit: cut,
+	}, nil)
+
+	for ok := iter.Last(); ok; ok = iter.Prev() {
+
+		if limit < 1 {
+			break
+		}
+
+		if len(iter.Key()) <= prelen {
+			continue
+		}
+
+		if len(iter.Value()) < 2 {
+			continue
+		}
+
+		rs.Data = append(rs.Data, bytes_clone(iter.Key()[prelen:]))
+		rs.Data = append(rs.Data, bytes_clone(iter.Value()))
+
+		limit--
+	}
+
+	iter.Release()
+
+	if iter.Error() != nil {
+		return skv.NewResultError(skv.ResultServerError, iter.Error().Error())
+	}
+
+	return rs
+}
+
 //
 type pv_path struct {
 	Fold string
