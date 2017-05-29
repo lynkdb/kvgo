@@ -151,6 +151,71 @@ func TestDataType(t *testing.T) {
 		}
 	}
 
+	// Path/Object
+	if rs := Data.PoNew("po/name", 1, "1111", nil); rs.OK() {
+		t.Fatal("PoNew !OK")
+	}
+
+	if rs := Data.PoNew("po/name", uint32(1), "1111", nil); !rs.OK() {
+		t.Fatal("PoNew !OK")
+	}
+
+	if rs := Data.PoGet("po/name", uint32(1)); !rs.OK() {
+		t.Fatal("PoGet !OK")
+	} else if rs.Bytex().String() != "1111" {
+		t.Fatal("PoGet !OK")
+	}
+
+	if rs := Data.PoPut("po/name", uint32(1), "2222", nil); !rs.OK() {
+		t.Fatal("PoPut !OK")
+	}
+
+	if rs := Data.PoGet("po/name", uint32(1)); !rs.OK() {
+		t.Fatal("PoGet !OK")
+	} else if rs.Bytex().String() != "2222" {
+		t.Fatal("PoGet !OK")
+	}
+
+	Data.PoPut("po/name", uint32(1), "1111", nil)
+	Data.PoPut("po/name", uint32(2), "2222", nil)
+
+	if rs := Data.PoScan("po/name", 0, 10, 10); !rs.OK() || rs.KvLen() != 2 {
+		t.Fatal("PoScan !OK")
+	} else {
+
+		rs.KvEach(func(entry *skv.ResultEntry) int {
+
+			if len(entry.Key) != 4 {
+				t.Fatal("PoScan|PoPut !OK")
+				return 1
+			}
+
+			switch uint8(entry.Key[3]) {
+
+			case 1:
+				if entry.Bytex().String() != "1111" {
+					t.Fatal("PoScan !OK")
+				}
+
+			case 2:
+				if entry.Bytex().String() != "2222" {
+					t.Fatal("PoScan !OK")
+				}
+
+			default:
+				t.Fatal("PoScan !OK")
+			}
+
+			return 0
+		})
+	}
+
+	if rs := Data.PoDel("po/name", uint32(1), nil); !rs.OK() {
+		t.Fatal("PoDel !OK")
+	}
+	if rs := Data.PoGet("po/name", uint32(1)); !rs.NotFound() {
+		t.Fatal("PoDel !OK")
+	}
 }
 
 type object_test struct {

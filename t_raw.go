@@ -23,13 +23,6 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
-const (
-	ns_meta uint8 = 4
-	ns_ttl  uint8 = 5
-	ns_kv   uint8 = 8
-	ns_pv   uint8 = 12
-)
-
 var (
 	t_raw_incr_mu sync.Mutex
 )

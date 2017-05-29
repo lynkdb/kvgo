@@ -108,6 +108,62 @@ func (cn *Conn) KvScan(offset, cutset []byte, limit int) *skv.Result {
 	return rs
 }
 
+func (cn *Conn) KvRevScan(offset, cutset []byte, limit int) *skv.Result {
+
+	var (
+		off = t_ns_cat(ns_kv, offset)
+		cut = t_ns_cat(ns_kv, cutset)
+		rs  = skv.NewResult(0)
+	)
+
+	for i := len(off); i < 200; i++ {
+		off = append(off, 0x00)
+	}
+
+	for i := len(cut); i < 200; i++ {
+		cut = append(cut, 0xff)
+	}
+
+	if limit > skv.ScanLimitMax {
+		limit = skv.ScanLimitMax
+	} else if limit < 1 {
+		limit = 1
+	}
+
+	iter := cn.db.NewIterator(&util.Range{
+		Start: off,
+		Limit: cut,
+	}, nil)
+
+	for ok := iter.Last(); ok; ok = iter.Prev() {
+
+		if limit < 1 {
+			break
+		}
+
+		if len(iter.Key()) < 2 {
+			continue
+		}
+
+		if len(iter.Value()) < 2 {
+			continue
+		}
+
+		rs.Data = append(rs.Data, bytes_clone(iter.Key()[1:]))
+		rs.Data = append(rs.Data, bytes_clone(iter.Value()))
+
+		limit--
+	}
+
+	iter.Release()
+
+	if iter.Error() != nil {
+		return skv.NewResultError(skv.ResultServerError, iter.Error().Error())
+	}
+
+	return rs
+}
+
 func (cn *Conn) KvIncrby(key []byte, incr int64) *skv.Result {
 
 	if incr == 0 {

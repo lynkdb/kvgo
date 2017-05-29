@@ -16,22 +16,25 @@ package kvgo
 
 import (
 	"bytes"
+	"encoding/binary"
+	"encoding/hex"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"code.hooto.com/lynkdb/iomix/skv"
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
 var (
-	t_pv_meta_locker       sync.Mutex
-	t_pv_grpstatus_locker  sync.Mutex
-	t_pv_event_handler     skv.PathEventHandler
-	t_pv_write_options_def = &skv.PathWriteOptions{}
+	t_po_write_options_def = &skv.PathWriteOptions{}
 )
 
-func (cn *Conn) PvNew(path string, value interface{}, opts *skv.PathWriteOptions) *skv.Result {
+func (cn *Conn) PoNew(path string, key, value interface{}, opts *skv.PathWriteOptions) *skv.Result {
+
+	db_key := po_pathkey_enc(path, key)
+	if db_key == nil {
+		return skv.NewResult(skv.ResultBadArgument)
+	}
 
 	db_value, err := skv.ValueEncode(value, nil)
 	if err != nil {
@@ -39,17 +42,18 @@ func (cn *Conn) PvNew(path string, value interface{}, opts *skv.PathWriteOptions
 	}
 
 	if opts == nil {
-		opts = t_pv_write_options_def
+		opts = t_po_write_options_def
 	}
 
-	return cn.RawNew(pv_path_parse(path).entry_index(), db_value, opts.Ttl)
+	return cn.RawNew(db_key, db_value, opts.Ttl)
 }
 
-func (cn *Conn) PvDel(path string, opts *skv.PathWriteOptions) *skv.Result {
+func (cn *Conn) PoDel(path string, key interface{}, opts *skv.PathWriteOptions) *skv.Result {
 
-	var (
-		db_key = pv_path_parse(path).entry_index()
-	)
+	db_key := po_pathkey_enc(path, key)
+	if db_key == nil {
+		return skv.NewResult(skv.ResultBadArgument)
+	}
 
 	rs := cn.RawGet(db_key)
 	if rs.Status == skv.ResultOK {
@@ -62,11 +66,12 @@ func (cn *Conn) PvDel(path string, opts *skv.PathWriteOptions) *skv.Result {
 	return rs
 }
 
-func (cn *Conn) PvPut(path string, value interface{}, opts *skv.PathWriteOptions) *skv.Result {
+func (cn *Conn) PoPut(path string, key, value interface{}, opts *skv.PathWriteOptions) *skv.Result {
 
-	var (
-		db_key = pv_path_parse(path).entry_index()
-	)
+	db_key := po_pathkey_enc(path, key)
+	if db_key == nil {
+		return skv.NewResult(skv.ResultBadArgument)
+	}
 
 	db_value, err := skv.ValueEncode(value, nil)
 	if err != nil {
@@ -74,19 +79,19 @@ func (cn *Conn) PvPut(path string, value interface{}, opts *skv.PathWriteOptions
 	}
 
 	if opts == nil {
-		opts = t_pv_write_options_def
+		opts = t_po_write_options_def
 	}
 
 	if opts.PrevValue != nil {
 
-		pdb_value, err := skv.ValueEncode(opts.PrevValue, nil)
+		db_value_prev, err := skv.ValueEncode(opts.PrevValue, nil)
 		if err != nil {
 			return skv.NewResult(skv.ResultBadArgument)
 		}
 
 		if rs := cn.RawGet(db_key); rs.OK() {
 
-			if bytes.Compare(rs.Bytes(), pdb_value) != 0 {
+			if bytes.Compare(rs.Bytes(), db_value_prev) != 0 {
 				return skv.NewResult(skv.ResultBadArgument)
 			}
 		}
@@ -95,17 +100,25 @@ func (cn *Conn) PvPut(path string, value interface{}, opts *skv.PathWriteOptions
 	return cn.RawPut(db_key, db_value, opts.Ttl)
 }
 
-func (cn *Conn) PvGet(path string) *skv.Result {
-	return cn.RawGet(pv_path_parse(path).entry_index())
+func (cn *Conn) PoGet(path string, key interface{}) *skv.Result {
+	db_key := po_pathkey_enc(path, key)
+	if db_key == nil {
+		return skv.NewResult(skv.ResultBadArgument)
+	}
+	return cn.RawGet(db_key)
 }
 
-func (cn *Conn) PvScan(fold, offset, cutset string, limit int) *skv.Result {
+func (cn *Conn) PoScan(path string, offset, cutset interface{}, limit int) *skv.Result {
+
+	pe := po_path_enc(path)
+	if pe == nil {
+		return skv.NewResult(skv.ResultBadArgument)
+	}
 
 	var (
-		prefix = pv_path_fold_index(fold)
-		prelen = len(prefix)
-		off    = append(prefix, []byte(offset)...)
-		cut    = append(prefix, []byte(cutset)...)
+		prelen = len(pe)
+		off    = append(pe, po_key_enc(offset)...)
+		cut    = append(pe, po_key_enc(cutset)...)
 		rs     = skv.NewResult(0)
 	)
 
@@ -153,13 +166,17 @@ func (cn *Conn) PvScan(fold, offset, cutset string, limit int) *skv.Result {
 	return rs
 }
 
-func (cn *Conn) PvRevScan(fold, offset, cutset string, limit int) *skv.Result {
+func (cn *Conn) PoRevScan(fold string, offset, cutset interface{}, limit int) *skv.Result {
+
+	pe := po_path_enc(fold)
+	if pe == nil {
+		return skv.NewResult(skv.ResultBadArgument)
+	}
 
 	var (
-		prefix = pv_path_fold_index(fold)
-		prelen = len(prefix)
-		off    = append(prefix, []byte(offset)...)
-		cut    = append(prefix, []byte(cutset)...)
+		prelen = len(pe)
+		off    = append(pe, po_key_enc(offset)...)
+		cut    = append(pe, po_key_enc(cutset)...)
 		rs     = skv.NewResult(0)
 	)
 
@@ -211,45 +228,59 @@ func (cn *Conn) PvRevScan(fold, offset, cutset string, limit int) *skv.Result {
 	return rs
 }
 
-//
-type pv_path struct {
-	Fold string
-	Name string
-}
+func po_pathkey_enc(path string, key interface{}) []byte {
 
-func (p *pv_path) entry_index() []byte {
-	return append([]byte{ns_path, uint8(len(p.Fold))}, append([]byte(p.Fold), []byte(p.Name)...)...)
-}
-
-func pv_path_parse(path string) *pv_path {
-
-	p := &pv_path{}
-
-	is_fold := false
-	if len(path) > 0 && path[len(path)-1] == '/' {
-		is_fold = true
+	ke := po_key_enc(key)
+	if len(ke) == 0 {
+		return nil
 	}
 
-	path = pvpath_clean(path)
+	pe := po_path_enc(path)
+	if pe == nil {
+		return nil
+	}
 
-	if is_fold {
-		p.Fold, p.Name = path, ""
-	} else {
-		if i := strings.LastIndex(path, "/"); i > 0 {
-			p.Fold, p.Name = path[:i], path[i+1:]
-		} else {
-			p.Fold, p.Name = "", path
+	return append(pe, ke...)
+}
+
+func po_path_enc(path string) []byte {
+
+	if path = strings.Trim(strings.Trim(filepath.Clean(path), "/"), "."); len(path) > 0 {
+		return append([]byte{ns_path, uint8(len(path))}, []byte(path)...)
+	}
+
+	return nil
+}
+
+func po_key_enc(key interface{}) []byte {
+
+	switch key.(type) {
+
+	case uint32:
+		ke := make([]byte, 4)
+		binary.BigEndian.PutUint32(ke, key.(uint32))
+		return ke
+
+	case uint64:
+		ke := make([]byte, 8)
+		binary.BigEndian.PutUint64(ke, key.(uint64))
+		return ke
+
+	case uint16:
+		ke := make([]byte, 2)
+		binary.BigEndian.PutUint16(ke, key.(uint16))
+		return ke
+
+	case []byte:
+		if ke := key.([]byte); len(ke) <= 32 {
+			return ke
+		}
+
+	case string:
+		if ke, err := hex.DecodeString(key.(string)); err == nil {
+			return ke
 		}
 	}
 
-	return p
-}
-
-func pv_path_fold_index(fold string) []byte {
-	fold = pvpath_clean(fold)
-	return append([]byte{ns_path, uint8(len(fold))}, []byte(fold)...)
-}
-
-func pvpath_clean(path string) string {
-	return strings.Trim(strings.Trim(filepath.Clean(path), "/"), ".")
+	return []byte{}
 }
