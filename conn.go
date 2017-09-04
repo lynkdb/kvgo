@@ -1,4 +1,4 @@
-// Copyright 2015 lynkdb Authors, All rights reserved.
+// Copyright 2015 Eryx <evorui аt gmаil dοt cοm>, All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"code.hooto.com/lynkdb/iomix/connect"
+	"github.com/lynkdb/iomix/connect"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/filter"
 	"github.com/syndtr/goleveldb/leveldb/opt"

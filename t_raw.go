@@ -1,4 +1,4 @@
-// Copyright 2015 lynkdb Authors, All rights reserved.
+// Copyright 2015 Eryx <evorui аt gmаil dοt cοm>, All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,8 +17,8 @@ package kvgo
 import (
 	"sync"
 
-	"code.hooto.com/lynkdb/iomix/skv"
 	"github.com/lessos/lessgo/types"
+	"github.com/lynkdb/iomix/skv"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
