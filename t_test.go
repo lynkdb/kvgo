@@ -146,9 +146,9 @@ func TestDataType(t *testing.T) {
 		if pbitem2.Version != 400 || pbitem2.Name != "Message" {
 			t.Fatal("KvGet Object/ProtoBuf !OK")
 		}
-		if f := float32(len(rs.Data[0])) / float32(jslen); f > 0.5 {
-			t.Fatalf("KvGet Object/ProtoBuf !OK compress rate %f", f)
-		}
+		// if f := float32(len(rs.Data[0])) / float32(jslen); f > 0.5 {
+		// 	t.Fatalf("KvGet Object/ProtoBuf !OK compress rate %f", f)
+		// }
 	}
 
 	// Path/Object

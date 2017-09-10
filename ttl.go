@@ -18,11 +18,12 @@ import (
 	"time"
 
 	"github.com/lessos/lessgo/types"
+	"github.com/lynkdb/iomix/skv"
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
 const (
-	ttl_worker_sleep = 500e6
+	ttl_worker_sleep = 200e6
 	ttl_worker_limit = 1000
 )
 
@@ -48,6 +49,74 @@ func (cn *Conn) ttl_worker() {
 
 				cn.db.Write(batch, nil)
 			}
+
+			if len(ls) < ttl_worker_limit {
+				time.Sleep(ttl_worker_sleep)
+			}
+		}
+	}()
+
+	go func() {
+
+		for {
+
+			time_cut := uint64(time.Now().UTC().UnixNano())
+
+			ls := cn.RawScan(
+				t_ns_cat(ns_prog_ttl, uint64_to_bytes(0)),
+				t_ns_cat(ns_prog_ttl, uint64_to_bytes(time_cut)),
+				ttl_worker_limit,
+			).KvList()
+
+			batch := new(leveldb.Batch)
+			for _, v := range ls {
+
+				batch.Delete(v.Key)
+
+				if v.Key[9] < ns_prog_def || v.Key[9] > ns_prog_cut {
+					continue
+				}
+
+				rs := cn.RawGet(v.Key[9:])
+				if !rs.OK() {
+					continue
+				}
+				meta := rs.Meta()
+				if meta == nil {
+					continue
+				}
+
+				if meta.Expired < prog_ttl_zero ||
+					meta.Expired > time_cut {
+					continue
+				}
+
+				batch.Delete(v.Key[9:])
+
+				if meta.Num == 1 {
+
+					if pk := skv.ProgKeyDecode(v.Key[9:]); pk != nil {
+						if pmeta := cn.RawGet(pk.EncodeMeta(v.Key[9])).Meta(); pmeta != nil {
+							if pmeta.Num <= 1 {
+								cn.RawDel(pk.EncodeMeta(v.Key[9]))
+							} else {
+								pmeta.Num--
+
+								if pmeta.Size > uint64(rs.ValueSize()) {
+									pmeta.Size -= uint64(rs.ValueSize())
+								} else {
+									pmeta.Size = 0
+								}
+
+								if bs := pmeta.Encode(); len(bs) > 1 {
+									cn.RawPut(pk.EncodeMeta(v.Key[9]), bs, 0)
+								}
+							}
+						}
+					}
+				}
+			}
+			cn.db.Write(batch, nil)
 
 			if len(ls) < ttl_worker_limit {
 				time.Sleep(ttl_worker_sleep)
