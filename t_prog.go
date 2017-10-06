@@ -28,6 +28,17 @@ var (
 	t_prog_write_options_def = &skv.ProgWriteOptions{}
 )
 
+func (cn *Conn) ProgNew(key skv.ProgKey, val skv.ProgValue, opts *skv.ProgWriteOptions) *skv.Result {
+
+	if opts == nil {
+		opts = t_prog_write_options_def
+	}
+
+	opts.Actions = opts.Actions | skv.ProgOpCreate
+
+	return cn.ProgPut(key, val, opts)
+}
+
 func (cn *Conn) ProgPut(key skv.ProgKey, val skv.ProgValue, opts *skv.ProgWriteOptions) *skv.Result {
 
 	if !key.Valid() || !val.Valid() {
@@ -43,6 +54,14 @@ func (cn *Conn) ProgPut(key skv.ProgKey, val skv.ProgValue, opts *skv.ProgWriteO
 		p_meta    *skv.ValueMeta
 		prev_diff = true
 	)
+
+	if opts.OpAllow(skv.ProgOpCreate) {
+		if rs := cn.RawGet(key.Encode(ns_prog_def)); rs.OK() {
+			return skv.NewResult(0)
+		} else {
+			p_rs, p_meta = rs, rs.Meta()
+		}
+	}
 
 	if i, entry := key.LastEntry(); entry != nil {
 
@@ -74,8 +93,10 @@ func (cn *Conn) ProgPut(key skv.ProgKey, val skv.ProgValue, opts *skv.ProgWriteO
 	}
 
 	if prev_diff && (opts.PrevSum > 0 || opts.OpAllow(skv.ProgOpFoldMeta)) {
-		if rs := cn.RawGet(key.Encode(ns_prog_def)); rs.OK() {
-			p_rs, p_meta = rs, rs.Meta()
+		if p_rs == nil {
+			if rs := cn.RawGet(key.Encode(ns_prog_def)); rs.OK() {
+				p_rs, p_meta = rs, rs.Meta()
+			}
 		}
 	}
 
@@ -102,7 +123,7 @@ func (cn *Conn) ProgPut(key skv.ProgKey, val skv.ProgValue, opts *skv.ProgWriteO
 	}
 
 	if opts.OpAllow(skv.ProgOpFoldMeta) {
-		fmeta := cn.RawGet(key.EncodeMeta(ns_prog_def)).Meta()
+		fmeta := cn.RawGet(key.EncodeFoldMeta(ns_prog_def)).Meta()
 		if fmeta == nil {
 			fmeta = &skv.ValueMeta{}
 		}
@@ -119,7 +140,7 @@ func (cn *Conn) ProgPut(key skv.ProgKey, val skv.ProgValue, opts *skv.ProgWriteO
 			}
 		}
 		if bs := fmeta.Encode(); len(bs) > 1 {
-			cn.RawPut(key.EncodeMeta(ns_prog_def), bs, 0)
+			cn.RawPut(key.EncodeFoldMeta(ns_prog_def), bs, 0)
 		}
 		val.Meta().Num = 1
 	}
@@ -149,18 +170,18 @@ func (cn *Conn) ProgDel(key skv.ProgKey, opts *skv.ProgWriteOptions) *skv.Result
 	if rs.OK() {
 		if meta := rs.Meta(); meta != nil && meta.Num == 1 {
 
-			if fmeta := cn.RawGet(key.EncodeMeta(ns_prog_def)).Meta(); fmeta != nil {
+			if fmeta := cn.RawGet(key.EncodeFoldMeta(ns_prog_def)).Meta(); fmeta != nil {
 				if fmeta.Size > uint64(rs.ValueSize()) {
 					fmeta.Size -= uint64(rs.ValueSize())
 				} else {
 					fmeta.Size = 0
 				}
 				if fmeta.Num <= 1 {
-					cn.RawDel(key.EncodeMeta(ns_prog_def))
+					cn.RawDel(key.EncodeFoldMeta(ns_prog_def))
 				} else {
 					fmeta.Num--
 					if bs := fmeta.Encode(); len(bs) > 1 {
-						cn.RawPut(key.EncodeMeta(ns_prog_def), bs, 0)
+						cn.RawPut(key.EncodeFoldMeta(ns_prog_def), bs, 0)
 					}
 				}
 			}
@@ -175,9 +196,10 @@ func (cn *Conn) ProgDel(key skv.ProgKey, opts *skv.ProgWriteOptions) *skv.Result
 func (cn *Conn) ProgScan(offset, cutset skv.ProgKey, limit int) *skv.Result {
 
 	var (
-		off = offset.Encode(ns_prog_def)
-		cut = cutset.Encode(ns_prog_def)
-		rs  = skv.NewResult(0)
+		plen = offset.FoldLen()
+		off  = offset.Encode(ns_prog_def)
+		cut  = cutset.Encode(ns_prog_def)
+		rs   = skv.NewResult(0)
 	)
 
 	for i := len(cut); i < 200; i += 4 {
@@ -201,11 +223,11 @@ func (cn *Conn) ProgScan(offset, cutset skv.ProgKey, limit int) *skv.Result {
 			break
 		}
 
-		if len(iter.Value()) < 2 {
+		if len(iter.Key()) <= plen || len(iter.Value()) < 2 {
 			continue
 		}
 
-		rs.Data = append(rs.Data, bytes_clone(iter.Key()))
+		rs.Data = append(rs.Data, bytes_clone(iter.Key()[plen:]))
 		rs.Data = append(rs.Data, bytes_clone(iter.Value()))
 
 		limit--
@@ -223,9 +245,10 @@ func (cn *Conn) ProgScan(offset, cutset skv.ProgKey, limit int) *skv.Result {
 func (cn *Conn) ProgRevScan(offset, cutset skv.ProgKey, limit int) *skv.Result {
 
 	var (
-		off = offset.Encode(ns_prog_def)
-		cut = cutset.Encode(ns_prog_def)
-		rs  = skv.NewResult(0)
+		plen = offset.FoldLen()
+		off  = offset.Encode(ns_prog_def)
+		cut  = cutset.Encode(ns_prog_def)
+		rs   = skv.NewResult(0)
 	)
 
 	for i := len(off); i < 200; i += 4 {
@@ -253,11 +276,11 @@ func (cn *Conn) ProgRevScan(offset, cutset skv.ProgKey, limit int) *skv.Result {
 			break
 		}
 
-		if len(iter.Value()) < 2 {
+		if len(iter.Key()) <= plen || len(iter.Value()) < 2 {
 			continue
 		}
 
-		rs.Data = append(rs.Data, bytes_clone(iter.Key()))
+		rs.Data = append(rs.Data, bytes_clone(iter.Key()[plen:]))
 		rs.Data = append(rs.Data, bytes_clone(iter.Value()))
 
 		limit--

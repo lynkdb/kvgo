@@ -96,9 +96,9 @@ func (cn *Conn) ttl_worker() {
 				if meta.Num == 1 {
 
 					if pk := skv.ProgKeyDecode(v.Key[9:]); pk != nil {
-						if pmeta := cn.RawGet(pk.EncodeMeta(v.Key[9])).Meta(); pmeta != nil {
+						if pmeta := cn.RawGet(pk.EncodeFoldMeta(v.Key[9])).Meta(); pmeta != nil {
 							if pmeta.Num <= 1 {
-								cn.RawDel(pk.EncodeMeta(v.Key[9]))
+								cn.RawDel(pk.EncodeFoldMeta(v.Key[9]))
 							} else {
 								pmeta.Num--
 
@@ -109,7 +109,7 @@ func (cn *Conn) ttl_worker() {
 								}
 
 								if bs := pmeta.Encode(); len(bs) > 1 {
-									cn.RawPut(pk.EncodeMeta(v.Key[9]), bs, 0)
+									cn.RawPut(pk.EncodeFoldMeta(v.Key[9]), bs, 0)
 								}
 							}
 						}
