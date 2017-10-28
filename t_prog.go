@@ -25,13 +25,12 @@ import (
 
 var (
 	t_prog_incr_mu           sync.Mutex
-	t_prog_write_options_def = &skv.ProgWriteOptions{}
 )
 
 func (cn *Conn) ProgNew(key skv.ProgKey, val skv.ProgValue, opts *skv.ProgWriteOptions) *skv.Result {
 
 	if opts == nil {
-		opts = t_prog_write_options_def
+		opts = &skv.ProgWriteOptions{}
 	}
 
 	opts.Actions = opts.Actions | skv.ProgOpCreate
@@ -46,7 +45,7 @@ func (cn *Conn) ProgPut(key skv.ProgKey, val skv.ProgValue, opts *skv.ProgWriteO
 	}
 
 	if opts == nil {
-		opts = t_prog_write_options_def
+		opts = &skv.ProgWriteOptions{}
 	}
 
 	var (
