@@ -24,7 +24,7 @@ import (
 
 const (
 	ttl_worker_sleep = 200e6
-	ttl_worker_limit = 1000
+	ttl_worker_limit = 200
 )
 
 func (cn *Conn) ttl_worker() {
@@ -33,24 +33,22 @@ func (cn *Conn) ttl_worker() {
 
 		for {
 
-			ls := cn.RawScan(
+			batch := new(leveldb.Batch)
+			ls := cn.rawScan(
 				t_ns_cat(ns_ttl, uint64_to_bytes(0)),
 				t_ns_cat(ns_ttl, uint64_to_bytes(uint64(types.MetaTimeNow()))),
 				ttl_worker_limit,
-			).KvList()
-
-			for _, v := range ls {
-
-				batch := new(leveldb.Batch)
-
-				batch.Delete(t_ns_cat(ns_meta, v.Key[9:]))
-				batch.Delete(v.Key[9:])
-				batch.Delete(v.Key)
-
-				cn.db.Write(batch, nil)
+			)
+			for i := 1; i < len(ls.Items); i += 2 {
+				batch.Delete(ls.Items[i-1].Data)
+				if len(ls.Items[i-1].Data) > 9 {
+					batch.Delete(t_ns_cat(ns_meta, ls.Items[i-1].Data[9:]))
+					batch.Delete(ls.Items[i-1].Data[9:])
+				}
 			}
+			cn.db.Write(batch, nil)
 
-			if len(ls) < ttl_worker_limit {
+			if len(ls.Items)/2 < ttl_worker_limit {
 				time.Sleep(ttl_worker_sleep)
 			}
 		}
@@ -62,22 +60,25 @@ func (cn *Conn) ttl_worker() {
 
 			time_cut := uint64(time.Now().UTC().UnixNano())
 
-			ls := cn.RawScan(
+			batch := new(leveldb.Batch)
+			ls := cn.rawScan(
 				t_ns_cat(ns_prog_ttl, uint64_to_bytes(0)),
 				t_ns_cat(ns_prog_ttl, uint64_to_bytes(time_cut)),
 				ttl_worker_limit,
-			).KvList()
+			)
+			for i := 1; i < len(ls.Items); i += 2 {
 
-			batch := new(leveldb.Batch)
-			for _, v := range ls {
+				batch.Delete(ls.Items[i-1].Data)
 
-				batch.Delete(v.Key)
-
-				if v.Key[9] < ns_prog_def || v.Key[9] > ns_prog_cut {
+				if len(ls.Items[i-1].Data) < 10 {
 					continue
 				}
 
-				rs := cn.RawGet(v.Key[9:])
+				if ls.Items[i-1].Data[9] < ns_prog_def || ls.Items[i-1].Data[9] > ns_prog_cut {
+					continue
+				}
+
+				rs := cn.rawGet(ls.Items[i-1].Data[9:])
 				if !rs.OK() {
 					continue
 				}
@@ -91,25 +92,25 @@ func (cn *Conn) ttl_worker() {
 					continue
 				}
 
-				batch.Delete(v.Key[9:])
+				batch.Delete(ls.Items[i-1].Data[9:])
 
 				if meta.Num == 1 {
 
-					if pk := skv.ProgKeyDecode(v.Key[9:]); pk != nil {
-						if pmeta := cn.RawGet(pk.EncodeFoldMeta(v.Key[9])).Meta(); pmeta != nil {
+					if pk := skv.ProgKeyDecode(ls.Items[i-1].Data[9:]); pk != nil {
+						if pmeta := cn.rawGet(pk.EncodeFoldMeta(ls.Items[i-1].Data[9])).Meta(); pmeta != nil {
 							if pmeta.Num <= 1 {
-								cn.RawDel(pk.EncodeFoldMeta(v.Key[9]))
+								cn.rawDel(pk.EncodeFoldMeta(ls.Items[i-1].Data[9]))
 							} else {
 								pmeta.Num--
 
-								if pmeta.Size > uint64(rs.ValueSize()) {
-									pmeta.Size -= uint64(rs.ValueSize())
+								if pmeta.Size > uint64(len(rs.Data)-1) {
+									pmeta.Size -= uint64(len(rs.Data) - 1)
 								} else {
 									pmeta.Size = 0
 								}
 
 								if bs := pmeta.Encode(); len(bs) > 1 {
-									cn.RawPut(pk.EncodeFoldMeta(v.Key[9]), bs, 0)
+									cn.rawPut(pk.EncodeFoldMeta(ls.Items[i-1].Data[9]), bs, 0)
 								}
 							}
 						}
@@ -118,7 +119,7 @@ func (cn *Conn) ttl_worker() {
 			}
 			cn.db.Write(batch, nil)
 
-			if len(ls) < ttl_worker_limit {
+			if len(ls.Items)/2 < ttl_worker_limit {
 				time.Sleep(ttl_worker_sleep)
 			}
 		}

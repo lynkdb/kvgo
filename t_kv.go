@@ -26,11 +26,11 @@ var (
 	t_kv_write_options_def = &skv.KvWriteOptions{}
 )
 
-func (cn *Conn) KvNew(key []byte, value interface{}, opts *skv.KvWriteOptions) *skv.Result {
-	return skv.NewResult(0)
+func (cn *Conn) KvNew(key []byte, value interface{}, opts *skv.KvWriteOptions) skv.Result {
+	return newResult(0, nil)
 }
 
-func (cn *Conn) KvDel(keys ...[]byte) *skv.Result {
+func (cn *Conn) KvDel(keys ...[]byte) skv.Result {
 
 	keys_kv := [][]byte{}
 
@@ -38,28 +38,28 @@ func (cn *Conn) KvDel(keys ...[]byte) *skv.Result {
 		keys_kv = append(keys_kv, t_ns_cat(ns_kv, k))
 	}
 
-	return cn.RawDel(keys_kv...)
+	return cn.rawDel(keys_kv...)
 }
 
-func (cn *Conn) KvPut(key []byte, value interface{}, opts *skv.KvWriteOptions) *skv.Result {
+func (cn *Conn) KvPut(key []byte, value interface{}, opts *skv.KvWriteOptions) skv.Result {
 
 	value_enc, err := skv.ValueEncode(value, nil)
 	if err != nil {
-		return skv.NewResult(skv.ResultBadArgument)
+		return newResultBadArgument()
 	}
 
 	if opts == nil {
 		opts = t_kv_write_options_def
 	}
 
-	return cn.RawPut(t_ns_cat(ns_kv, key), value_enc, opts.Ttl)
+	return cn.rawPut(t_ns_cat(ns_kv, key), value_enc, opts.Ttl)
 }
 
-func (cn *Conn) KvGet(key []byte) *skv.Result {
-	return cn.RawGet(t_ns_cat(ns_kv, key))
+func (cn *Conn) KvGet(key []byte) skv.Result {
+	return cn.rawGet(t_ns_cat(ns_kv, key))
 }
 
-func (cn *Conn) KvScan(offset, cutset []byte, limit int) *skv.Result {
+func (cn *Conn) KvScan(offset, cutset []byte, limit int) skv.Result {
 
 	if len(cutset) < 1 {
 		cutset = bytes_clone(offset)
@@ -76,7 +76,7 @@ func (cn *Conn) KvScan(offset, cutset []byte, limit int) *skv.Result {
 	}
 
 	var (
-		rs   = skv.NewResult(0)
+		rs   = newResult(0, nil)
 		iter = cn.db.NewIterator(&util.Range{
 			Start: t_ns_cat(ns_kv, offset),
 			Limit: t_ns_cat(ns_kv, cutset),
@@ -93,8 +93,8 @@ func (cn *Conn) KvScan(offset, cutset []byte, limit int) *skv.Result {
 			continue
 		}
 
-		rs.Data = append(rs.Data, bytes_clone(iter.Key()[1:]))
-		rs.Data = append(rs.Data, bytes_clone(iter.Value()))
+		rs.Items = append(rs.Items, newResultData(bytes_clone(iter.Key()[1:])))
+		rs.Items = append(rs.Items, newResultData(bytes_clone(iter.Value())))
 
 		limit--
 	}
@@ -102,18 +102,18 @@ func (cn *Conn) KvScan(offset, cutset []byte, limit int) *skv.Result {
 	iter.Release()
 
 	if iter.Error() != nil {
-		return skv.NewResultError(skv.ResultServerError, iter.Error().Error())
+		return newResult(skv.ResultServerError, iter.Error())
 	}
 
 	return rs
 }
 
-func (cn *Conn) KvRevScan(offset, cutset []byte, limit int) *skv.Result {
+func (cn *Conn) KvRevScan(offset, cutset []byte, limit int) skv.Result {
 
 	var (
 		off = t_ns_cat(ns_kv, offset)
 		cut = t_ns_cat(ns_kv, cutset)
-		rs  = skv.NewResult(0)
+		rs  = newResult(0, nil)
 	)
 
 	for i := len(off); i < 200; i++ {
@@ -149,8 +149,8 @@ func (cn *Conn) KvRevScan(offset, cutset []byte, limit int) *skv.Result {
 			continue
 		}
 
-		rs.Data = append(rs.Data, bytes_clone(iter.Key()[1:]))
-		rs.Data = append(rs.Data, bytes_clone(iter.Value()))
+		rs.Items = append(rs.Items, newResultData(bytes_clone(iter.Key()[1:])))
+		rs.Items = append(rs.Items, newResultData(bytes_clone(iter.Value())))
 
 		limit--
 	}
@@ -158,16 +158,16 @@ func (cn *Conn) KvRevScan(offset, cutset []byte, limit int) *skv.Result {
 	iter.Release()
 
 	if iter.Error() != nil {
-		return skv.NewResultError(skv.ResultServerError, iter.Error().Error())
+		return newResult(skv.ResultServerError, iter.Error())
 	}
 
 	return rs
 }
 
-func (cn *Conn) KvIncrby(key []byte, incr int64) *skv.Result {
+func (cn *Conn) KvIncr(key []byte, incr int64) skv.Result {
 
 	if incr == 0 {
-		return skv.NewResult(0)
+		return newResult(0, nil)
 	}
 
 	t_kv_incr_mu.Lock()
@@ -175,10 +175,10 @@ func (cn *Conn) KvIncrby(key []byte, incr int64) *skv.Result {
 
 	key_kv := t_ns_cat(ns_kv, key)
 
-	if rs := cn.RawGet(key_kv); !rs.OK() {
+	if rs := cn.rawGet(key_kv); !rs.OK() {
 
 		if !rs.NotFound() {
-			return skv.NewResult(skv.ResultServerError)
+			return newResult(skv.ResultServerError, nil)
 		}
 
 	} else {
@@ -187,12 +187,12 @@ func (cn *Conn) KvIncrby(key []byte, incr int64) *skv.Result {
 
 	value_enc, err := skv.ValueEncode(incr, nil)
 	if err != nil {
-		return skv.NewResult(skv.ResultBadArgument)
+		return newResultBadArgument()
 	}
 
-	rs := cn.RawPut(key_kv, value_enc, 0)
+	rs := cn.rawPut(key_kv, value_enc, 0)
 	if rs.OK() {
-		rs.Data = [][]byte{value_enc}
+		rs.Data = value_enc
 	}
 
 	return rs

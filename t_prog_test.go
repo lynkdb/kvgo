@@ -47,7 +47,7 @@ func TestProg(t *testing.T) {
 	defer Data.Close()
 
 	if rs := Data.ProgPut(skv.NewProgKey("000", uint32(1)),
-		skv.NewProgValue(1), nil); !rs.OK() {
+		skv.NewValueObject(1), nil); !rs.OK() {
 		t.Fatal("ProgPut !OK")
 	}
 	if rs := Data.ProgGet(skv.NewProgKey("000", uint32(1))); !rs.OK() {
@@ -59,8 +59,8 @@ func TestProg(t *testing.T) {
 	}
 
 	//
-	Data.ProgPut(skv.NewProgKey("000", uint32(2)), skv.NewProgValue(2), nil)
-	Data.ProgPut(skv.NewProgKey("000", uint32(3)), skv.NewProgValue(3), nil)
+	Data.ProgPut(skv.NewProgKey("000", uint32(2)), skv.NewValueObject(2), nil)
+	Data.ProgPut(skv.NewProgKey("000", uint32(3)), skv.NewValueObject(3), nil)
 	if rs := Data.ProgScan(
 		skv.NewProgKey("000", uint32(0)),
 		skv.NewProgKey("000", uint32(9)),
@@ -69,11 +69,16 @@ func TestProg(t *testing.T) {
 		t.Fatal("ProgScan !OK")
 	} else {
 
-		ls := rs.KvList()
-		if len(ls) != 3 {
+		if rs.KvLen() != 3 {
 			t.Fatal("ProgScan !OK")
 		}
-		if ls[0].Uint64() != 1 || ls[1].Int64() != 2 || ls[2].Int64() != 3 {
+		if k, v := rs.KvEntry(0); v == nil || v.Uint64() != 1 {
+			t.Fatalf("ProgScan !OK %s    /    %s", string(k[:]), v.String())
+		}
+		if _, v := rs.KvEntry(1); v == nil || v.Uint64() != 2 {
+			t.Fatal("ProgScan !OK")
+		}
+		if _, v := rs.KvEntry(2); v == nil || v.Uint64() != 3 {
 			t.Fatal("ProgScan !OK")
 		}
 	}
@@ -86,17 +91,22 @@ func TestProg(t *testing.T) {
 		t.Fatal("ProgRevScan !OK")
 	} else {
 
-		ls := rs.KvList()
-		if len(ls) != 3 {
+		if rs.KvLen() != 3 {
 			t.Fatal("ProgRevScan !OK")
 		}
-		if ls[0].Uint64() != 3 || ls[1].Int64() != 2 || ls[2].Int64() != 1 {
+		if _, v := rs.KvEntry(0); v == nil || v.Uint64() != 3 {
+			t.Fatal("ProgRevScan !OK")
+		}
+		if _, v := rs.KvEntry(1); v == nil || v.Uint64() != 2 {
+			t.Fatal("ProgRevScan !OK")
+		}
+		if _, v := rs.KvEntry(2); v == nil || v.Uint64() != 1 {
 			t.Fatal("ProgRevScan !OK")
 		}
 	}
 
 	//
-	if rs := Data.ProgPut(skv.NewProgKey("000", uint32(2)), skv.NewProgValue("22"), &skv.ProgWriteOptions{
+	if rs := Data.ProgPut(skv.NewProgKey("000", uint32(2)), skv.NewValueObject("22"), &skv.ProgWriteOptions{
 		Actions: skv.ProgOpMetaSum | skv.ProgOpMetaSize | skv.ProgOpFoldMeta,
 	}); !rs.OK() {
 		t.Fatal("ProgPut !OK Options")
@@ -129,7 +139,7 @@ func TestProg(t *testing.T) {
 	}
 
 	// Expired
-	if rs := Data.ProgPut(skv.NewProgKey("ttl", "key"), skv.NewProgValue("22"),
+	if rs := Data.ProgPut(skv.NewProgKey("ttl", "key"), skv.NewValueObject("22"),
 		&skv.ProgWriteOptions{
 			Expired: time.Now().UTC().Add(1 * time.Second),
 		}); !rs.OK() {

@@ -27,16 +27,16 @@ var (
 	t_raw_incr_mu sync.Mutex
 )
 
-func (cn *Conn) RawNew(key, value []byte, ttl int64) *skv.Result {
+func (cn *Conn) rawNew(key, value []byte, ttl int64) *Result {
 
 	if data, err := cn.db.Get(key, nil); err == nil && len(data) > 0 {
-		return skv.NewResult(0)
+		return newResult(0, nil)
 	}
 
-	return cn.RawPut(key, value, ttl)
+	return cn.rawPut(key, value, ttl)
 }
 
-func (cn *Conn) RawDel(keys ...[]byte) *skv.Result {
+func (cn *Conn) rawDel(keys ...[]byte) *Result {
 
 	batch := new(leveldb.Batch)
 
@@ -45,56 +45,56 @@ func (cn *Conn) RawDel(keys ...[]byte) *skv.Result {
 	}
 
 	if err := cn.db.Write(batch, nil); err != nil {
-		return skv.NewResultError(skv.ResultServerError, err.Error())
+		return newResult(skv.ResultServerError, err)
 	}
 
-	return skv.NewResult(0)
+	return newResult(0, nil)
 }
 
-func (cn *Conn) RawGet(key []byte) *skv.Result {
+func (cn *Conn) rawGet(key []byte) *Result {
 
 	data, err := cn.db.Get(key, nil)
 
 	if err != nil {
 
 		if err.Error() == "leveldb: not found" {
-			return skv.NewResultNotFound()
+			return newResultNotFound()
 		}
 
-		return skv.NewResultError(skv.ResultServerError, err.Error())
+		return newResult(skv.ResultServerError, err)
 	}
 
-	return &skv.Result{
-		Status: skv.ResultOK,
-		Data:   [][]byte{data},
+	return &Result{
+		status: skv.ResultOK,
+		Data:   data,
 	}
 }
 
-func (cn *Conn) RawPut(key, value []byte, ttl int64) *skv.Result {
+func (cn *Conn) rawPut(key, value []byte, ttl int64) *Result {
 
 	if len(key) < 2 {
-		return skv.NewResultBadArgument()
+		return newResultBadArgument()
 	}
 
 	if ttl > 0 {
 
 		if ttl < 1000 {
-			return skv.NewResultBadArgument()
+			return newResultBadArgument()
 		}
 
 		if ok := cn.raw_ssttlat_put(key, uint64(types.MetaTimeNow().AddMillisecond(ttl))); !ok {
-			return skv.NewResultBadArgument()
+			return newResultBadArgument()
 		}
 	}
 
 	if err := cn.db.Put(key, value, nil); err != nil {
-		return skv.NewResultError(skv.ResultServerError, err.Error())
+		return newResult(skv.ResultServerError, err)
 	}
 
-	return skv.NewResult(0)
+	return newResult(0, nil)
 }
 
-func (cn *Conn) RawScan(offset, cutset []byte, limit int) *skv.Result {
+func (cn *Conn) rawScan(offset, cutset []byte, limit int) *Result {
 
 	if len(cutset) < 1 {
 		cutset = offset
@@ -111,7 +111,7 @@ func (cn *Conn) RawScan(offset, cutset []byte, limit int) *skv.Result {
 	}
 
 	var (
-		rs   = skv.NewResult(0)
+		rs   = newResult(0, nil)
 		iter = cn.db.NewIterator(&util.Range{
 			Start: offset,
 			Limit: cutset,
@@ -124,8 +124,8 @@ func (cn *Conn) RawScan(offset, cutset []byte, limit int) *skv.Result {
 			break
 		}
 
-		rs.Data = append(rs.Data, bytes_clone(iter.Key()))
-		rs.Data = append(rs.Data, bytes_clone(iter.Value()))
+		rs.Items = append(rs.Items, newResultData(bytes_clone(iter.Key())))
+		rs.Items = append(rs.Items, newResultData(bytes_clone(iter.Value())))
 
 		limit--
 	}
@@ -133,13 +133,13 @@ func (cn *Conn) RawScan(offset, cutset []byte, limit int) *skv.Result {
 	iter.Release()
 
 	if iter.Error() != nil {
-		return skv.NewResultError(skv.ResultServerError, iter.Error().Error())
+		return newResult(skv.ResultServerError, iter.Error())
 	}
 
 	return rs
 }
 
-func (cn *Conn) RawRevScan(offset, cutset []byte, limit int) *skv.Result {
+func (cn *Conn) rawRevScan(offset, cutset []byte, limit int) *Result {
 
 	if len(offset) < 1 {
 		offset = cutset
@@ -160,7 +160,7 @@ func (cn *Conn) RawRevScan(offset, cutset []byte, limit int) *skv.Result {
 	}
 
 	var (
-		rs   = skv.NewResult(0)
+		rs   = newResult(0, nil)
 		iter = cn.db.NewIterator(&util.Range{Start: offset, Limit: cutset}, nil)
 	)
 
@@ -170,8 +170,8 @@ func (cn *Conn) RawRevScan(offset, cutset []byte, limit int) *skv.Result {
 			break
 		}
 
-		rs.Data = append(rs.Data, bytes_clone(iter.Key()))
-		rs.Data = append(rs.Data, bytes_clone(iter.Value()))
+		rs.Items = append(rs.Items, newResultData(bytes_clone(iter.Key())))
+		rs.Items = append(rs.Items, newResultData(bytes_clone(iter.Value())))
 
 		limit--
 	}
@@ -179,7 +179,7 @@ func (cn *Conn) RawRevScan(offset, cutset []byte, limit int) *skv.Result {
 	iter.Release()
 
 	if iter.Error() != nil {
-		return skv.NewResultError(skv.ResultServerError, iter.Error().Error())
+		return newResult(skv.ResultServerError, iter.Error())
 	}
 
 	return rs
@@ -192,9 +192,9 @@ func (cn *Conn) raw_ssttlat_put(key []byte, ttlat uint64) bool {
 	}
 
 	//
-	meta := skv.ValueMeta{}
+	meta := skv.MetaObject{}
 
-	if rs := cn.RawGet(t_ns_cat(ns_meta, key)); rs.OK() {
+	if rs := cn.rawGet(t_ns_cat(ns_meta, key)); rs.OK() {
 
 		if err := rs.Decode(&meta); err != nil {
 			return false

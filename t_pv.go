@@ -25,27 +25,27 @@ var (
 	t_pv_event_handler skv.PathEventHandler
 )
 
-func (cn *Conn) PvNew(path string, value interface{}, opts *skv.ProgWriteOptions) *skv.Result {
-	return cn.ProgNew(pv_path_parser(path), skv.NewProgValue(value), opts)
+func (cn *Conn) PvNew(path string, value interface{}, opts *skv.ProgWriteOptions) skv.Result {
+	return cn.ProgNew(pv_path_parser(path), skv.NewValueObject(value), opts)
 }
 
-func (cn *Conn) PvDel(path string, opts *skv.ProgWriteOptions) *skv.Result {
+func (cn *Conn) PvDel(path string, opts *skv.ProgWriteOptions) skv.Result {
 	return cn.ProgDel(pv_path_parser(path), opts)
 }
 
-func (cn *Conn) PvPut(path string, value interface{}, opts *skv.ProgWriteOptions) *skv.Result {
-	return cn.ProgPut(pv_path_parser(path), skv.NewProgValue(value), opts)
+func (cn *Conn) PvPut(path string, value interface{}, opts *skv.ProgWriteOptions) skv.Result {
+	return cn.ProgPut(pv_path_parser(path), skv.NewValueObject(value), opts)
 }
 
-func (cn *Conn) PvGet(path string) *skv.Result {
+func (cn *Conn) PvGet(path string) skv.Result {
 	return cn.ProgGet(pv_path_parser(path))
 }
 
-func (cn *Conn) PvScan(fold, offset, cutset string, limit int) *skv.Result {
+func (cn *Conn) PvScan(fold, offset, cutset string, limit int) skv.Result {
 	return cn.ProgScan(pv_path_parser_add(fold, offset), pv_path_parser_add(fold, cutset), limit)
 }
 
-func (cn *Conn) PvRevScan(fold, offset, cutset string, limit int) *skv.Result {
+func (cn *Conn) PvRevScan(fold, offset, cutset string, limit int) skv.Result {
 	return cn.ProgRevScan(pv_path_parser_add(fold, offset), pv_path_parser_add(fold, cutset), limit)
 }
 
