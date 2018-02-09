@@ -94,6 +94,10 @@ func (cn *Conn) rawPut(key, value []byte, ttl int64) *Result {
 	return newResult(0, nil)
 }
 
+func (cn *Conn) RawScan(offset, cutset []byte, limit int) *Result {
+	return cn.rawScan(offset, cutset, limit)
+}
+
 func (cn *Conn) rawScan(offset, cutset []byte, limit int) *Result {
 
 	if len(cutset) < 1 {
