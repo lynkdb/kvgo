@@ -26,6 +26,7 @@ type Result struct {
 	Data   []byte
 	Cap    int
 	Items  []*Result
+	key    []byte
 }
 
 func newResult(status uint8, err error) *Result {
@@ -81,6 +82,10 @@ func (rs *Result) OK() bool {
 
 func (rs *Result) NotFound() bool {
 	return rs.status == skv.ResultNotFound
+}
+
+func (rs *Result) ErrorString() string {
+	return string(rs.Data)
 }
 
 func (rs *Result) ValueSize() int64 {
@@ -221,4 +226,23 @@ func (rs *Result) List() []skv.Result {
 
 func (rs *Result) Meta() *skv.MetaObject {
 	return skv.ValueBytes(rs.Data).Meta()
+}
+
+func (rs *Result) KvSize() int {
+	return len(rs.Items) / 2
+}
+
+func (rs *Result) KvPairs() []skv.Result {
+	ls := []skv.Result{}
+	for i := 1; i < len(rs.Items); i += 2 {
+		ls = append(ls, &Result{
+			key:  rs.Items[i-1].Data,
+			Data: rs.Items[i].Data,
+		})
+	}
+	return ls
+}
+
+func (rs *Result) KvKey() []byte {
+	return rs.key
 }
