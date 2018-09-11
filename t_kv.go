@@ -117,11 +117,7 @@ func (cn *Conn) KvRevScan(offset, cutset []byte, limit int) skv.Result {
 	)
 
 	for i := len(off); i < 200; i++ {
-		off = append(off, 0x00)
-	}
-
-	for i := len(cut); i < 200; i++ {
-		cut = append(cut, 0xff)
+		off = append(off, 0xff)
 	}
 
 	if limit > skv.ScanLimitMax {
@@ -131,8 +127,8 @@ func (cn *Conn) KvRevScan(offset, cutset []byte, limit int) skv.Result {
 	}
 
 	iter := cn.db.NewIterator(&util.Range{
-		Start: off,
-		Limit: cut,
+		Start: cut,
+		Limit: off,
 	}, nil)
 
 	for ok := iter.Last(); ok; ok = iter.Prev() {

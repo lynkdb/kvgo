@@ -23,7 +23,7 @@ import (
 	"github.com/lynkdb/iomix/skv"
 )
 
-func TestProg(t *testing.T) {
+func TestKvProg(t *testing.T) {
 
 	var (
 		err  error
@@ -46,119 +46,119 @@ func TestProg(t *testing.T) {
 	}
 	defer Data.Close()
 
-	if rs := Data.ProgPut(skv.NewProgKey("000", uint32(1)),
-		skv.NewValueObject(1), nil); !rs.OK() {
-		t.Fatal("ProgPut !OK")
+	if rs := Data.KvProgPut(skv.NewKvProgKey("000", uint32(1)),
+		skv.NewKvEntry(1), nil); !rs.OK() {
+		t.Fatal("KvProgPut !OK")
 	}
-	if rs := Data.ProgGet(skv.NewProgKey("000", uint32(1))); !rs.OK() {
-		t.Fatal("ProgGet !OK")
+	if rs := Data.KvProgGet(skv.NewKvProgKey("000", uint32(1))); !rs.OK() {
+		t.Fatal("KvProgGet !OK")
 	} else {
 		if rs.Uint32() != 1 {
-			t.Fatal("ProgGet !OK Compare")
+			t.Fatal("KvProgGet !OK Compare")
 		}
 	}
 
 	//
-	Data.ProgPut(skv.NewProgKey("000", uint32(2)), skv.NewValueObject(2), nil)
-	Data.ProgPut(skv.NewProgKey("000", uint32(3)), skv.NewValueObject(3), nil)
-	if rs := Data.ProgScan(
-		skv.NewProgKey("000", uint32(0)),
-		skv.NewProgKey("000", uint32(9)),
+	Data.KvProgPut(skv.NewKvProgKey("000", uint32(2)), skv.NewKvEntry(2), nil)
+	Data.KvProgPut(skv.NewKvProgKey("000", uint32(3)), skv.NewKvEntry(3), nil)
+	if rs := Data.KvProgScan(
+		skv.NewKvProgKey("000", uint32(0)),
+		skv.NewKvProgKey("000", uint32(9)),
 		10,
 	); !rs.OK() {
-		t.Fatal("ProgScan !OK")
+		t.Fatal("KvProgScan !OK")
 	} else {
 
 		if rs.KvLen() != 3 {
-			t.Fatal("ProgScan !OK")
+			t.Fatal("KvProgScan !OK")
 		}
 		if k, v := rs.KvEntry(0); v == nil || v.Uint64() != 1 {
-			t.Fatalf("ProgScan !OK %s    /    %s", string(k[:]), v.String())
+			t.Fatalf("KvProgScan !OK %s    /    %s", string(k[:]), v.String())
 		}
 		if _, v := rs.KvEntry(1); v == nil || v.Uint64() != 2 {
-			t.Fatal("ProgScan !OK")
+			t.Fatal("KvProgScan !OK")
 		}
 		if _, v := rs.KvEntry(2); v == nil || v.Uint64() != 3 {
-			t.Fatal("ProgScan !OK")
+			t.Fatal("KvProgScan !OK")
 		}
 	}
 
-	if rs := Data.ProgRevScan(
-		skv.NewProgKey("000", uint32(0)),
-		skv.NewProgKey("000", uint32(9)),
+	if rs := Data.KvProgRevScan(
+		skv.NewKvProgKey("000", uint32(0)),
+		skv.NewKvProgKey("000", uint32(9)),
 		10,
 	); !rs.OK() {
-		t.Fatal("ProgRevScan !OK")
+		t.Fatal("KvProgRevScan !OK")
 	} else {
 
 		if rs.KvLen() != 3 {
-			t.Fatal("ProgRevScan !OK")
+			t.Fatal("KvProgRevScan !OK")
 		}
 		if _, v := rs.KvEntry(0); v == nil || v.Uint64() != 3 {
-			t.Fatal("ProgRevScan !OK")
+			t.Fatal("KvProgRevScan !OK")
 		}
 		if _, v := rs.KvEntry(1); v == nil || v.Uint64() != 2 {
-			t.Fatal("ProgRevScan !OK")
+			t.Fatal("KvProgRevScan !OK")
 		}
 		if _, v := rs.KvEntry(2); v == nil || v.Uint64() != 1 {
-			t.Fatal("ProgRevScan !OK")
+			t.Fatal("KvProgRevScan !OK")
 		}
 	}
 
 	//
-	if rs := Data.ProgPut(skv.NewProgKey("000", uint32(2)), skv.NewValueObject("22"), &skv.ProgWriteOptions{
-		Actions: skv.ProgOpMetaSum | skv.ProgOpMetaSize | skv.ProgOpFoldMeta,
+	if rs := Data.KvProgPut(skv.NewKvProgKey("000", uint32(2)), skv.NewKvEntry("22"), &skv.KvProgWriteOptions{
+		Actions: skv.KvProgOpMetaSum | skv.KvProgOpMetaSize | skv.KvProgOpFoldMeta,
 	}); !rs.OK() {
-		t.Fatal("ProgPut !OK Options")
+		t.Fatal("KvProgPut !OK Options")
 	}
-	if rs := Data.ProgGet(skv.NewProgKey("000", uint32(2))); !rs.OK() {
-		t.Fatal("ProgGet !OK")
+	if rs := Data.KvProgGet(skv.NewKvProgKey("000", uint32(2))); !rs.OK() {
+		t.Fatal("KvProgGet !OK")
 	} else {
 		if meta := rs.Meta(); meta == nil {
-			t.Fatal("ProgGet !OK Meta")
+			t.Fatal("KvProgGet !OK Meta")
 		} else {
 			if meta.Size != 2 {
-				t.Fatal("ProgGet !OK Meta.Size")
+				t.Fatal("KvProgGet !OK Meta.Size")
 			}
 			if meta.Expired > 0 {
-				t.Fatal("ProgGet !OK Meta.Expired")
+				t.Fatal("KvProgGet !OK Meta.Expired")
 			}
 		}
 	}
 
-	if rs := Data.ProgGet(skv.NewProgKey("000", "")); !rs.OK() {
-		t.Fatal("ProgGet !OK")
+	if rs := Data.KvProgGet(skv.NewKvProgKey("000", "")); !rs.OK() {
+		t.Fatal("KvProgGet !OK")
 	} else {
 		if meta := rs.Meta(); meta == nil {
-			t.Fatal("ProgGet !OK Meta")
+			t.Fatal("KvProgGet !OK Meta")
 		} else {
 			if meta.Num == 0 {
-				t.Fatal("ProgGet !OK Meta.Num")
+				t.Fatal("KvProgGet !OK Meta.Num")
 			}
 		}
 	}
 
 	// Expired
-	if rs := Data.ProgPut(skv.NewProgKey("ttl", "key"), skv.NewValueObject("22"),
-		&skv.ProgWriteOptions{
+	if rs := Data.KvProgPut(skv.NewKvProgKey("ttl", "key"), skv.NewKvEntry("22"),
+		&skv.KvProgWriteOptions{
 			Expired: time.Now().UTC().Add(1 * time.Second),
 		}); !rs.OK() {
-		t.Fatal("ProgPut !OK Expired")
+		t.Fatal("KvProgPut !OK Expired")
 	}
-	if rs := Data.ProgGet(skv.NewProgKey("ttl", "key")); !rs.OK() {
-		t.Fatal("ProgGet !OK Expired")
+	if rs := Data.KvProgGet(skv.NewKvProgKey("ttl", "key")); !rs.OK() {
+		t.Fatal("KvProgGet !OK Expired")
 	} else {
 		if meta := rs.Meta(); meta == nil {
-			t.Fatal("ProgGet !OK Meta.Expired")
+			t.Fatal("KvProgGet !OK Meta.Expired")
 		} else {
 			if meta.Expired < uint64(time.Now().UTC().UnixNano()) {
-				t.Fatal("ProgGet !OK Meta.Expired")
+				t.Fatal("KvProgGet !OK Meta.Expired")
 			}
 		}
 	}
 	time.Sleep(2e9)
-	if rs := Data.ProgGet(skv.NewProgKey("ttl", "key")); !rs.NotFound() {
-		t.Fatal("ProgGet !OK Expired")
+	if rs := Data.KvProgGet(skv.NewKvProgKey("ttl", "key")); !rs.NotFound() {
+		t.Fatal("KvProgGet !OK Expired")
 	}
 
 }

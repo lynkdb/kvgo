@@ -96,7 +96,7 @@ func (cn *Conn) ttl_worker() {
 
 				if meta.Num == 1 {
 
-					if pk := skv.ProgKeyDecode(ls.Items[i-1].Data[9:]); pk != nil {
+					if pk := skv.KvProgKeyDecode(ls.Items[i-1].Data[9:]); pk != nil {
 						if pmeta := cn.rawGet(pk.EncodeFoldMeta(ls.Items[i-1].Data[9])).Meta(); pmeta != nil {
 							if pmeta.Num <= 1 {
 								cn.rawDel(pk.EncodeFoldMeta(ls.Items[i-1].Data[9]))

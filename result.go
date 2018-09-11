@@ -96,15 +96,15 @@ func (rs *Result) ValueSize() int64 {
 }
 
 func (rs *Result) Bytes() []byte {
-	return skv.ValueBytes(rs.Data).Bytes()
+	return skv.KvValueBytes(rs.Data).Bytes()
 }
 
 func (rs *Result) Bytex() types.Bytex {
-	return skv.ValueBytes(rs.Bytes()).Bytex()
+	return skv.KvValueBytes(rs.Bytes()).Bytex()
 }
 
 func (rs *Result) String() string {
-	return skv.ValueBytes(rs.Bytes()).String()
+	return skv.KvValueBytes(rs.Bytes()).String()
 }
 
 func (rs *Result) Crc32() uint32 {
@@ -115,47 +115,47 @@ func (rs *Result) Crc32() uint32 {
 }
 
 func (rs *Result) Int() int {
-	return skv.ValueBytes(rs.Bytes()).Int()
+	return skv.KvValueBytes(rs.Bytes()).Int()
 }
 
 func (rs *Result) Int8() int8 {
-	return skv.ValueBytes(rs.Bytes()).Int8()
+	return skv.KvValueBytes(rs.Bytes()).Int8()
 }
 
 func (rs *Result) Int16() int16 {
-	return skv.ValueBytes(rs.Bytes()).Int16()
+	return skv.KvValueBytes(rs.Bytes()).Int16()
 }
 
 func (rs *Result) Int32() int32 {
-	return skv.ValueBytes(rs.Bytes()).Int32()
+	return skv.KvValueBytes(rs.Bytes()).Int32()
 }
 
 func (rs *Result) Int64() int64 {
-	return skv.ValueBytes(rs.Bytes()).Int64()
+	return skv.KvValueBytes(rs.Bytes()).Int64()
 }
 
 func (rs *Result) Uint() uint {
-	return skv.ValueBytes(rs.Bytes()).Uint()
+	return skv.KvValueBytes(rs.Bytes()).Uint()
 }
 
 func (rs *Result) Uint8() uint8 {
-	return skv.ValueBytes(rs.Bytes()).Uint8()
+	return skv.KvValueBytes(rs.Bytes()).Uint8()
 }
 
 func (rs *Result) Uint16() uint16 {
-	return skv.ValueBytes(rs.Bytes()).Uint16()
+	return skv.KvValueBytes(rs.Bytes()).Uint16()
 }
 
 func (rs *Result) Uint32() uint32 {
-	return skv.ValueBytes(rs.Bytes()).Uint32()
+	return skv.KvValueBytes(rs.Bytes()).Uint32()
 }
 
 func (rs *Result) Uint64() uint64 {
-	return skv.ValueBytes(rs.Bytes()).Uint64()
+	return skv.KvValueBytes(rs.Bytes()).Uint64()
 }
 
 func (rs *Result) Bool() bool {
-	return skv.ValueBytes(rs.Bytes()).Bool()
+	return skv.KvValueBytes(rs.Bytes()).Bool()
 }
 
 func (rs *Result) Float32() float32 {
@@ -163,7 +163,7 @@ func (rs *Result) Float32() float32 {
 }
 
 func (rs *Result) Float64() float64 {
-	return skv.ValueBytes(rs.Bytes()).Float64()
+	return skv.KvValueBytes(rs.Bytes()).Float64()
 }
 
 func (rs *Result) KvLen() int {
@@ -224,8 +224,8 @@ func (rs *Result) List() []skv.Result {
 	return ls
 }
 
-func (rs *Result) Meta() *skv.MetaObject {
-	return skv.ValueBytes(rs.Data).Meta()
+func (rs *Result) Meta() *skv.KvMeta {
+	return skv.KvValueBytes(rs.Data).Meta()
 }
 
 func (rs *Result) KvSize() int {

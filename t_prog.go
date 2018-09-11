@@ -27,34 +27,34 @@ var (
 	t_prog_incr_mu sync.Mutex
 )
 
-func (cn *Conn) ProgNew(key skv.ProgKey, val skv.ValueObject, opts *skv.ProgWriteOptions) skv.Result {
+func (cn *Conn) KvProgNew(key skv.KvProgKey, val skv.KvEntry, opts *skv.KvProgWriteOptions) skv.Result {
 
 	if opts == nil {
-		opts = &skv.ProgWriteOptions{}
+		opts = &skv.KvProgWriteOptions{}
 	}
 
-	opts.Actions = opts.Actions | skv.ProgOpCreate
+	opts.Actions = opts.Actions | skv.KvProgOpCreate
 
-	return cn.ProgPut(key, val, opts)
+	return cn.KvProgPut(key, val, opts)
 }
 
-func (cn *Conn) ProgPut(key skv.ProgKey, val skv.ValueObject, opts *skv.ProgWriteOptions) skv.Result {
+func (cn *Conn) KvProgPut(key skv.KvProgKey, val skv.KvEntry, opts *skv.KvProgWriteOptions) skv.Result {
 
 	if !key.Valid() || !val.Valid() {
 		return newResultBadArgument()
 	}
 
 	if opts == nil {
-		opts = &skv.ProgWriteOptions{}
+		opts = &skv.KvProgWriteOptions{}
 	}
 
 	var (
 		p_rs      *Result
-		p_meta    *skv.MetaObject
+		p_meta    *skv.KvMeta
 		prev_diff = true
 	)
 
-	if opts.OpAllow(skv.ProgOpCreate) {
+	if opts.OpAllow(skv.KvProgOpCreate) {
 		if rs := cn.rawGet(key.Encode(ns_prog_def)); rs.OK() {
 			return newResult(0, nil)
 		} else {
@@ -67,7 +67,7 @@ func (cn *Conn) ProgPut(key skv.ProgKey, val skv.ValueObject, opts *skv.ProgWrit
 
 	// 	switch entry.Type {
 
-	// 	case skv.ProgKeyEntryIncr:
+	// 	case skv.KvProgKeyEntryIncr:
 	// 		if i < 1 {
 	// 			return newResultBadArgument()
 	// 		}
@@ -84,15 +84,15 @@ func (cn *Conn) ProgPut(key skv.ProgKey, val skv.ValueObject, opts *skv.ProgWrit
 	// 		}
 	// 		prev_diff = false
 
-	// 	case skv.ProgKeyEntryBytes:
-	// 	case skv.ProgKeyEntryUint:
+	// 	case skv.KvProgKeyEntryBytes:
+	// 	case skv.KvProgKeyEntryUint:
 
 	// 	default:
 	// 		return newResultBadArgument()
 	// 	}
 	// }
 
-	if prev_diff && (opts.PrevSum > 0 || opts.OpAllow(skv.ProgOpFoldMeta)) {
+	if prev_diff && (opts.PrevSum > 0 || opts.OpAllow(skv.KvProgOpFoldMeta)) {
 		if p_rs == nil {
 			if rs := cn.rawGet(key.Encode(ns_prog_def)); rs.OK() {
 				p_rs, p_meta = rs, rs.Meta()
@@ -106,26 +106,26 @@ func (cn *Conn) ProgPut(key skv.ProgKey, val skv.ValueObject, opts *skv.ProgWrit
 		}
 	}
 
-	if opts.OpAllow(skv.ProgOpMetaSum) {
-		val.MetaObject().Sum = 1
+	if opts.OpAllow(skv.KvProgOpMetaSum) {
+		val.KvMeta().Sum = 1
 	}
-	if opts.OpAllow(skv.ProgOpMetaSize) {
-		val.MetaObject().Size = 1
+	if opts.OpAllow(skv.KvProgOpMetaSize) {
+		val.KvMeta().Size = 1
 	}
 
 	batch := new(leveldb.Batch)
 
 	if opts.Expired > 0 {
-		val.MetaObject().Expired = opts.Expired
+		val.KvMeta().Expired = opts.Expired
 		ttl_key := t_ns_cat(ns_prog_ttl,
 			append(uint64_to_bytes(opts.Expired), key.Encode(ns_prog_def)...))
 		batch.Put(ttl_key, []byte{0x00})
 	}
 
-	if opts.OpAllow(skv.ProgOpFoldMeta) {
+	if opts.OpAllow(skv.KvProgOpFoldMeta) {
 		fmeta := cn.rawGet(key.EncodeFoldMeta(ns_prog_def)).Meta()
 		if fmeta == nil {
-			fmeta = &skv.MetaObject{}
+			fmeta = &skv.KvMeta{}
 		}
 		if p_rs == nil || p_meta == nil || p_meta.Num == 0 {
 			fmeta.Num++
@@ -142,7 +142,7 @@ func (cn *Conn) ProgPut(key skv.ProgKey, val skv.ValueObject, opts *skv.ProgWrit
 		if bs := fmeta.Encode(); len(bs) > 1 {
 			cn.rawPut(key.EncodeFoldMeta(ns_prog_def), bs, 0)
 		}
-		val.MetaObject().Num = 1
+		val.KvMeta().Num = 1
 	}
 
 	batch.Put(key.Encode(ns_prog_def), val.Encode())
@@ -153,14 +153,14 @@ func (cn *Conn) ProgPut(key skv.ProgKey, val skv.ValueObject, opts *skv.ProgWrit
 	return newResult(0, nil)
 }
 
-func (cn *Conn) ProgGet(key skv.ProgKey) skv.Result {
+func (cn *Conn) KvProgGet(key skv.KvProgKey) skv.Result {
 	if len(key.Encode(ns_prog_def)) == 0 {
 		return newResultBadArgument()
 	}
 	return cn.rawGet(key.Encode(ns_prog_def))
 }
 
-func (cn *Conn) ProgDel(key skv.ProgKey, opts *skv.ProgWriteOptions) skv.Result {
+func (cn *Conn) KvProgDel(key skv.KvProgKey, opts *skv.KvProgWriteOptions) skv.Result {
 
 	if len(key.Encode(ns_prog_def)) == 0 {
 		return newResultBadArgument()
@@ -193,7 +193,7 @@ func (cn *Conn) ProgDel(key skv.ProgKey, opts *skv.ProgWriteOptions) skv.Result 
 	return rs
 }
 
-func (cn *Conn) ProgScan(offset, cutset skv.ProgKey, limit int) skv.Result {
+func (cn *Conn) KvProgScan(offset, cutset skv.KvProgKey, limit int) skv.Result {
 
 	var (
 		plen = offset.FoldLen()
@@ -242,7 +242,7 @@ func (cn *Conn) ProgScan(offset, cutset skv.ProgKey, limit int) skv.Result {
 	return rs
 }
 
-func (cn *Conn) ProgRevScan(offset, cutset skv.ProgKey, limit int) skv.Result {
+func (cn *Conn) KvProgRevScan(offset, cutset skv.KvProgKey, limit int) skv.Result {
 
 	var (
 		plen = offset.FoldLen()
