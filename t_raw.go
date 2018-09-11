@@ -196,7 +196,7 @@ func (cn *Conn) raw_ssttlat_put(key []byte, ttlat uint64) bool {
 	}
 
 	//
-	meta := skv.MetaObject{}
+	meta := skv.KvMeta{}
 
 	if rs := cn.rawGet(t_ns_cat(ns_meta, key)); rs.OK() {
 
