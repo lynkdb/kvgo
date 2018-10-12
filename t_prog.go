@@ -252,11 +252,11 @@ func (cn *Conn) KvProgRevScan(offset, cutset skv.KvProgKey, limit int) skv.Resul
 	)
 
 	for i := len(off); i < 200; i += 4 {
-		off = append(off, []byte{0x00, 0x00, 0x00, 0x00}...)
+		off = append(off, []byte{0xff, 0xff, 0xff, 0xff}...)
 	}
 
 	for i := len(cut); i < 200; i += 4 {
-		cut = append(cut, []byte{0xff, 0xff, 0xff, 0xff}...)
+		cut = append(cut, []byte{0x00, 0x00, 0x00, 0x00}...)
 	}
 
 	if limit > skv.ScanLimitMax {
@@ -266,8 +266,8 @@ func (cn *Conn) KvProgRevScan(offset, cutset skv.KvProgKey, limit int) skv.Resul
 	}
 
 	iter := cn.db.NewIterator(&util.Range{
-		Start: off,
-		Limit: cut,
+		Start: cut,
+		Limit: off,
 	}, nil)
 
 	for ok := iter.Last(); ok; ok = iter.Prev() {
