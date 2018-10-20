@@ -15,6 +15,8 @@
 package kvgo
 
 const (
+	Version = "0.1.1"
+
 	ns_meta     uint8 = 4
 	ns_ttl      uint8 = 5
 	ns_kv       uint8 = 8
