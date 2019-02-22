@@ -161,7 +161,6 @@ func (cn *Conn) KvProgGet(key skv.KvProgKey) skv.Result {
 }
 
 func (cn *Conn) KvProgDel(key skv.KvProgKey, opts *skv.KvProgWriteOptions) skv.Result {
-
 	if len(key.Encode(ns_prog_def)) == 0 {
 		return newResultBadArgument()
 	}
@@ -171,6 +170,7 @@ func (cn *Conn) KvProgDel(key skv.KvProgKey, opts *skv.KvProgWriteOptions) skv.R
 		if meta := rs.Meta(); meta != nil && meta.Num == 1 {
 
 			if fmeta := cn.rawGet(key.EncodeFoldMeta(ns_prog_def)).Meta(); fmeta != nil {
+
 				if fmeta.Size > uint64(rs.ValueSize()) {
 					fmeta.Size -= uint64(rs.ValueSize())
 				} else {
