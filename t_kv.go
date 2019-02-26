@@ -28,7 +28,11 @@ var (
 )
 
 func (cn *Conn) KvNew(key []byte, value interface{}, opts *skv.KvWriteOptions) skv.Result {
-	return newResult(0, nil)
+	rs := cn.rawGet(t_ns_cat(ns_kv, key))
+	if rs.OK() {
+		return newResult(0, nil)
+	}
+	return cn.KvPut(key, value, opts)
 }
 
 func (cn *Conn) KvDel(keys ...[]byte) skv.Result {
