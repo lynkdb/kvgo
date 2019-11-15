@@ -18,8 +18,10 @@ import (
 	"time"
 
 	"github.com/lessos/lessgo/types"
+	"github.com/lynkdb/iomix/sko"
 	"github.com/lynkdb/iomix/skv"
 	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
 const (
@@ -49,6 +51,66 @@ func (cn *Conn) ttl_worker() {
 			cn.db.Write(batch, nil)
 
 			if len(ls.Items)/2 < ttl_worker_limit {
+				time.Sleep(ttl_worker_sleep)
+			}
+		}
+	}()
+
+	go func() {
+
+		for {
+
+			var (
+				batch = new(leveldb.Batch)
+				iter  = cn.db.NewIterator(&util.Range{
+					Start: t_ns_cat(ns_sko_ttl, uint64_to_bytes(0)),
+					Limit: t_ns_cat(ns_sko_ttl, uint64_to_bytes(uint64(time.Now().UnixNano()/1e6))),
+				}, nil)
+				num = 0
+			)
+
+			for iter.Next() {
+
+				meta, err := sko.ObjectMetaDecode(bytes_clone(iter.Value()))
+				if err != nil {
+					break
+				}
+
+				data, err := cn.db.Get(t_ns_cat(ns_sko_meta, meta.Key), nil)
+				if err == nil {
+
+					cmeta, err := sko.ObjectMetaDecode(data)
+					if err != nil {
+						break
+					}
+
+					if cmeta.Version == meta.Version {
+						batch.Delete(t_ns_cat(ns_sko_meta, meta.Key))
+						batch.Delete(t_ns_cat(ns_sko_data, meta.Key))
+						if meta.Version > 0 {
+							batch.Delete(t_ns_cat(ns_sko_log, uint64_to_bytes(meta.Version)))
+						}
+					}
+
+				} else if err.Error() != "leveldb: not found" {
+					break
+				}
+
+				batch.Delete(keyExpireEncode(ns_sko_ttl, meta.Expired, meta.Key))
+				num += 1
+
+				if num >= ttl_worker_limit {
+					break
+				}
+			}
+
+			iter.Release()
+
+			if num > 0 {
+				cn.db.Write(batch, nil)
+			}
+
+			if num < ttl_worker_limit {
 				time.Sleep(ttl_worker_sleep)
 			}
 		}

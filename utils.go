@@ -18,6 +18,10 @@ import (
 	"encoding/binary"
 )
 
+func keyExpireEncode(ns byte, expired uint64, key []byte) []byte {
+	return append(append([]byte{ns}, uint64_to_bytes(expired)...), key...)
+}
+
 func t_ns_cat(ns byte, key []byte) []byte {
 	return append([]byte{ns}, key...)
 }

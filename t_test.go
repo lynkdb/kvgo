@@ -95,12 +95,12 @@ func TestDataType(t *testing.T) {
 		})
 	}
 
-	if rs := Data.KvIncrby([]byte("incr"), 10); !rs.OK() || rs.Int64() != 10 {
-		t.Fatal("KvIncrby !OK")
+	if rs := Data.KvIncr([]byte("incr"), 10); !rs.OK() || rs.Int64() != 10 {
+		t.Fatal("KvIncr !OK")
 	}
 
-	if rs := Data.KvIncrby([]byte("incr"), -20); !rs.OK() || rs.Int64() != -10 {
-		t.Fatal("KvIncrby !OK")
+	if rs := Data.KvIncr([]byte("incr"), -20); !rs.OK() || rs.Int64() != -10 {
+		t.Fatal("KvIncr !OK")
 	}
 
 	// Json Encode/Decode
@@ -129,7 +129,7 @@ func TestDataType(t *testing.T) {
 	}
 
 	// ProtoBuf Encode/Decode
-	pbitem := &skv.ValueMeta{
+	pbitem := &skv.KvMeta{
 		Version: 400,
 		Name:    "Message",
 	}
@@ -139,7 +139,7 @@ func TestDataType(t *testing.T) {
 	if rs := Data.KvGet([]byte("objectpb")); !rs.OK() {
 		t.Fatal("KvGet ObjectPB !OK")
 	} else {
-		var pbitem2 skv.ValueMeta
+		var pbitem2 skv.KvMeta
 		if err := rs.Decode(&pbitem2); err != nil {
 			t.Fatal(err)
 		}

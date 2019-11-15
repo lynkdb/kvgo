@@ -20,6 +20,10 @@ const (
 	ns_meta     uint8 = 4
 	ns_ttl      uint8 = 5
 	ns_kv       uint8 = 8
+	ns_sko_data uint8 = 16
+	ns_sko_meta uint8 = 17
+	ns_sko_log  uint8 = 18
+	ns_sko_ttl  uint8 = 19
 	ns_prog_ttl uint8 = 32
 	ns_prog_def uint8 = 36
 	ns_prog_cut uint8 = 63
