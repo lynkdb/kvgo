@@ -16,6 +16,9 @@ package kvgo
 
 import (
 	"bytes"
+	"fmt"
+	"strconv"
+	"time"
 
 	"github.com/lynkdb/iomix/sko"
 	"github.com/syndtr/goleveldb/leveldb"
@@ -23,98 +26,168 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
-func (cn *Conn) objectMetaGet(rr *sko.ObjectWriter) (*sko.ObjectMeta, error) {
+var (
+	skoKeySysLogCutset = append([]byte{ns_sko_sys}, []byte("log:cutset")...)
+)
 
-	data, err := cn.db.Get(t_ns_cat(ns_sko_meta, rr.Meta.Key), nil)
-	if err == nil {
-		return sko.ObjectMetaDecode(data)
-	} else {
-		if err.Error() == "leveldb: not found" {
-			err = nil
-		}
-	}
-
-	return nil, err
+func skoKeySysLogAsync(hostport string) []byte {
+	return append([]byte{ns_sko_sys},
+		[]byte(fmt.Sprintf("log:async:%s", hostport))...)
 }
 
-func (cn *Conn) ObjectDel(rr *sko.ObjectWriter) *sko.ObjectResult {
+func skoKeySysIncrCutset(ns string) []byte {
+	if ns == "" {
+		ns = "common"
+	}
+	return append([]byte{ns_sko_sys}, []byte("incr:cutset:"+ns)...)
+}
 
-	if err := rr.DelValid(); err != nil {
+func (cn *SkoConn) Commit(rr *sko.ObjectWriter) *sko.ObjectResult {
+
+	if cn.skoCluster != nil {
+		rs, err := cn.skoCluster.Commit(nil, rr)
+		if err != nil {
+			return sko.NewObjectResultServerError(err)
+		}
+		return rs
+	}
+
+	return cn.objectCommitLocal(rr, 0)
+}
+
+func (cn *SkoConn) objectCommitLocal(rr *sko.ObjectWriter, cLog uint64) *sko.ObjectResult {
+
+	if err := rr.CommitValid(); err != nil {
 		return sko.NewObjectResultClientError(err)
 	}
+
+	cn.skoMu.Lock()
+	defer cn.skoMu.Unlock()
 
 	meta, err := cn.objectMetaGet(rr)
 	if meta == nil && err != nil {
 		return sko.NewObjectResultServerError(err)
 	}
 
-	if meta != nil {
+	if meta == nil {
 
-		batch := new(leveldb.Batch)
-		batch.Delete(t_ns_cat(ns_sko_meta, rr.Meta.Key))
-		batch.Delete(t_ns_cat(ns_sko_data, rr.Meta.Key))
-		if rr.Meta.Version > 0 {
-			batch.Delete(t_ns_cat(ns_sko_log, uint64_to_bytes(rr.Meta.Version)))
+		if sko.AttrAllow(rr.Mode, sko.ObjectWriterModeDelete) {
+			return sko.NewObjectResultOK()
 		}
-		err = cn.db.Write(batch, nil)
-	}
 
-	return sko.NewObjectResult(0, err)
-}
-
-func (cn *Conn) ObjectPut(rr *sko.ObjectWriter) *sko.ObjectResult {
-
-	if err := rr.PutValid(); err != nil {
-		return sko.NewObjectResultClientError(err)
-	}
-
-	meta, err := cn.objectMetaGet(rr)
-	if meta == nil && err != nil {
-		return sko.NewObjectResultServerError(err)
-	}
-
-	if meta != nil &&
-		meta.DataCheck == rr.Meta.DataCheck {
-		return sko.NewObjectResultOK()
-	}
-
-	if meta != nil && meta.Created > 0 {
-		rr.Meta.Created = meta.Created
 	} else {
+
+		if (cLog > 0 && meta.Version == cLog) ||
+			sko.AttrAllow(rr.Mode, sko.ObjectWriterModeCreate) ||
+			(rr.Meta.Expired == meta.Expired && meta.DataCheck == rr.Meta.DataCheck) {
+
+			rs := sko.NewObjectResultOK()
+			rs.Meta = &sko.ObjectMeta{
+				Version: meta.Version,
+				IncrId:  meta.IncrId,
+				Created: meta.Created,
+			}
+
+			return rs
+		}
+
+		if meta.IncrId > 0 {
+			rr.Meta.IncrId = meta.IncrId
+		}
+
+		if meta.Created > 0 {
+			rr.Meta.Created = meta.Created
+		}
+	}
+
+	if rr.Meta.Created < 1 {
 		rr.Meta.Created = rr.Meta.Updated
 	}
 
-	bsMeta, bsData, err := rr.PutEncode()
-	if err == nil {
+	if rr.IncrNamespace != "" {
 
-		batch := new(leveldb.Batch)
+		if rr.Meta.IncrId == 0 {
+			rr.Meta.IncrId, err = cn.objectIncrSet(rr.IncrNamespace, 1, 0)
+			if err != nil {
+				return sko.NewObjectResultServerError(err)
+			}
+		} else {
+			cn.objectIncrSet(rr.IncrNamespace, 0, rr.Meta.IncrId)
+		}
+	}
 
-		batch.Put(t_ns_cat(ns_sko_meta, rr.Meta.Key), bsMeta)
-		batch.Put(t_ns_cat(ns_sko_data, rr.Meta.Key), bsData)
-
-		if rr.Meta.Version > 0 {
-			batch.Put(t_ns_cat(ns_sko_log, uint64_to_bytes(rr.Meta.Version)), bsMeta)
+	if cLog == 0 {
+		if meta != nil && meta.Version > 0 {
+			cLog = meta.Version
 		}
 
-		if rr.Meta.Expired > 0 {
-			batch.Put(keyExpireEncode(ns_sko_ttl, rr.Meta.Expired, rr.Meta.Key), bsMeta)
+		cLog, err = cn.objectLogVersionSet(1, cLog)
+		if err != nil {
+			return sko.NewObjectResultServerError(err)
+		}
+	}
+	rr.Meta.Version = cLog
+
+	if sko.AttrAllow(rr.Mode, sko.ObjectWriterModeDelete) {
+
+		rr.Meta.Attrs = sko.ObjectMetaAttrDelete
+
+		if bsMeta, err := rr.MetaEncode(); err == nil {
+
+			batch := new(leveldb.Batch)
+
+			if meta != nil {
+				batch.Delete(t_ns_cat(ns_sko_meta, rr.Meta.Key))
+				batch.Delete(t_ns_cat(ns_sko_data, rr.Meta.Key))
+				batch.Delete(t_ns_cat(ns_sko_log, uint64_to_bytes(meta.Version)))
+			}
+
+			batch.Put(t_ns_cat(ns_sko_log, uint64_to_bytes(cLog)), bsMeta)
+
+			err = cn.db.Write(batch, nil)
 		}
 
-		if meta != nil && meta.Version < rr.Meta.Version {
-			batch.Delete(t_ns_cat(ns_sko_log, uint64_to_bytes(meta.Version)))
-		}
+	} else {
 
-		err = cn.db.Write(batch, nil)
+		if bsMeta, bsData, err := rr.PutEncode(); err == nil {
+
+			batch := new(leveldb.Batch)
+
+			batch.Put(t_ns_cat(ns_sko_meta, rr.Meta.Key), bsMeta)
+			batch.Put(t_ns_cat(ns_sko_data, rr.Meta.Key), bsData)
+			batch.Put(t_ns_cat(ns_sko_log, uint64_to_bytes(cLog)), bsMeta)
+
+			if rr.Meta.Expired > 0 {
+				batch.Put(keyExpireEncode(ns_sko_ttl, rr.Meta.Expired, rr.Meta.Key), bsMeta)
+			}
+
+			if meta != nil {
+				if meta.Version < cLog {
+					batch.Delete(t_ns_cat(ns_sko_log, uint64_to_bytes(meta.Version)))
+				}
+				if meta.Expired > 0 && meta.Expired != rr.Meta.Expired {
+					batch.Delete(keyExpireEncode(ns_sko_ttl, meta.Expired, rr.Meta.Key))
+				}
+			}
+
+			err = cn.db.Write(batch, nil)
+		}
 	}
 
 	if err != nil {
 		return sko.NewObjectResultServerError(err)
 	}
 
-	return sko.NewObjectResultOK()
+	rs := sko.NewObjectResultOK()
+	rs.Meta = &sko.ObjectMeta{
+		Version: cLog,
+		IncrId:  rr.Meta.IncrId,
+	}
+
+	return rs
 }
 
-func (cn *Conn) ObjectQuery(rr *sko.ObjectReader) *sko.ObjectResult {
+func (cn *SkoConn) Query(rr *sko.ObjectReader) *sko.ObjectResult {
 
 	rs := sko.NewObjectResultOK()
 
@@ -134,7 +207,7 @@ func (cn *Conn) ObjectQuery(rr *sko.ObjectReader) *sko.ObjectResult {
 
 			} else {
 
-				if err.Error() != "leveldb: not found" {
+				if err.Error() != ldbNotFound {
 					rs.StatusMessage(sko.ResultServerError, err.Error())
 					break
 				}
@@ -151,6 +224,12 @@ func (cn *Conn) ObjectQuery(rr *sko.ObjectReader) *sko.ObjectResult {
 			rs.StatusMessage(sko.ResultServerError, err.Error())
 		}
 
+	} else if sko.AttrAllow(rr.Mode, sko.ObjectReaderModeLogRange) {
+
+		if err := cn.objectQueryLogRange(rr, rs); err != nil {
+			rs.StatusMessage(sko.ResultServerError, err.Error())
+		}
+
 	} else {
 
 		rs.StatusMessage(sko.ResultClientError, "invalid mode")
@@ -163,7 +242,7 @@ func (cn *Conn) ObjectQuery(rr *sko.ObjectReader) *sko.ObjectResult {
 	return rs
 }
 
-func (cn *Conn) objectQueryKeyRange(rr *sko.ObjectReader, rs *sko.ObjectResult) error {
+func (cn *SkoConn) objectQueryKeyRange(rr *sko.ObjectReader, rs *sko.ObjectResult) error {
 
 	var (
 		offset    = t_ns_cat(ns_sko_data, bytes_clone(rr.KeyOffset))
@@ -190,6 +269,8 @@ func (cn *Conn) objectQueryKeyRange(rr *sko.ObjectReader, rs *sko.ObjectResult) 
 	)
 
 	if sko.AttrAllow(rr.Mode, sko.ObjectReaderModeRevRange) {
+
+		// offset = append(offset, 0xff)
 
 		iter = cn.db.NewIterator(&util.Range{
 			Start: cutset,
@@ -279,10 +360,231 @@ func (cn *Conn) objectQueryKeyRange(rr *sko.ObjectReader, rs *sko.ObjectResult) 
 	return nil
 }
 
-func (cn *Conn) NewObjectWriter(key []byte) *sko.ObjectWriter {
-	return sko.NewObjectWriter(key)
+func (cn *SkoConn) objectQueryLogRange(rr *sko.ObjectReader, rs *sko.ObjectResult) error {
+
+	var (
+		offset    = t_ns_cat(ns_sko_log, uint64_to_bytes(rr.LogOffset))
+		cutset    = t_ns_cat(ns_sko_log, []byte{0xff})
+		limitNum  = rr.LimitNum
+		limitSize = rr.LimitSize
+	)
+
+	if limitNum > sko.ObjectReaderLimitNumMax {
+		limitNum = sko.ObjectReaderLimitNumMax
+	} else if limitNum < 1 {
+		limitNum = 1
+	}
+
+	if limitSize < 1 {
+		limitSize = sko.ObjectReaderLimitSizeDef
+	} else if limitSize > sko.ObjectReaderLimitSizeMax {
+		limitSize = sko.ObjectReaderLimitSizeMax
+	}
+
+	var (
+		tto  = uint64(time.Now().UnixNano()/1e6) - 3000
+		iter = cn.db.NewIterator(&util.Range{
+			Start: offset,
+			Limit: cutset,
+		}, nil)
+	)
+
+	for iter.Next() {
+
+		if limitNum < 1 {
+			break
+		}
+
+		if bytes.Compare(iter.Key(), offset) <= 0 {
+			continue
+		}
+
+		if bytes.Compare(iter.Key(), cutset) >= 0 {
+			break
+		}
+
+		if len(iter.Value()) < 2 {
+			continue
+		}
+
+		meta, err := sko.ObjectMetaDecode(iter.Value())
+		if err != nil || meta == nil {
+			break
+		}
+
+		//
+		if sko.AttrAllow(meta.Attrs, sko.ObjectMetaAttrDelete) {
+			rs.Items = append(rs.Items, &sko.ObjectItem{
+				Meta: meta,
+			})
+		} else {
+
+			bs, err := cn.db.Get(t_ns_cat(ns_sko_data, meta.Key), nil)
+			if err != nil {
+				break
+			}
+
+			limitSize -= int64(len(bs))
+			if limitSize < 1 {
+				break
+			}
+
+			if item, err := sko.ObjectItemDecode(bs); err == nil {
+				if item.Meta.Updated >= tto {
+					break
+				}
+				rs.Items = append(rs.Items, item)
+			}
+		}
+
+		limitNum -= 1
+	}
+
+	iter.Release()
+
+	if iter.Error() != nil {
+		return iter.Error()
+	}
+
+	if limitNum < 1 || limitSize < 1 {
+		rs.Next = true
+	}
+
+	return nil
 }
 
-func (cn *Conn) NewObjectReader() *sko.ObjectReader {
-	return sko.NewObjectReader()
+func (cn *SkoConn) NewReader(key []byte) *sko.ClientReader {
+	return sko.NewClientReader(cn, key)
+}
+
+func (cn *SkoConn) NewWriter(key []byte, value interface{}) *sko.ClientWriter {
+	return sko.NewClientWriter(cn, key, value)
+}
+
+func (cn *SkoConn) objectMetaGet(rr *sko.ObjectWriter) (*sko.ObjectMeta, error) {
+
+	data, err := cn.db.Get(t_ns_cat(ns_sko_meta, rr.Meta.Key), nil)
+	if err == nil {
+		return sko.ObjectMetaDecode(data)
+	} else {
+		if err.Error() == ldbNotFound {
+			err = nil
+		}
+	}
+
+	return nil, err
+}
+
+func (cn *SkoConn) objectLogVersionSet(incr, set uint64) (uint64, error) {
+
+	cn.skoLogMu.Lock()
+	defer cn.skoLogMu.Unlock()
+
+	if incr == 0 && set == 0 {
+		return cn.skoLogOffset, nil
+	}
+
+	if cn.skoLogCutset <= 100 {
+
+		if bs, err := cn.db.Get(skoKeySysLogCutset, nil); err != nil {
+			if err.Error() != ldbNotFound {
+				return 0, err
+			}
+		} else {
+			if cn.skoLogCutset, err = strconv.ParseUint(string(bs), 10, 64); err != nil {
+				return 0, err
+			}
+			if cn.skoLogOffset < cn.skoLogCutset {
+				cn.skoLogOffset = cn.skoLogCutset
+			}
+		}
+	}
+
+	if cn.skoLogOffset < 100 {
+		cn.skoLogOffset = 100
+	}
+
+	if set > 0 && set > cn.skoLogOffset {
+		incr += (set - cn.skoLogOffset)
+	}
+
+	if incr > 0 {
+
+		if (cn.skoLogOffset + incr) >= cn.skoLogCutset {
+
+			cutset := cn.skoLogOffset + incr + 100
+
+			if n := cutset % 100; n > 0 {
+				cutset += n
+			}
+
+			if err := cn.db.Put(skoKeySysLogCutset,
+				[]byte(strconv.FormatUint(cutset, 10)), nil); err != nil {
+				return 0, err
+			}
+
+			cn.skoLogCutset = cutset
+		}
+
+		cn.skoLogOffset += incr
+	}
+
+	return cn.skoLogOffset, nil
+}
+
+func (cn *SkoConn) objectIncrSet(ns string, incr, set uint64) (uint64, error) {
+
+	cn.skoIncrMu.Lock()
+	defer cn.skoIncrMu.Unlock()
+
+	if incr == 0 && set == 0 {
+		return cn.skoIncrOffset, nil
+	}
+
+	if cn.skoIncrCutset <= 100 {
+
+		if bs, err := cn.db.Get(skoKeySysIncrCutset(ns), nil); err != nil {
+			if err.Error() != ldbNotFound {
+				return 0, err
+			}
+		} else {
+			if cn.skoIncrCutset, err = strconv.ParseUint(string(bs), 10, 64); err != nil {
+				return 0, err
+			}
+			if cn.skoIncrOffset < cn.skoIncrCutset {
+				cn.skoIncrOffset = cn.skoIncrCutset
+			}
+		}
+	}
+
+	if cn.skoIncrOffset < 100 {
+		cn.skoIncrOffset = 100
+	}
+
+	if set > 0 && set > cn.skoIncrOffset {
+		incr += (set - cn.skoIncrOffset)
+	}
+
+	if incr > 0 {
+
+		if (cn.skoIncrOffset + incr) >= cn.skoIncrCutset {
+
+			cutset := cn.skoIncrOffset + incr + 100
+
+			if n := cutset % 100; n > 0 {
+				cutset += n
+			}
+
+			if err := cn.db.Put(skoKeySysIncrCutset(ns),
+				[]byte(strconv.FormatUint(cutset, 10)), nil); err != nil {
+				return 0, err
+			}
+
+			cn.skoIncrCutset = cutset
+		}
+
+		cn.skoIncrOffset += incr
+	}
+
+	return cn.skoIncrOffset, nil
 }

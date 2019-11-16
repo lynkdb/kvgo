@@ -16,81 +16,52 @@ package kvgo
 
 import (
 	"errors"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/lynkdb/iomix/connect"
+	"github.com/lynkdb/iomix/sko"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/filter"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 )
 
 var (
-	connMu sync.Mutex
-	conns  = map[string]*Conn{}
+	skoConnMu sync.Mutex
+	skoConns  = map[string]*SkoConn{}
 )
 
-type Conn struct {
-	db      *leveldb.DB
-	opts    *options
-	clients int
+type SkoConn struct {
+	db            *leveldb.DB
+	opts          *options
+	clients       int
+	skoMu         sync.RWMutex
+	skoLogMu      sync.RWMutex
+	skoLogOffset  uint64
+	skoLogCutset  uint64
+	skoIncrMu     sync.RWMutex
+	skoIncrOffset uint64
+	skoIncrCutset uint64
+	skoCluster    *SkoServiceImpl
 }
 
-type options struct {
-	DataDir                string   `json:"datadir,omitempty"`
-	WriteBuffer            int      `json:"write_buffer,omitempty"`
-	BlockCacheCapacity     int      `json:"block_cache_capacity,omitempty"`
-	CacheCapacity          int      `json:"cache_capacity,omitempty"`
-	OpenFilesCacheCapacity int      `json:"open_files_cache_capacity,omitempty"`
-	CompactionTableSize    int      `json:"compaction_table_size,omitempty"`
-	ClusterBind            string   `json:"cluster_bind,omitempty"`
-	ClusterNodes           []string `json:"cluster_nodes,omitempty"`
-	ClusterSecretKey       string   `json:"cluster_secret_key,omitempty"`
-}
+func SkoOpen(copts connect.ConnOptions) (*SkoConn, error) {
 
-func (opts *options) fix() {
-
-	if opts.WriteBuffer < 4 {
-		opts.WriteBuffer = 4
-	} else if opts.WriteBuffer > 128 {
-		opts.WriteBuffer = 128
-	}
-
-	if opts.CacheCapacity < 8 {
-		opts.CacheCapacity = 8
-	} else if opts.CacheCapacity > 4096 {
-		opts.CacheCapacity = 4096
-	}
-
-	if opts.BlockCacheCapacity < 2 {
-		opts.BlockCacheCapacity = 2
-	} else if opts.BlockCacheCapacity > 32 {
-		opts.BlockCacheCapacity = 32
-	}
-
-	if opts.OpenFilesCacheCapacity < 500 {
-		opts.OpenFilesCacheCapacity = 500
-	} else if opts.OpenFilesCacheCapacity > 30000 {
-		opts.OpenFilesCacheCapacity = 30000
-	}
-
-	if opts.CompactionTableSize < 2 {
-		opts.CompactionTableSize = 2
-	} else if opts.CompactionTableSize > 128 {
-		opts.CompactionTableSize = 128
-	}
-}
-
-func Open(copts connect.ConnOptions) (*Conn, error) {
-
-	connMu.Lock()
-	defer connMu.Unlock()
+	skoConnMu.Lock()
+	defer skoConnMu.Unlock()
 
 	var (
-		cn = &Conn{
-			opts:    &options{},
-			clients: 1,
+		cn = &SkoConn{
+			opts:          &options{},
+			clients:       1,
+			skoLogOffset:  0,
+			skoLogCutset:  0,
+			skoIncrOffset: 0,
+			skoIncrCutset: 0,
 		}
 		err error
 	)
@@ -101,7 +72,7 @@ func Open(copts connect.ConnOptions) (*Conn, error) {
 		cn.opts.DataDir = filepath.Clean(v.String())
 	}
 
-	if pconn, ok := conns[cn.opts.DataDir]; ok {
+	if pconn, ok := skoConns[cn.opts.DataDir]; ok {
 		pconn.clients++
 		return pconn, nil
 	}
@@ -126,7 +97,21 @@ func Open(copts connect.ConnOptions) (*Conn, error) {
 		cn.opts.CompactionTableSize = v.Int()
 	}
 
+	if v, ok := copts.Items.Get("lynkdb/sko/cluster_bind"); ok {
+		cn.opts.ClusterBind = v.String()
+	}
+
+	if v, ok := copts.Items.Get("lynkdb/sko/cluster_nodes"); ok {
+		cn.opts.ClusterNodes = strings.Split(v.String(), ",")
+	}
+
+	if v, ok := copts.Items.Get("lynkdb/sko/cluster_secret_key"); ok {
+		cn.opts.ClusterSecretKey = v.String()
+	}
+
 	cn.opts.fix()
+
+	cn.opts.DataDir = filepath.Clean(fmt.Sprintf("%s/%d_%d_%d", cn.opts.DataDir, 10, 0, 0))
 
 	if err := os.MkdirAll(cn.opts.DataDir, 0750); err != nil {
 		return cn, err
@@ -143,19 +128,44 @@ func Open(copts connect.ConnOptions) (*Conn, error) {
 		return nil, err
 	}
 
-	cn.ttl_worker()
+	if nCap := len(cn.opts.ClusterNodes); nCap > 0 {
 
-	conns[cn.opts.DataDir] = cn
+		if nCap > sko.ObjectClusterNodeMax {
+			return nil, errors.New("Deny of sko.ObjectClusterNodeMax")
+		}
+
+		hosts := map[string]bool{}
+
+		for _, v := range cn.opts.ClusterNodes {
+			_, _, err := net.SplitHostPort(v)
+			if err != nil {
+				return nil, err
+			}
+			if _, ok := hosts[v]; ok {
+				return nil, errors.New("Duplicate host:port " + v)
+			}
+			hosts[v] = true
+		}
+
+		if err := cn.ClusterStart(); err != nil {
+			cn.Close()
+			return nil, err
+		}
+	}
+
+	go cn.skoWorker()
+
+	skoConns[cn.opts.DataDir] = cn
 
 	return cn, nil
 }
 
-func (cn *Conn) Close() error {
+func (cn *SkoConn) Close() error {
 
-	connMu.Lock()
-	defer connMu.Unlock()
+	skoConnMu.Lock()
+	defer skoConnMu.Unlock()
 
-	if pconn, ok := conns[cn.opts.DataDir]; ok {
+	if pconn, ok := skoConns[cn.opts.DataDir]; ok {
 
 		if pconn.clients > 1 {
 			pconn.clients--
@@ -163,11 +173,15 @@ func (cn *Conn) Close() error {
 		}
 	}
 
+	if cn.skoCluster != nil && cn.skoCluster.sock != nil {
+		cn.skoCluster.sock.Close()
+	}
+
 	if cn.db != nil {
 		cn.db.Close()
 	}
 
-	delete(conns, cn.opts.DataDir)
+	delete(skoConns, cn.opts.DataDir)
 
 	return nil
 }
