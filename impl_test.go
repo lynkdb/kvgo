@@ -29,21 +29,21 @@ import (
 )
 
 var (
-	dbCaches = map[string]*SkoConn{}
-	dbMu     sync.Mutex
+	dbTestCaches = map[string]*Conn{}
+	dbTestMu     sync.Mutex
 )
 
 func init() {
 	exec.Command("mkdir", "-p", "/dev/shm/kvgo").Output()
 }
 
-func dbOpen(ports []int) ([]*SkoConn, error) {
+func dbOpen(ports []int) ([]*Conn, error) {
 
-	dbMu.Lock()
-	defer dbMu.Unlock()
+	dbTestMu.Lock()
+	defer dbTestMu.Unlock()
 
 	var (
-		dbs   = []*SkoConn{}
+		dbs   = []*Conn{}
 		nodes = []string{}
 	)
 
@@ -59,7 +59,7 @@ func dbOpen(ports []int) ([]*SkoConn, error) {
 
 		test_dir := fmt.Sprintf("/dev/shm/kvgo/%d", port)
 
-		if db, ok := dbCaches[test_dir]; ok {
+		if db, ok := dbTestCaches[test_dir]; ok {
 			dbs = append(dbs, db)
 			continue
 		}
@@ -74,18 +74,18 @@ func dbOpen(ports []int) ([]*SkoConn, error) {
 
 		if len(nodes) > 0 {
 			opts.SetValue("lynkdb/sko/cluster_bind", fmt.Sprintf("127.0.0.1:%d", port))
-			opts.SetValue("lynkdb/sko/cluster_nodes", strings.Join(nodes, ","))
+			opts.SetValue("lynkdb/sko/cluster_masters", strings.Join(nodes, ","))
 			opts.SetValue("lynkdb/sko/cluster_secret_key", "123456")
 		}
 
-		db, err := SkoOpen(opts)
+		db, err := Open(opts)
 		if err != nil {
 			return nil, err
 		}
 
 		dbs = append(dbs, db)
 
-		dbCaches[test_dir] = db
+		dbTestCaches[test_dir] = db
 	}
 
 	return dbs, nil
@@ -112,7 +112,7 @@ func Test_Object_Common(t *testing.T) {
 
 		// Query Key
 		if rs := dbs[0].NewReader([]byte("0001")).Query(); !rs.OK() {
-			t.Fatalf("Query Key ER! %s", rs.Message)
+			t.Fatalf("Query Key ER! %d, %s", rs.Status, rs.Message)
 		} else {
 			if rs.DataValue().Uint32() != 1 {
 				t.Fatal("Query Key ER! Compare")
@@ -201,7 +201,7 @@ func Test_Object_Common(t *testing.T) {
 			t.Fatal("Commit IncrId ER!")
 		}
 		if rs := dbs[0].NewReader(key).Query(); !rs.OK() || rs.Items[0].Meta.IncrId != 1000 {
-			t.Fatal("Commit IncrId ER!")
+			t.Fatalf("Commit IncrId ER! %s", rs.Message)
 		} else {
 			t.Log("Commit IncrId OK")
 		}
@@ -224,7 +224,7 @@ func Test_Object_Common(t *testing.T) {
 			t.Fatal("Commit ER!")
 		}
 		if rs := dbs[0].NewReader([]byte("0001")).Query(); !rs.OK() {
-			t.Fatal("Query Key ER!")
+			t.Fatalf("Query Key ER! status %d", rs.Status)
 		} else {
 			var item sko.ObjectData
 			if err := rs.DataValue().Decode(&item, nil); err != nil {
@@ -269,7 +269,7 @@ func Test_Object_LogAsync(t *testing.T) {
 
 	for _, db := range dbs {
 
-		for _, hp := range db.opts.ClusterNodes {
+		for _, hp := range db.opts.ClusterMasters {
 
 			conn, err := ClientConn(hp)
 			if err != nil {
@@ -292,8 +292,8 @@ func Test_Object_LogAsync(t *testing.T) {
 			// t.Logf("Object AsyncLog Bind %s, Node %s OK", db.opts.ClusterBind, hp)
 		}
 
-		t.Logf("Object AsyncLog Bind %s, Nodes %d OK",
-			db.opts.ClusterBind, len(db.opts.ClusterNodes))
+		t.Logf("Object AsyncLog Bind %s, Masters %d OK",
+			db.opts.ClusterBind, len(db.opts.ClusterMasters))
 	}
 }
 

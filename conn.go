@@ -16,26 +16,24 @@ package kvgo
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
-	"github.com/lynkdb/iomix/connect"
+	"github.com/hooto/hlog4g/hlog"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/filter"
 	"github.com/syndtr/goleveldb/leveldb/opt"
+
+	"github.com/lynkdb/iomix/connect"
 )
 
 var (
 	connMu sync.Mutex
 	conns  = map[string]*Conn{}
 )
-
-type Conn struct {
-	db      *leveldb.DB
-	opts    *options
-	clients int
-}
 
 type options struct {
 	DataDir                string   `json:"datadir,omitempty"`
@@ -45,7 +43,7 @@ type options struct {
 	OpenFilesCacheCapacity int      `json:"open_files_cache_capacity,omitempty"`
 	CompactionTableSize    int      `json:"compaction_table_size,omitempty"`
 	ClusterBind            string   `json:"cluster_bind,omitempty"`
-	ClusterNodes           []string `json:"cluster_nodes,omitempty"`
+	ClusterMasters         []string `json:"cluster_masters,omitempty"`
 	ClusterSecretKey       string   `json:"cluster_secret_key,omitempty"`
 }
 
@@ -82,6 +80,21 @@ func (opts *options) fix() {
 	}
 }
 
+type Conn struct {
+	instId     string
+	db         *leveldb.DB
+	opts       *options
+	clients    int
+	mu         sync.RWMutex
+	logMu      sync.RWMutex
+	logOffset  uint64
+	logCutset  uint64
+	incrMu     sync.RWMutex
+	incrOffset uint64
+	incrCutset uint64
+	cluster    *ServiceImpl
+}
+
 func Open(copts connect.ConnOptions) (*Conn, error) {
 
 	connMu.Lock()
@@ -89,8 +102,12 @@ func Open(copts connect.ConnOptions) (*Conn, error) {
 
 	var (
 		cn = &Conn{
-			opts:    &options{},
-			clients: 1,
+			opts:       &options{},
+			clients:    1,
+			logOffset:  0,
+			logCutset:  0,
+			incrOffset: 0,
+			incrCutset: 0,
 		}
 		err error
 	)
@@ -106,27 +123,41 @@ func Open(copts connect.ConnOptions) (*Conn, error) {
 		return pconn, nil
 	}
 
-	if v, ok := copts.Items.Get("lynkdb/sskv/write_buffer"); ok {
+	if v, ok := copts.Items.Get("lynkdb/sko/write_buffer"); ok {
 		cn.opts.WriteBuffer = v.Int()
 	}
 
-	if v, ok := copts.Items.Get("lynkdb/sskv/cache_capacity"); ok {
+	if v, ok := copts.Items.Get("lynkdb/sko/cache_capacity"); ok {
 		cn.opts.CacheCapacity = v.Int()
 	}
 
-	if v, ok := copts.Items.Get("lynkdb/sskv/block_cache_capacity"); ok {
+	if v, ok := copts.Items.Get("lynkdb/sko/block_cache_capacity"); ok {
 		cn.opts.BlockCacheCapacity = v.Int()
 	}
 
-	if v, ok := copts.Items.Get("lynkdb/sskv/open_files_cache_capacity"); ok {
+	if v, ok := copts.Items.Get("lynkdb/sko/open_files_cache_capacity"); ok {
 		cn.opts.OpenFilesCacheCapacity = v.Int()
 	}
 
-	if v, ok := copts.Items.Get("lynkdb/sskv/compaction_table_size"); ok {
+	if v, ok := copts.Items.Get("lynkdb/sko/compaction_table_size"); ok {
 		cn.opts.CompactionTableSize = v.Int()
 	}
 
+	if v, ok := copts.Items.Get("lynkdb/sko/cluster_bind"); ok {
+		cn.opts.ClusterBind = v.String()
+	}
+
+	if v, ok := copts.Items.Get("lynkdb/sko/cluster_masters"); ok {
+		cn.opts.ClusterMasters = strings.Split(v.String(), ",")
+	}
+
+	if v, ok := copts.Items.Get("lynkdb/sko/cluster_secret_key"); ok {
+		cn.opts.ClusterSecretKey = v.String()
+	}
+
 	cn.opts.fix()
+
+	cn.opts.DataDir = filepath.Clean(fmt.Sprintf("%s/%d_%d_%d", cn.opts.DataDir, 10, 0, 0))
 
 	if err := os.MkdirAll(cn.opts.DataDir, 0750); err != nil {
 		return cn, err
@@ -143,7 +174,25 @@ func Open(copts connect.ConnOptions) (*Conn, error) {
 		return nil, err
 	}
 
-	cn.ttl_worker()
+	if bs, err := cn.db.Get(keySysInstanceId, nil); err == nil {
+		cn.instId = string(bs)
+	} else if err.Error() == ldbNotFound {
+		cn.instId = randHexString(16)
+		if err := cn.db.Put(keySysInstanceId, []byte(cn.instId), nil); err != nil {
+			return nil, err
+		}
+	} else {
+		return nil, err
+	}
+
+	if err := cn.clusterStart(); err != nil {
+		cn.Close()
+		return nil, err
+	}
+
+	go cn.workerLocal()
+
+	hlog.Printf("info", "kvgo %s started", cn.instId)
 
 	conns[cn.opts.DataDir] = cn
 
@@ -161,6 +210,10 @@ func (cn *Conn) Close() error {
 			pconn.clients--
 			return nil
 		}
+	}
+
+	if cn.cluster != nil && cn.cluster.sock != nil {
+		cn.cluster.sock.Close()
 	}
 
 	if cn.db != nil {

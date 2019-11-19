@@ -16,10 +16,11 @@ package main
 
 import (
 	"github.com/lynkdb/iomix/connect"
-	"github.com/lynkdb/iomix/skv"
+	"github.com/lynkdb/iomix/sko"
+
 	"github.com/lynkdb/kvgo"
 )
 
-func NewConnector(copts *connect.ConnOptions) (skv.Connector, error) {
+func NewConnector(copts *connect.ConnOptions) (sko.ClientConnector, error) {
 	return kvgo.Open(*copts)
 }

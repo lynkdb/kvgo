@@ -22,87 +22,123 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lynkdb/iomix/sko"
+	"github.com/hooto/hlog4g/hlog"
 	"github.com/syndtr/goleveldb/leveldb"
-	grpc "google.golang.org/grpc"
+	"google.golang.org/grpc"
+
+	"github.com/lynkdb/iomix/sko"
 )
 
-type SkoServiceImpl struct {
+type ServiceImpl struct {
 	server     *grpc.Server
-	db         *SkoConn
+	db         *Conn
 	prepares   map[string]*sko.ObjectWriter
 	proposalMu sync.RWMutex
 	sock       net.Listener
 }
 
 var (
-	skoGrpcMsgByteMax  = 12 * 1024 * 1024
-	skoGrpcClientConns = map[string]*grpc.ClientConn{}
-	skoClientConnMu    sync.Mutex
+	grpcMsgByteMax  = 12 * 1024 * 1024
+	grpcClientConns = map[string]*grpc.ClientConn{}
+	grpcClientMu    sync.Mutex
 )
 
-func (cn *SkoConn) ClusterStart() error {
+func (cn *Conn) clusterStart() error {
 
-	if cn.opts.ClusterBind == "" {
-		return nil
+	if nCap := len(cn.opts.ClusterMasters); nCap > 0 {
+
+		if nCap > sko.ObjectClusterNodeMax {
+			return errors.New("Deny of sko.ObjectClusterNodeMax")
+		}
+
+		addrs := map[string]bool{}
+
+		for _, v := range cn.opts.ClusterMasters {
+			host, port, err := net.SplitHostPort(v)
+			if err != nil {
+				return err
+			}
+			if _, ok := addrs[host+":"+port]; ok {
+				hlog.Printf("warn", "Duplicate host:port (%s:%s) setting", host, port)
+				continue
+			}
+			addrs[host+":"+port] = true
+		}
+
+		cn.opts.ClusterMasters = []string{}
+
+		for k, _ := range addrs {
+			cn.opts.ClusterMasters = append(cn.opts.ClusterMasters, k)
+		}
 	}
 
-	_, port, err := net.SplitHostPort(cn.opts.ClusterBind)
-	if err != nil {
-		return err
+	if cn.opts.ClusterBind != "" {
+
+		host, port, err := net.SplitHostPort(cn.opts.ClusterBind)
+		if err != nil {
+			return err
+		}
+
+		lis, err := net.Listen("tcp", ":"+port)
+		if err != nil {
+			return err
+		}
+
+		cn.opts.ClusterBind = host + ":" + port
+
+		server := grpc.NewServer(
+			grpc.MaxMsgSize(grpcMsgByteMax),
+			grpc.MaxSendMsgSize(grpcMsgByteMax),
+			grpc.MaxRecvMsgSize(grpcMsgByteMax),
+		)
+
+		go server.Serve(lis)
+
+		cn.cluster = &ServiceImpl{
+			sock:     lis,
+			server:   server,
+			db:       cn,
+			prepares: map[string]*sko.ObjectWriter{},
+		}
+
+		sko.RegisterObjectServer(server, cn.cluster)
+	} else {
+		cn.cluster = &ServiceImpl{
+			db: cn,
+		}
 	}
 
-	lis, err := net.Listen("tcp", ":"+port)
-	if err != nil {
-		return err
+	if len(cn.opts.ClusterMasters) > 0 {
+		go cn.workerClusterReplica()
 	}
-
-	server := grpc.NewServer(
-		grpc.MaxMsgSize(skoGrpcMsgByteMax),
-		grpc.MaxSendMsgSize(skoGrpcMsgByteMax),
-		grpc.MaxRecvMsgSize(skoGrpcMsgByteMax),
-	)
-
-	go server.Serve(lis)
-
-	cn.skoCluster = &SkoServiceImpl{
-		sock:     lis,
-		server:   server,
-		db:       cn,
-		prepares: map[string]*sko.ObjectWriter{},
-	}
-
-	sko.RegisterObjectServer(server, cn.skoCluster)
-
-	go cn.skoClusterWorker()
 
 	return nil
 }
 
 func ClientConn(addr string) (*grpc.ClientConn, error) {
 
-	skoClientConnMu.Lock()
-	defer skoClientConnMu.Unlock()
+	grpcClientMu.Lock()
+	defer grpcClientMu.Unlock()
 
-	if c, ok := skoGrpcClientConns[addr]; ok {
+	if c, ok := grpcClientConns[addr]; ok {
 		return c, nil
 	}
 
 	c, err := grpc.Dial(addr, grpc.WithInsecure(),
-		grpc.WithMaxMsgSize(skoGrpcMsgByteMax),
-		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(skoGrpcMsgByteMax)),
-		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(skoGrpcMsgByteMax)),
+		grpc.WithMaxMsgSize(grpcMsgByteMax),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(grpcMsgByteMax)),
+		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(grpcMsgByteMax)),
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	skoGrpcClientConns[addr] = c
+	grpcClientConns[addr] = c
 
 	return c, nil
 }
 
-func (it *SkoServiceImpl) Query(ctx context.Context,
+func (it *ServiceImpl) Query(ctx context.Context,
 	or *sko.ObjectReader) (*sko.ObjectResult, error) {
 	return it.db.Query(or), nil
 }
@@ -112,8 +148,12 @@ type pQueItem struct {
 	Inc uint64
 }
 
-func (it *SkoServiceImpl) Commit(ctx context.Context,
+func (it *ServiceImpl) Commit(ctx context.Context,
 	rr *sko.ObjectWriter) (*sko.ObjectResult, error) {
+
+	if len(it.db.opts.ClusterMasters) == 0 {
+		return it.db.Commit(rr), nil
+	}
 
 	if err := rr.CommitValid(); err != nil {
 		return sko.NewObjectResultClientError(err), nil
@@ -132,23 +172,28 @@ func (it *SkoServiceImpl) Commit(ctx context.Context,
 
 	} else {
 
-		if sko.AttrAllow(rr.Mode, sko.ObjectWriterModeCreate) {
+		if sko.AttrAllow(rr.Mode, sko.ObjectWriterModeCreate) ||
+			(rr.Meta.Expired == meta.Expired && meta.DataCheck == rr.Meta.DataCheck) {
 			rs := sko.NewObjectResultOK()
 			rs.Meta = &sko.ObjectMeta{
 				Version: meta.Version,
 				IncrId:  meta.IncrId,
 				Created: meta.Created,
+				Updated: meta.Updated,
 			}
 			return rs, nil
 		}
 
-		if meta.DataCheck == rr.Meta.DataCheck {
-			rs := sko.NewObjectResultOK()
-			rs.Meta = &sko.ObjectMeta{
-				Version: meta.Version,
-				IncrId:  meta.IncrId,
-			}
-			return rs, nil
+		if rr.PrevVersion > 0 && rr.PrevVersion != meta.Version {
+			return sko.NewObjectResultClientError(errors.New("invalid prev-version")), nil
+		}
+
+		if rr.PrevDataCheck > 0 && rr.PrevDataCheck != meta.DataCheck {
+			return sko.NewObjectResultClientError(errors.New("invalid prev-data-check")), nil
+		}
+
+		if meta.IncrId > 0 {
+			rr.Meta.IncrId = meta.IncrId
 		}
 
 		if meta.Created > 0 {
@@ -161,15 +206,15 @@ func (it *SkoServiceImpl) Commit(ctx context.Context,
 	}
 
 	var (
-		nCap = len(it.db.opts.ClusterNodes)
+		nCap = len(it.db.opts.ClusterMasters)
 		pNum = 0
 		pLog = uint64(0)
 		pInc = uint64(0)
 		pQue = make(chan pQueItem, nCap+1)
-		pTTL = time.Second * 3
+		pTTL = time.Millisecond * time.Duration(objAcceptTTL)
 	)
 
-	for _, addr := range it.db.opts.ClusterNodes {
+	for _, addr := range it.db.opts.ClusterMasters {
 
 		conn, err := ClientConn(addr)
 		if err != nil {
@@ -213,6 +258,10 @@ func (it *SkoServiceImpl) Commit(ctx context.Context,
 		}
 
 		if (pNum*2) > nCap || pTTL == -1 {
+			if pNum < nCap && pTTL > 0 {
+				pTTL = time.Millisecond * 10
+				continue
+			}
 			break
 		}
 	}
@@ -222,14 +271,14 @@ func (it *SkoServiceImpl) Commit(ctx context.Context,
 	}
 
 	pNum = 0
-	pTTL = time.Second * 3
+	pTTL = time.Millisecond * time.Duration(objAcceptTTL)
 	pQue2 := make(chan uint64, nCap+1)
 
 	rr2 := sko.NewObjectWriter(rr.Meta.Key, nil)
 	rr2.Meta.Version = pLog
 	rr2.Meta.IncrId = pInc
 
-	for _, addr := range it.db.opts.ClusterNodes {
+	for _, addr := range it.db.opts.ClusterMasters {
 
 		conn, err := ClientConn(addr)
 		if err != nil {
@@ -262,6 +311,10 @@ func (it *SkoServiceImpl) Commit(ctx context.Context,
 		}
 
 		if (pNum*2) > nCap || pTTL == -1 {
+			if pNum < nCap && pTTL > 0 {
+				pTTL = time.Millisecond * 10
+				continue
+			}
 			break
 		}
 	}
@@ -274,12 +327,13 @@ func (it *SkoServiceImpl) Commit(ctx context.Context,
 	rs.Meta = &sko.ObjectMeta{
 		Version: pLog,
 		IncrId:  pInc,
+		Updated: rr.Meta.Updated,
 	}
 
 	return rs, nil
 }
 
-func (it *SkoServiceImpl) Prepare(ctx context.Context,
+func (it *ServiceImpl) Prepare(ctx context.Context,
 	or *sko.ObjectWriter) (*sko.ObjectResult, error) {
 
 	it.proposalMu.Lock()
@@ -290,7 +344,7 @@ func (it *SkoServiceImpl) Prepare(ctx context.Context,
 	if len(it.prepares) > 10 {
 		dels := []string{}
 		for k, v := range it.prepares {
-			if (v.ProposalExpired + 3000) < tn {
+			if (v.ProposalExpired + objAcceptTTL) < tn {
 				dels = append(dels, k)
 			}
 		}
@@ -300,7 +354,7 @@ func (it *SkoServiceImpl) Prepare(ctx context.Context,
 	}
 
 	p, ok := it.prepares[string(or.Meta.Key)]
-	if ok && (p.ProposalExpired+3000) > tn {
+	if ok && (p.ProposalExpired+objAcceptTTL) > tn {
 		return nil, errors.New("deny")
 	}
 
@@ -317,7 +371,7 @@ func (it *SkoServiceImpl) Prepare(ctx context.Context,
 		}
 	}
 
-	or.ProposalExpired = tn + 3000
+	or.ProposalExpired = tn + objAcceptTTL
 
 	it.prepares[string(or.Meta.Key)] = or
 
@@ -329,7 +383,7 @@ func (it *SkoServiceImpl) Prepare(ctx context.Context,
 	return rs, nil
 }
 
-func (it *SkoServiceImpl) Accept(ctx context.Context,
+func (it *ServiceImpl) Accept(ctx context.Context,
 	rr2 *sko.ObjectWriter) (*sko.ObjectResult, error) {
 
 	it.proposalMu.Lock()
@@ -346,7 +400,7 @@ func (it *SkoServiceImpl) Accept(ctx context.Context,
 	)
 
 	rr, ok := it.prepares[string(rr2.Meta.Key)]
-	if !ok || (rr.ProposalExpired+3000) < tn {
+	if !ok || (rr.ProposalExpired+objAcceptTTL) < tn {
 		return nil, errors.New("deny")
 	}
 
@@ -359,8 +413,8 @@ func (it *SkoServiceImpl) Accept(ctx context.Context,
 		it.db.objectIncrSet(rr.IncrNamespace, 0, cInc)
 	}
 
-	it.db.skoMu.Lock()
-	defer it.db.skoMu.Unlock()
+	it.db.mu.Lock()
+	defer it.db.mu.Unlock()
 
 	meta, err := it.db.objectMetaGet(rr)
 	if meta == nil && err != nil {
@@ -382,12 +436,12 @@ func (it *SkoServiceImpl) Accept(ctx context.Context,
 			batch := new(leveldb.Batch)
 
 			if meta != nil {
-				batch.Delete(t_ns_cat(ns_sko_meta, rr.Meta.Key))
-				batch.Delete(t_ns_cat(ns_sko_data, rr.Meta.Key))
-				batch.Delete(t_ns_cat(ns_sko_log, uint64_to_bytes(meta.Version)))
+				batch.Delete(keyEncode(nsKeyMeta, rr.Meta.Key))
+				batch.Delete(keyEncode(nsKeyData, rr.Meta.Key))
+				batch.Delete(keyEncode(nsKeyLog, uint64ToBytes(meta.Version)))
 			}
 
-			batch.Put(t_ns_cat(ns_sko_log, uint64_to_bytes(cLog)), bsMeta)
+			batch.Put(keyEncode(nsKeyLog, uint64ToBytes(cLog)), bsMeta)
 
 			err = it.db.db.Write(batch, nil)
 		}
@@ -398,20 +452,20 @@ func (it *SkoServiceImpl) Accept(ctx context.Context,
 
 			batch := new(leveldb.Batch)
 
-			batch.Put(t_ns_cat(ns_sko_meta, rr.Meta.Key), bsMeta)
-			batch.Put(t_ns_cat(ns_sko_data, rr.Meta.Key), bsData)
-			batch.Put(t_ns_cat(ns_sko_log, uint64_to_bytes(cLog)), bsMeta)
+			batch.Put(keyEncode(nsKeyMeta, rr.Meta.Key), bsMeta)
+			batch.Put(keyEncode(nsKeyData, rr.Meta.Key), bsData)
+			batch.Put(keyEncode(nsKeyLog, uint64ToBytes(cLog)), bsMeta)
 
 			if rr.Meta.Expired > 0 {
-				batch.Put(keyExpireEncode(ns_sko_ttl, rr.Meta.Expired, rr.Meta.Key), bsMeta)
+				batch.Put(keyExpireEncode(nsKeyTtl, rr.Meta.Expired, rr.Meta.Key), bsMeta)
 			}
 
 			if meta != nil {
 				if meta.Version < cLog {
-					batch.Delete(t_ns_cat(ns_sko_log, uint64_to_bytes(meta.Version)))
+					batch.Delete(keyEncode(nsKeyLog, uint64ToBytes(meta.Version)))
 				}
 				if meta.Expired > 0 && meta.Expired != rr.Meta.Expired {
-					batch.Delete(keyExpireEncode(ns_sko_ttl, meta.Expired, rr.Meta.Key))
+					batch.Delete(keyExpireEncode(nsKeyTtl, meta.Expired, rr.Meta.Key))
 				}
 			}
 
