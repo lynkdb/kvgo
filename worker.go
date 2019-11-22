@@ -32,7 +32,7 @@ func (cn *Conn) workerLocal() {
 		time.Sleep(workerLocalExpireSleep)
 
 		if err := cn.workerLocalExpiredRefresh(); err != nil {
-			hlog.Printf("warn", "local ttl clearn err %s", err.Error())
+			hlog.Printf("warn", "local ttl clean err %s", err.Error())
 		}
 	}
 }
@@ -81,8 +81,6 @@ func (cn *Conn) workerLocalExpiredRefresh() error {
 				}
 
 			} else if err.Error() != ldbNotFound {
-				break
-			} else {
 				return err
 			}
 
@@ -178,7 +176,7 @@ func (cn *Conn) workerClusterReplicaLogAsync() error {
 		}
 
 		if num > 0 {
-			hlog.Printf("info", "kvgo log async num %d, ver %d", num, rr.LogOffset)
+			hlog.Printf("debug", "kvgo log async num %d, ver %d", num, rr.LogOffset)
 		}
 	}
 
