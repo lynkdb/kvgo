@@ -115,7 +115,7 @@ func (cn *Conn) workerClusterReplicaLogAsync() error {
 
 	for _, hp := range cn.opts.ClusterMasters {
 
-		if hp == cn.opts.ClusterBind {
+		if hp == cn.opts.ServerBind {
 			continue
 		}
 

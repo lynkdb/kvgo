@@ -130,12 +130,18 @@ func (cn *Conn) objectCommitLocal(rr *sko.ObjectWriter, cLog uint64) *sko.Object
 			batch := new(leveldb.Batch)
 
 			if meta != nil {
-				batch.Delete(keyEncode(nsKeyMeta, rr.Meta.Key))
+				if !cn.opts.FeatureWriteMetaDisable {
+					batch.Delete(keyEncode(nsKeyMeta, rr.Meta.Key))
+				}
 				batch.Delete(keyEncode(nsKeyData, rr.Meta.Key))
-				batch.Delete(keyEncode(nsKeyLog, uint64ToBytes(meta.Version)))
+				if !cn.opts.FeatureWriteLogDisable {
+					batch.Delete(keyEncode(nsKeyLog, uint64ToBytes(meta.Version)))
+				}
 			}
 
-			batch.Put(keyEncode(nsKeyLog, uint64ToBytes(cLog)), bsMeta)
+			if !cn.opts.FeatureWriteLogDisable {
+				batch.Put(keyEncode(nsKeyLog, uint64ToBytes(cLog)), bsMeta)
+			}
 
 			err = cn.db.Write(batch, nil)
 		}
@@ -146,16 +152,20 @@ func (cn *Conn) objectCommitLocal(rr *sko.ObjectWriter, cLog uint64) *sko.Object
 
 			batch := new(leveldb.Batch)
 
-			batch.Put(keyEncode(nsKeyMeta, rr.Meta.Key), bsMeta)
+			if !cn.opts.FeatureWriteMetaDisable {
+				batch.Put(keyEncode(nsKeyMeta, rr.Meta.Key), bsMeta)
+			}
 			batch.Put(keyEncode(nsKeyData, rr.Meta.Key), bsData)
-			batch.Put(keyEncode(nsKeyLog, uint64ToBytes(cLog)), bsMeta)
+			if !cn.opts.FeatureWriteLogDisable {
+				batch.Put(keyEncode(nsKeyLog, uint64ToBytes(cLog)), bsMeta)
+			}
 
 			if rr.Meta.Expired > 0 {
 				batch.Put(keyExpireEncode(nsKeyTtl, rr.Meta.Expired, rr.Meta.Key), bsMeta)
 			}
 
 			if meta != nil {
-				if meta.Version < cLog {
+				if meta.Version < cLog && !cn.opts.FeatureWriteLogDisable {
 					batch.Delete(keyEncode(nsKeyLog, uint64ToBytes(meta.Version)))
 				}
 				if meta.Expired > 0 && meta.Expired != rr.Meta.Expired {

@@ -64,7 +64,7 @@ func dbOpen(ports []int) ([]*Conn, error) {
 			continue
 		}
 
-		if _, err := exec.Command("/usr/bin/rm", "-rf", test_dir).Output(); err != nil {
+		if _, err := exec.Command("rm", "-rf", test_dir).Output(); err != nil {
 			return nil, err
 		}
 
@@ -289,11 +289,11 @@ func Test_Object_LogAsync(t *testing.T) {
 				t.Fatalf("Object AsyncLog ER! %d/%d", rs.Items[0].Meta.Version, cLog)
 			}
 
-			// t.Logf("Object AsyncLog Bind %s, Node %s OK", db.opts.ClusterBind, hp)
+			// t.Logf("Object AsyncLog Bind %s, Node %s OK", db.opts.ServerBind, hp)
 		}
 
 		t.Logf("Object AsyncLog Bind %s, Masters %d OK",
-			db.opts.ClusterBind, len(db.opts.ClusterMasters))
+			db.opts.ServerBind, len(db.opts.ClusterMasters))
 	}
 }
 

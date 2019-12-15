@@ -72,9 +72,9 @@ func (cn *Conn) clusterStart() error {
 		}
 	}
 
-	if cn.opts.ClusterBind != "" {
+	if cn.opts.ServerBind != "" {
 
-		host, port, err := net.SplitHostPort(cn.opts.ClusterBind)
+		host, port, err := net.SplitHostPort(cn.opts.ServerBind)
 		if err != nil {
 			return err
 		}
@@ -84,7 +84,7 @@ func (cn *Conn) clusterStart() error {
 			return err
 		}
 
-		cn.opts.ClusterBind = host + ":" + port
+		cn.opts.ServerBind = host + ":" + port
 
 		server := grpc.NewServer(
 			grpc.MaxMsgSize(grpcMsgByteMax),
