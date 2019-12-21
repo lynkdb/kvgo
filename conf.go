@@ -44,6 +44,24 @@ type Config struct {
 	// Cluster Settings
 	ClusterMasters       []string `json:"cluster_masters,omitempty"`
 	ClusterAuthSecretKey string   `json:"cluster_auth_secret_key,omitempty"`
+
+	// Client Settings
+	ClientConnectEnable bool `json:"-"`
+}
+
+func (it *Config) Valid() error {
+
+	if it.ClientConnectEnable {
+		if len(it.ClusterMasters) < 1 {
+			return errors.New("no cluster/masters setup")
+		}
+
+		if len(it.ClusterAuthSecretKey) < 1 {
+			return errors.New("no cluster/auth_secret_key setup")
+		}
+	}
+
+	return nil
 }
 
 func NewConfig(dir string) *Config {

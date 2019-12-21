@@ -16,6 +16,7 @@ package kvgo
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"strconv"
 	"time"
@@ -29,6 +30,11 @@ import (
 func (cn *Conn) Commit(rr *sko.ObjectWriter) *sko.ObjectResult {
 
 	if len(cn.opts.ClusterMasters) > 0 {
+
+		if cn.opts.ClientConnectEnable {
+			return cn.objectCommitRemote(rr, 0)
+		}
+
 		rs, err := cn.cluster.Commit(nil, rr)
 		if err != nil {
 			return sko.NewObjectResultServerError(err)
@@ -191,7 +197,39 @@ func (cn *Conn) objectCommitLocal(rr *sko.ObjectWriter, cLog uint64) *sko.Object
 	return rs
 }
 
+func (cn *Conn) objectCommitRemote(rr *sko.ObjectWriter, cLog uint64) *sko.ObjectResult {
+
+	err := rr.CommitValid()
+	if err != nil {
+		return sko.NewObjectResultClientError(err)
+	}
+
+	for _, addr := range cn.opts.ClusterMasters {
+
+		conn, err := clientConn(addr, cn.clusterKey)
+		if err != nil {
+			continue
+		}
+
+		ctx, fc := context.WithTimeout(context.Background(), time.Second*3)
+		defer fc()
+
+		rs, err := sko.NewObjectClient(conn).Commit(ctx, rr)
+		if err != nil {
+			return sko.NewObjectResultServerError(err)
+		}
+
+		return rs
+	}
+
+	return sko.NewObjectResultServerError(errors.New("no cluster nodes"))
+}
+
 func (cn *Conn) Query(rr *sko.ObjectReader) *sko.ObjectResult {
+
+	if cn.opts.ClientConnectEnable {
+		return cn.objectQueryRemote(rr)
+	}
 
 	rs := sko.NewObjectResultOK()
 
@@ -244,6 +282,29 @@ func (cn *Conn) Query(rr *sko.ObjectReader) *sko.ObjectResult {
 	}
 
 	return rs
+}
+
+func (cn *Conn) objectQueryRemote(rr *sko.ObjectReader) *sko.ObjectResult {
+
+	for _, addr := range cn.opts.ClusterMasters {
+
+		conn, err := clientConn(addr, cn.clusterKey)
+		if err != nil {
+			continue
+		}
+
+		ctx, fc := context.WithTimeout(context.Background(), time.Second*3)
+		defer fc()
+
+		rs, err := sko.NewObjectClient(conn).Query(ctx, rr)
+		if err != nil {
+			return sko.NewObjectResultServerError(err)
+		}
+
+		return rs
+	}
+
+	return sko.NewObjectResultServerError(errors.New("no cluster nodes"))
 }
 
 func (cn *Conn) objectQueryKeyRange(rr *sko.ObjectReader, rs *sko.ObjectResult) error {

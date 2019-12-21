@@ -77,7 +77,7 @@ func (cn *Conn) clusterStart() error {
 		}
 	}
 
-	if cn.opts.ServerBind != "" {
+	if cn.opts.ServerBind != "" && !cn.opts.ClientConnectEnable {
 
 		if err := cn.authKeySetup(cn.serverKey, cn.opts.ServerAuthSecretKey); err != nil {
 			return err
@@ -117,7 +117,7 @@ func (cn *Conn) clusterStart() error {
 		}
 	}
 
-	if len(cn.opts.ClusterMasters) > 0 {
+	if len(cn.opts.ClusterMasters) > 0 && !cn.opts.ClientConnectEnable {
 		go cn.workerClusterReplica()
 	}
 

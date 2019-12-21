@@ -94,6 +94,20 @@ func Open(cfg interface{}) (*Conn, error) {
 
 	cn.opts.reset()
 
+	if err := cn.opts.Valid(); err != nil {
+		return nil, err
+	}
+
+	if cn.opts.ClientConnectEnable {
+
+		if err := cn.clusterStart(); err != nil {
+			cn.Close()
+			return nil, err
+		}
+		hlog.Printf("info", "kvgo client connected")
+		return cn, nil
+	}
+
 	if pconn, ok := conns[cn.opts.StorageDataDirectory]; ok {
 		pconn.clients++
 		return pconn, nil

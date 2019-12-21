@@ -37,7 +37,7 @@ func init() {
 	exec.Command("mkdir", "-p", "/dev/shm/kvgo").Output()
 }
 
-func dbOpen(ports []int) ([]*Conn, error) {
+func dbOpen(ports []int, clientEnable bool) ([]*Conn, error) {
 
 	dbTestMu.Lock()
 	defer dbTestMu.Unlock()
@@ -48,7 +48,31 @@ func dbOpen(ports []int) ([]*Conn, error) {
 	)
 
 	for _, v := range ports {
-		nodes = append(nodes, fmt.Sprintf("127.0.0.1:%d", v))
+		if v > 0 {
+			nodes = append(nodes, fmt.Sprintf("127.0.0.1:%d", v))
+		}
+	}
+
+	if clientEnable {
+
+		if len(nodes) < 1 {
+			return nil, fmt.Errorf("no nodes")
+		}
+
+		cfg := &Config{}
+
+		cfg.ClusterMasters = nodes
+		cfg.ClusterAuthSecretKey = dbTestAuthSecretKey
+		cfg.ClientConnectEnable = clientEnable
+
+		db, err := Open(cfg)
+		if err != nil {
+			return nil, err
+		}
+
+		dbs = append(dbs, db)
+
+		return dbs, nil
 	}
 
 	if len(ports) < 1 {
@@ -76,6 +100,11 @@ func dbOpen(ports []int) ([]*Conn, error) {
 			cfg.ServerAuthSecretKey = dbTestAuthSecretKey
 		}
 
+		if port < 0 {
+			cfg.FeatureWriteMetaDisable = true
+			cfg.FeatureWriteLogDisable = true
+		}
+
 		if len(nodes) > 0 {
 			cfg.ClusterMasters = nodes
 			cfg.ClusterAuthSecretKey = dbTestAuthSecretKey
@@ -96,155 +125,173 @@ func dbOpen(ports []int) ([]*Conn, error) {
 
 func Test_Object_Common(t *testing.T) {
 
+	r := 0
+
 	for pn, ports := range [][]int{
 		{},                    // local embedded
 		{10001, 10002, 10003}, // cluster
 	} {
 
-		dbs, err := dbOpen(ports)
+		dbs, err := dbOpen(ports, false)
 		if err != nil {
 			t.Fatalf("Can Not Open Database %s", err.Error())
 		}
 
-		// Commit
-		if rs := dbs[0].NewWriter([]byte("0001"), 1).Commit(); !rs.OK() {
-			t.Fatalf("Commit ER!, Err %s", rs.Message)
-		} else {
-			t.Logf("Commit OK, Log %d", rs.Meta.Version)
-		}
+		dbt := []*Conn{dbs[0]}
 
-		// Query Key
-		if rs := dbs[0].NewReader([]byte("0001")).Query(); !rs.OK() {
-			t.Fatalf("Query Key ER! %d, %s", rs.Status, rs.Message)
-		} else {
-			if rs.DataValue().Uint32() != 1 {
-				t.Fatal("Query Key ER! Compare")
+		if len(ports) > 1 {
+			if dbs2, err := dbOpen(ports, true); err != nil {
+				t.Fatalf("Can Not Open Database %s", err.Error())
 			} else {
-				t.Logf("Query Key OK")
+				dbt = append(dbt, dbs2[0])
 			}
 		}
 
-		// ObjectDel
-		if rs := dbs[0].NewWriter([]byte("0001"), nil).ModeDeleteSet(true).Commit(); !rs.OK() {
-			t.Fatal("ObjectDel ER!")
-		}
-		if rs := dbs[0].NewReader([]byte("0001")).Query(); !rs.NotFound() {
-			t.Fatal("ObjectDel ER!")
-		} else {
-			t.Logf("ObjectDel Key OK")
-		}
+		for _, db := range dbt {
 
-		//
-		for _, n := range []int{1, 2, 3} {
-			dbs[0].NewWriter([]byte(fmt.Sprintf("%04d", n)), n).Commit()
-		}
+			r += 1
+			t.Logf("ROUND #%d", r)
 
-		// Query KeyRange
-		if rs := dbs[0].NewReader(nil).
-			KeyRangeSet([]byte("0001"), []byte("0009")).
-			LimitNumSet(10).Query(); !rs.OK() {
-			t.Fatal("Query ER!")
-		} else {
-
-			if len(rs.Items) != 2 {
-				t.Fatalf("Query KeyRange ER! %d", len(rs.Items))
+			// Commit
+			if rs := db.NewWriter([]byte("0001"), 1).Commit(); !rs.OK() {
+				t.Fatalf("Commit ER!, Err %s", rs.Message)
+			} else {
+				t.Logf("Commit OK, Log %d", rs.Meta.Version)
 			}
 
-			for i, item := range rs.Items {
-				if item.DataValue().Int() != (i + 2) {
-					t.Fatal("Query KeyRange ER!")
+			// Query Key
+			if rs := db.NewReader([]byte("0001")).Query(); !rs.OK() {
+				t.Fatalf("Query Key ER! %d, %s", rs.Status, rs.Message)
+			} else {
+				if rs.DataValue().Uint32() != 1 {
+					t.Fatal("Query Key ER! Compare")
+				} else {
+					t.Logf("Query Key OK")
 				}
 			}
 
-			t.Logf("Query KeyRange OK")
-		}
-
-		// Query KeyRange+RevRange
-		if rs := dbs[0].NewReader(nil).
-			KeyRangeSet([]byte("0003"), []byte("0000")).
-			ModeRevRangeSet(true).LimitNumSet(10).Query(); !rs.OK() {
-			t.Fatal("Query RevRange ER!")
-		} else {
-
-			if len(rs.Items) != 2 {
-				t.Fatalf("Query RevRange ER! %d", len(rs.Items))
+			// ObjectDel
+			if rs := db.NewWriter([]byte("0001"), nil).ModeDeleteSet(true).Commit(); !rs.OK() {
+				t.Fatal("ObjectDel ER!")
+			}
+			if rs := db.NewReader([]byte("0001")).Query(); !rs.NotFound() {
+				t.Fatal("ObjectDel ER!")
+			} else {
+				t.Logf("ObjectDel Key OK")
 			}
 
-			for i, item := range rs.Items {
-				if item.DataValue().Int() != (2 - i) {
-					t.Fatal("Query RevRange ER!")
+			//
+			for _, n := range []int{1, 2, 3} {
+				db.NewWriter([]byte(fmt.Sprintf("%04d", n)), n).Commit()
+			}
+
+			// Query KeyRange
+			if rs := db.NewReader(nil).
+				KeyRangeSet([]byte("0001"), []byte("0009")).
+				LimitNumSet(10).Query(); !rs.OK() {
+				t.Fatal("Query ER!")
+			} else {
+
+				if len(rs.Items) != 2 {
+					t.Fatalf("Query KeyRange ER! %d", len(rs.Items))
 				}
+
+				for i, item := range rs.Items {
+					if item.DataValue().Int() != (i + 2) {
+						t.Fatal("Query KeyRange ER!")
+					}
+				}
+
+				t.Logf("Query KeyRange OK")
 			}
 
-			t.Logf("Query KeyRange+RevRange OK")
-		}
+			// Query KeyRange+RevRange
+			if rs := db.NewReader(nil).
+				KeyRangeSet([]byte("0003"), []byte("0000")).
+				ModeRevRangeSet(true).LimitNumSet(10).Query(); !rs.OK() {
+				t.Fatal("Query RevRange ER!")
+			} else {
 
-		// Commit Expired
-		if rs := dbs[0].NewWriter([]byte("0001"), "ttl").
-			ExpireSet(500).Commit(); !rs.OK() {
-			t.Fatal("Commit ER! Expired")
-		}
+				if len(rs.Items) != 2 {
+					t.Fatalf("Query RevRange ER! %d", len(rs.Items))
+				}
 
-		if rs := dbs[0].NewReader([]byte("0001")).Query(); !rs.OK() {
-			t.Fatal("Query Key ER! Expired")
-		}
-		time.Sleep(1e9)
-		if rs := dbs[0].NewReader([]byte("0001")).Query(); !rs.NotFound() {
-			t.Fatal("Query Key ER! Expired")
-		} else {
-			t.Logf("Commit Expirted OK")
-		}
+				for i, item := range rs.Items {
+					if item.DataValue().Int() != (2 - i) {
+						t.Fatal("Query RevRange ER!")
+					}
+				}
 
-		// Commit IncrId
-		key := []byte(fmt.Sprintf("incr-id-1-%d", pn))
-		ow := sko.NewObjectWriter(key, "demo").
-			IncrNamespaceSet("default")
-		ow.Meta.IncrId = 1000
-		if rs := dbs[0].Commit(ow); !rs.OK() {
-			t.Fatal("Commit IncrId ER!")
-		}
-		if rs := dbs[0].NewReader(key).Query(); !rs.OK() || rs.Items[0].Meta.IncrId != 1000 {
-			t.Fatalf("Commit IncrId ER! %s", rs.Message)
-		} else {
-			t.Log("Commit IncrId OK")
-		}
-		key = []byte(fmt.Sprintf("incr-id-2-%d", pn))
-		if rs := dbs[0].NewWriter(key, "demo").
-			IncrNamespaceSet("default").Commit(); !rs.OK() {
-			t.Fatal("Commit IncrId ER!")
-		}
-		if rs := dbs[0].NewReader(key).Query(); !rs.OK() || rs.Items[0].Meta.IncrId <= 1000 {
-			t.Fatal("Commit IncrId ER!")
-		} else {
-			t.Log("Commit IncrId OK")
-		}
-
-		// Commit Struct
-		obj := sko.ObjectData{
-			Attrs: 100,
-		}
-		if rs := dbs[0].NewWriter([]byte("0001"), obj).Commit(); !rs.OK() {
-			t.Fatal("Commit ER!")
-		}
-		if rs := dbs[0].NewReader([]byte("0001")).Query(); !rs.OK() {
-			t.Fatalf("Query Key ER! status %d", rs.Status)
-		} else {
-			var item sko.ObjectData
-			if err := rs.DataValue().Decode(&item, nil); err != nil {
-				t.Fatalf("Query Key DataValue().Decode() ER! %s", err.Error())
-			}
-			if item.Attrs != 100 {
-				t.Fatal("Query Key DataValue().Decode() ER!")
+				t.Logf("Query KeyRange+RevRange OK")
 			}
 
-			t.Logf("Commit Struct Encode/Decode OK")
+			// Commit Expired
+			if rs := db.NewWriter([]byte("0001"), "ttl").
+				ExpireSet(500).Commit(); !rs.OK() {
+				t.Fatal("Commit ER! Expired")
+			}
+
+			if rs := db.NewReader([]byte("0001")).Query(); !rs.OK() {
+				t.Fatal("Query Key ER! Expired")
+			}
+			time.Sleep(1e9)
+			if rs := db.NewReader([]byte("0001")).Query(); !rs.NotFound() {
+				t.Fatal("Query Key ER! Expired")
+			} else {
+				t.Logf("Commit Expirted OK")
+			}
+
+			// Commit IncrId
+			key := []byte(fmt.Sprintf("incr-id-1-%d", pn))
+			ow := sko.NewObjectWriter(key, "demo").
+				IncrNamespaceSet("default")
+			ow.Meta.IncrId = 1000
+			if rs := db.Commit(ow); !rs.OK() {
+				t.Fatal("Commit IncrId ER!")
+			}
+			if rs := db.NewReader(key).Query(); !rs.OK() || rs.Items[0].Meta.IncrId != 1000 {
+				t.Fatalf("Commit IncrId ER! %s", rs.Message)
+			} else {
+				t.Log("Commit IncrId OK")
+			}
+			key = []byte(fmt.Sprintf("incr-id-2-%d", pn))
+			if rs := db.NewWriter(key, "demo").
+				IncrNamespaceSet("default").Commit(); !rs.OK() {
+				t.Fatal("Commit IncrId ER!")
+			}
+			if rs := db.NewReader(key).Query(); !rs.OK() || rs.Items[0].Meta.IncrId <= 1000 {
+				t.Fatal("Commit IncrId ER!")
+			} else {
+				t.Log("Commit IncrId OK")
+			}
+
+			// Commit Struct
+			obj := sko.ObjectData{
+				Attrs: 100,
+			}
+			if rs := db.NewWriter([]byte("0001"), obj).Commit(); !rs.OK() {
+				t.Fatal("Commit ER!")
+			}
+			if rs := db.NewReader([]byte("0001")).Query(); !rs.OK() {
+				t.Fatalf("Query Key ER! status %d", rs.Status)
+			} else {
+				var item sko.ObjectData
+				if err := rs.DataValue().Decode(&item, nil); err != nil {
+					t.Fatalf("Query Key DataValue().Decode() ER! %s", err.Error())
+				}
+				if item.Attrs != 100 {
+					t.Fatal("Query Key DataValue().Decode() ER!")
+				}
+
+				t.Logf("Commit Struct Encode/Decode OK")
+			}
 		}
 	}
 }
 
 func Test_Object_LogAsync(t *testing.T) {
 
-	dbs, err := dbOpen([]int{20001, 20002, 20003})
+	dbs, err := dbOpen([]int{20001, 20002, 20003}, false)
 	if err != nil {
 		t.Fatalf("Can Not Open Database %s", err.Error())
 	}
@@ -263,7 +310,7 @@ func Test_Object_LogAsync(t *testing.T) {
 		t.Logf("Commit OK cLog %d", cLog)
 	}
 
-	time.Sleep(4e9)
+	time.Sleep(5e9)
 
 	ctx, fc := context.WithTimeout(context.Background(), time.Second*1)
 	defer fc()
@@ -302,7 +349,22 @@ func Test_Object_LogAsync(t *testing.T) {
 
 func Benchmark_Commit_Seq(b *testing.B) {
 
-	dbs, err := dbOpen(nil)
+	dbs, err := dbOpen(nil, false)
+	if err != nil {
+		b.Fatalf("Can Not Open Database %s", err.Error())
+	}
+
+	bs := []byte(strings.Repeat("a", 1000))
+	for i := 0; i < b.N; i++ {
+		if rs := dbs[0].NewWriter([]byte(fmt.Sprintf("%032d", i)), bs).Commit(); !rs.OK() {
+			b.Fatalf("Commit ER!, Err %s", rs.Message)
+		}
+	}
+}
+
+func Benchmark_Commit_Seq_MetaLogDisable(b *testing.B) {
+
+	dbs, err := dbOpen([]int{-1}, false)
 	if err != nil {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
@@ -317,7 +379,23 @@ func Benchmark_Commit_Seq(b *testing.B) {
 
 func Benchmark_Commit_Rand(b *testing.B) {
 
-	dbs, err := dbOpen(nil)
+	dbs, err := dbOpen(nil, false)
+	if err != nil {
+		b.Fatalf("Can Not Open Database %s", err.Error())
+	}
+
+	bs := []byte(strings.Repeat("a", 1000))
+	for i := 0; i < b.N; i++ {
+		if rs := dbs[0].NewWriter(
+			[]byte(fmt.Sprintf("%032d", rand.Int31())), bs).Commit(); !rs.OK() {
+			b.Fatalf("Commit ER!, Err %s", rs.Message)
+		}
+	}
+}
+
+func Benchmark_Commit_Rand_MetaLogDisable(b *testing.B) {
+
+	dbs, err := dbOpen([]int{-2}, false)
 	if err != nil {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
@@ -333,7 +411,7 @@ func Benchmark_Commit_Rand(b *testing.B) {
 
 func Benchmark_Commit_Rand_Cluster(b *testing.B) {
 
-	dbs, err := dbOpen([]int{10001, 10002, 10003})
+	dbs, err := dbOpen([]int{10001, 10002, 10003}, false)
 	if err != nil {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
@@ -350,7 +428,7 @@ func Benchmark_Commit_Rand_Cluster(b *testing.B) {
 
 func Benchmark_Query_Key(b *testing.B) {
 
-	dbs, err := dbOpen(nil)
+	dbs, err := dbOpen(nil, false)
 	if err != nil {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
@@ -371,7 +449,7 @@ func Benchmark_Query_Key(b *testing.B) {
 
 func Benchmark_Query_KeyRange(b *testing.B) {
 
-	dbs, err := dbOpen(nil)
+	dbs, err := dbOpen(nil, false)
 	if err != nil {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
