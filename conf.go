@@ -28,7 +28,8 @@ type Config struct {
 	StorageDataDirectory string `json:"storage_data_directory"`
 
 	// Server Settings
-	ServerBind string `json:"server_bind,omitempty"`
+	ServerBind          string `json:"server_bind,omitempty"`
+	ServerAuthSecretKey string `json:"server_auth_secret_key"`
 
 	// Performance Settings
 	PerformanceWriteBufferSize int `json:"performance_write_buffer_size,omitempty"`

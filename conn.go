@@ -22,6 +22,7 @@ import (
 	"sync"
 
 	"github.com/hooto/hlog4g/hlog"
+	"github.com/hooto/iam/iamauth"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/filter"
 	"github.com/syndtr/goleveldb/leveldb/opt"
@@ -47,6 +48,8 @@ type Conn struct {
 	incrOffset uint64
 	incrCutset uint64
 	cluster    *ServiceImpl
+	serverKey  *iamauth.AuthKey
+	clusterKey *iamauth.AuthKey
 }
 
 func Open(cfg interface{}) (*Conn, error) {
@@ -65,6 +68,8 @@ func Open(cfg interface{}) (*Conn, error) {
 			logCutset:  0,
 			incrOffset: 0,
 			incrCutset: 0,
+			serverKey:  authKeyDefault(),
+			clusterKey: authKeyDefault(),
 		}
 		err error
 	)

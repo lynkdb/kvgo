@@ -134,7 +134,7 @@ func (cn *Conn) workerClusterReplicaLogAsync() error {
 			}
 		}
 
-		conn, err := ClientConn(hp)
+		conn, err := clientConn(hp, cn.clusterKey)
 		if err != nil {
 			continue
 		}

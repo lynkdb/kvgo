@@ -24,13 +24,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lynkdb/iomix/connect"
 	"github.com/lynkdb/iomix/sko"
 )
 
 var (
-	dbTestCaches = map[string]*Conn{}
-	dbTestMu     sync.Mutex
+	dbTestCaches        = map[string]*Conn{}
+	dbTestMu            sync.Mutex
+	dbTestAuthSecretKey = "9ABtTYi9qN63/8T+n1jtLWllVWoKsJeOAwR7vzZ3ch42MiCw"
 )
 
 func init() {
@@ -69,16 +69,19 @@ func dbOpen(ports []int) ([]*Conn, error) {
 		}
 
 		//
-		opts := connect.ConnOptions{}
-		opts.SetValue("data_dir", test_dir)
+		cfg := NewConfig(test_dir)
 
-		if len(nodes) > 0 {
-			opts.SetValue("lynkdb/sko/cluster_bind", fmt.Sprintf("127.0.0.1:%d", port))
-			opts.SetValue("lynkdb/sko/cluster_masters", strings.Join(nodes, ","))
-			opts.SetValue("lynkdb/sko/cluster_secret_key", "123456")
+		if port > 0 {
+			cfg.ServerBind = fmt.Sprintf("127.0.0.1:%d", port)
+			cfg.ServerAuthSecretKey = dbTestAuthSecretKey
 		}
 
-		db, err := Open(opts)
+		if len(nodes) > 0 {
+			cfg.ClusterMasters = nodes
+			cfg.ClusterAuthSecretKey = dbTestAuthSecretKey
+		}
+
+		db, err := Open(cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -271,9 +274,9 @@ func Test_Object_LogAsync(t *testing.T) {
 
 		for _, hp := range db.opts.ClusterMasters {
 
-			conn, err := ClientConn(hp)
+			conn, err := clientConn(hp, db.clusterKey)
 			if err != nil {
-				t.Fatal("Object AsyncLog ER!")
+				t.Fatalf("Object AsyncLog ER! %s", err.Error())
 			}
 
 			rs, err := sko.NewObjectClient(conn).Query(ctx, rr)

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/hooto/hlog4g/hlog"
+	"github.com/hooto/iam/iamauth"
 	"github.com/syndtr/goleveldb/leveldb"
 	"google.golang.org/grpc"
 
@@ -46,6 +47,10 @@ var (
 func (cn *Conn) clusterStart() error {
 
 	if nCap := len(cn.opts.ClusterMasters); nCap > 0 {
+
+		if err := cn.authKeySetup(cn.clusterKey, cn.opts.ClusterAuthSecretKey); err != nil {
+			return err
+		}
 
 		if nCap > sko.ObjectClusterNodeMax {
 			return errors.New("Deny of sko.ObjectClusterNodeMax")
@@ -73,6 +78,10 @@ func (cn *Conn) clusterStart() error {
 	}
 
 	if cn.opts.ServerBind != "" {
+
+		if err := cn.authKeySetup(cn.serverKey, cn.opts.ServerAuthSecretKey); err != nil {
+			return err
+		}
 
 		host, port, err := net.SplitHostPort(cn.opts.ServerBind)
 		if err != nil {
@@ -115,7 +124,11 @@ func (cn *Conn) clusterStart() error {
 	return nil
 }
 
-func ClientConn(addr string) (*grpc.ClientConn, error) {
+func clientConn(addr string, key *iamauth.AuthKey) (*grpc.ClientConn, error) {
+
+	if key == nil {
+		return nil, errors.New("not auth key setup")
+	}
 
 	grpcClientMu.Lock()
 	defer grpcClientMu.Unlock()
@@ -124,7 +137,9 @@ func ClientConn(addr string) (*grpc.ClientConn, error) {
 		return c, nil
 	}
 
-	c, err := grpc.Dial(addr, grpc.WithInsecure(),
+	c, err := grpc.Dial(addr,
+		grpc.WithInsecure(),
+		grpc.WithPerRPCCredentials(newAppCredential(key)),
 		grpc.WithMaxMsgSize(grpcMsgByteMax),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(grpcMsgByteMax)),
 		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(grpcMsgByteMax)),
@@ -140,6 +155,11 @@ func ClientConn(addr string) (*grpc.ClientConn, error) {
 
 func (it *ServiceImpl) Query(ctx context.Context,
 	or *sko.ObjectReader) (*sko.ObjectResult, error) {
+	if ctx != nil {
+		if err := appAuthValid(ctx, it.db.serverKey); err != nil {
+			return sko.NewObjectResultClientError(err), nil
+		}
+	}
 	return it.db.Query(or), nil
 }
 
@@ -150,6 +170,12 @@ type pQueItem struct {
 
 func (it *ServiceImpl) Commit(ctx context.Context,
 	rr *sko.ObjectWriter) (*sko.ObjectResult, error) {
+
+	if ctx != nil {
+		if err := appAuthValid(ctx, it.db.serverKey); err != nil {
+			return sko.NewObjectResultClientError(err), nil
+		}
+	}
 
 	if len(it.db.opts.ClusterMasters) == 0 {
 		return it.db.Commit(rr), nil
@@ -216,7 +242,7 @@ func (it *ServiceImpl) Commit(ctx context.Context,
 
 	for _, addr := range it.db.opts.ClusterMasters {
 
-		conn, err := ClientConn(addr)
+		conn, err := clientConn(addr, it.db.clusterKey)
 		if err != nil {
 			continue
 		}
@@ -280,7 +306,7 @@ func (it *ServiceImpl) Commit(ctx context.Context,
 
 	for _, addr := range it.db.opts.ClusterMasters {
 
-		conn, err := ClientConn(addr)
+		conn, err := clientConn(addr, it.db.clusterKey)
 		if err != nil {
 			continue
 		}
@@ -336,6 +362,10 @@ func (it *ServiceImpl) Commit(ctx context.Context,
 func (it *ServiceImpl) Prepare(ctx context.Context,
 	or *sko.ObjectWriter) (*sko.ObjectResult, error) {
 
+	if err := appAuthValid(ctx, it.db.serverKey); err != nil {
+		return sko.NewObjectResultClientError(err), nil
+	}
+
 	it.proposalMu.Lock()
 	defer it.proposalMu.Unlock()
 
@@ -385,6 +415,10 @@ func (it *ServiceImpl) Prepare(ctx context.Context,
 
 func (it *ServiceImpl) Accept(ctx context.Context,
 	rr2 *sko.ObjectWriter) (*sko.ObjectResult, error) {
+
+	if err := appAuthValid(ctx, it.db.serverKey); err != nil {
+		return sko.NewObjectResultClientError(err), nil
+	}
 
 	it.proposalMu.Lock()
 	defer it.proposalMu.Unlock()
