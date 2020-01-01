@@ -29,6 +29,33 @@ func authKeyDefault() *iamauth.AuthKey {
 	}
 }
 
+func (it *Conn) authKey(ak string) *iamauth.AuthKey {
+	it.keyMu.RLock()
+	defer it.keyMu.RUnlock()
+	k, ok := it.keys[ak]
+	if ok {
+		return k
+	}
+	return authKeyDefault()
+}
+
+func (it *Conn) authKeySet(ak, sk string) error {
+
+	if len(sk) < 20 {
+		return errors.New("invalid secret_key")
+	}
+
+	it.keyMu.Lock()
+	defer it.keyMu.Unlock()
+
+	it.keys[ak] = &iamauth.AuthKey{
+		AccessKey: ak,
+		SecretKey: sk,
+	}
+
+	return nil
+}
+
 func (it *Conn) authKeySetup(ak *iamauth.AuthKey, secretKey string) error {
 
 	if len(secretKey) < 20 {

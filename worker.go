@@ -106,16 +106,16 @@ func (cn *Conn) workerLocalExpiredRefresh() error {
 
 func (cn *Conn) workerClusterReplicaLogAsync() error {
 
-	if len(cn.opts.ClusterMasters) < 1 {
+	if len(cn.opts.Cluster.Masters) < 1 {
 		return nil
 	}
 
 	ctx, fc := context.WithTimeout(context.Background(), time.Second*10)
 	defer fc()
 
-	for _, hp := range cn.opts.ClusterMasters {
+	for _, hp := range cn.opts.Cluster.Masters {
 
-		if hp == cn.opts.ServerBind {
+		if hp.Addr == cn.opts.Server.Bind {
 			continue
 		}
 
@@ -124,7 +124,7 @@ func (cn *Conn) workerClusterReplicaLogAsync() error {
 			num    = int64(0)
 		)
 
-		if bs, err := cn.db.Get(keySysLogAsync(hp), nil); err != nil {
+		if bs, err := cn.db.Get(keySysLogAsync(hp.Addr), nil); err != nil {
 			if err.Error() != ldbNotFound {
 				return err
 			}
@@ -134,7 +134,7 @@ func (cn *Conn) workerClusterReplicaLogAsync() error {
 			}
 		}
 
-		conn, err := clientConn(hp, cn.clusterKey)
+		conn, err := clientConn(hp.Addr, cn.authKey(hp.Addr))
 		if err != nil {
 			continue
 		}
@@ -171,7 +171,7 @@ func (cn *Conn) workerClusterReplicaLogAsync() error {
 		}
 
 		if rr.LogOffset > offset {
-			cn.db.Put(keySysLogAsync(hp),
+			cn.db.Put(keySysLogAsync(hp.Addr),
 				[]byte(strconv.FormatUint(rr.LogOffset, 10)), nil)
 		}
 

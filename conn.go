@@ -49,12 +49,13 @@ type Conn struct {
 	incrCutset uint64
 	cluster    *ServiceImpl
 	serverKey  *iamauth.AuthKey
-	clusterKey *iamauth.AuthKey
+	keyMu      sync.RWMutex
+	keys       map[string]*iamauth.AuthKey
 }
 
-func Open(cfg interface{}) (*Conn, error) {
+func Open(args ...interface{}) (*Conn, error) {
 
-	if cfg == nil {
+	if len(args) < 1 {
 		return nil, errors.New("no config setup")
 	}
 
@@ -69,27 +70,47 @@ func Open(cfg interface{}) (*Conn, error) {
 			incrOffset: 0,
 			incrCutset: 0,
 			serverKey:  authKeyDefault(),
-			clusterKey: authKeyDefault(),
+			keys:       map[string]*iamauth.AuthKey{},
+			opts:       &Config{},
 		}
 		err error
 	)
 
-	switch cfg.(type) {
+	for _, cfg := range args {
 
-	case Config:
-		c := cfg.(Config)
-		cn.opts = &c
+		switch cfg.(type) {
 
-	case *Config:
-		cn.opts = cfg.(*Config)
+		case Config:
+			c := cfg.(Config)
+			cn.opts = &c
 
-	case connect.ConnOptions:
-		if cn.opts, err = configParse(cfg.(connect.ConnOptions)); err != nil {
-			return nil, err
+		case *Config:
+			cn.opts = cfg.(*Config)
+
+		case ConfigStorage:
+			c := cfg.(ConfigStorage)
+			cn.opts.Storage = c
+
+		case ConfigServer:
+			cn.opts.Server = cfg.(ConfigServer)
+
+		case ConfigPerformance:
+			cn.opts.Performance = cfg.(ConfigPerformance)
+
+		case ConfigFeature:
+			cn.opts.Feature = cfg.(ConfigFeature)
+
+		case ConfigCluster:
+			cn.opts.Cluster = cfg.(ConfigCluster)
+
+		case connect.ConnOptions:
+			if cn.opts, err = configParse(cfg.(connect.ConnOptions)); err != nil {
+				return nil, err
+			}
+
+		default:
+			return nil, errors.New("invalid config")
 		}
-
-	default:
-		return nil, errors.New("invalid config")
 	}
 
 	cn.opts.reset()
@@ -108,21 +129,21 @@ func Open(cfg interface{}) (*Conn, error) {
 		return cn, nil
 	}
 
-	if pconn, ok := conns[cn.opts.StorageDataDirectory]; ok {
+	if pconn, ok := conns[cn.opts.Storage.DataDirectory]; ok {
 		pconn.clients++
 		return pconn, nil
 	}
 
-	dir := filepath.Clean(fmt.Sprintf("%s/%d_%d_%d", cn.opts.StorageDataDirectory, 10, 0, 0))
+	dir := filepath.Clean(fmt.Sprintf("%s/%d_%d_%d", cn.opts.Storage.DataDirectory, 10, 0, 0))
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return cn, err
 	}
 
 	if cn.db, err = leveldb.OpenFile(dir, &opt.Options{
-		WriteBuffer:            cn.opts.PerformanceWriteBufferSize * opt.MiB,
-		BlockCacheCapacity:     cn.opts.PerformanceBlockCacheSize * opt.MiB,
-		CompactionTableSize:    cn.opts.PerformanceMaxTableSize * opt.MiB,
-		OpenFilesCacheCapacity: cn.opts.PerformanceMaxOpenFiles,
+		WriteBuffer:            cn.opts.Performance.WriteBufferSize * opt.MiB,
+		BlockCacheCapacity:     cn.opts.Performance.BlockCacheSize * opt.MiB,
+		CompactionTableSize:    cn.opts.Performance.MaxTableSize * opt.MiB,
+		OpenFilesCacheCapacity: cn.opts.Performance.MaxOpenFiles,
 		Compression:            opt.SnappyCompression,
 		Filter:                 filter.NewBloomFilter(10),
 	}); err != nil {
@@ -141,7 +162,11 @@ func Open(cfg interface{}) (*Conn, error) {
 	}
 
 	if err := cn.clusterStart(); err != nil {
-		cn.Close()
+
+		if cn.db != nil {
+			cn.db.Close()
+		}
+
 		return nil, err
 	}
 
@@ -149,7 +174,7 @@ func Open(cfg interface{}) (*Conn, error) {
 
 	hlog.Printf("info", "kvgo %s started", cn.instId)
 
-	conns[cn.opts.StorageDataDirectory] = cn
+	conns[cn.opts.Storage.DataDirectory] = cn
 
 	return cn, nil
 }
@@ -159,7 +184,7 @@ func (cn *Conn) Close() error {
 	connMu.Lock()
 	defer connMu.Unlock()
 
-	if pconn, ok := conns[cn.opts.StorageDataDirectory]; ok {
+	if pconn, ok := conns[cn.opts.Storage.DataDirectory]; ok {
 
 		if pconn.clients > 1 {
 			pconn.clients--
@@ -175,7 +200,7 @@ func (cn *Conn) Close() error {
 		cn.db.Close()
 	}
 
-	delete(conns, cn.opts.StorageDataDirectory)
+	delete(conns, cn.opts.Storage.DataDirectory)
 
 	return nil
 }

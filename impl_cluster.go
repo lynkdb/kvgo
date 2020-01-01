@@ -46,20 +46,20 @@ var (
 
 func (cn *Conn) clusterStart() error {
 
-	if nCap := len(cn.opts.ClusterMasters); nCap > 0 {
-
-		if err := cn.authKeySetup(cn.clusterKey, cn.opts.ClusterAuthSecretKey); err != nil {
-			return err
-		}
+	if nCap := len(cn.opts.Cluster.Masters); nCap > 0 {
 
 		if nCap > sko.ObjectClusterNodeMax {
 			return errors.New("Deny of sko.ObjectClusterNodeMax")
 		}
 
-		addrs := map[string]bool{}
+		var (
+			masters = []ConfigClusterMaster{}
+			addrs   = map[string]bool{}
+		)
 
-		for _, v := range cn.opts.ClusterMasters {
-			host, port, err := net.SplitHostPort(v)
+		for _, v := range cn.opts.Cluster.Masters {
+
+			host, port, err := net.SplitHostPort(v.Addr)
 			if err != nil {
 				return err
 			}
@@ -67,23 +67,26 @@ func (cn *Conn) clusterStart() error {
 				hlog.Printf("warn", "Duplicate host:port (%s:%s) setting", host, port)
 				continue
 			}
-			addrs[host+":"+port] = true
+
+			v.Addr = host + ":" + port
+
+			if err := cn.authKeySet(v.Addr, v.AuthSecretKey); err != nil {
+				return err
+			}
+
+			masters = append(masters, v)
 		}
 
-		cn.opts.ClusterMasters = []string{}
-
-		for k, _ := range addrs {
-			cn.opts.ClusterMasters = append(cn.opts.ClusterMasters, k)
-		}
+		cn.opts.Cluster.Masters = masters
 	}
 
-	if cn.opts.ServerBind != "" && !cn.opts.ClientConnectEnable {
+	if cn.opts.Server.Bind != "" && !cn.opts.ClientConnectEnable {
 
-		if err := cn.authKeySetup(cn.serverKey, cn.opts.ServerAuthSecretKey); err != nil {
+		if err := cn.authKeySetup(cn.serverKey, cn.opts.Server.AuthSecretKey); err != nil {
 			return err
 		}
 
-		host, port, err := net.SplitHostPort(cn.opts.ServerBind)
+		host, port, err := net.SplitHostPort(cn.opts.Server.Bind)
 		if err != nil {
 			return err
 		}
@@ -93,7 +96,7 @@ func (cn *Conn) clusterStart() error {
 			return err
 		}
 
-		cn.opts.ServerBind = host + ":" + port
+		cn.opts.Server.Bind = host + ":" + port
 
 		server := grpc.NewServer(
 			grpc.MaxMsgSize(grpcMsgByteMax),
@@ -117,7 +120,7 @@ func (cn *Conn) clusterStart() error {
 		}
 	}
 
-	if len(cn.opts.ClusterMasters) > 0 && !cn.opts.ClientConnectEnable {
+	if len(cn.opts.Cluster.Masters) > 0 && !cn.opts.ClientConnectEnable {
 		go cn.workerClusterReplica()
 	}
 
@@ -177,7 +180,7 @@ func (it *ServiceImpl) Commit(ctx context.Context,
 		}
 	}
 
-	if len(it.db.opts.ClusterMasters) == 0 {
+	if len(it.db.opts.Cluster.Masters) == 0 {
 		return it.db.Commit(rr), nil
 	}
 
@@ -232,7 +235,7 @@ func (it *ServiceImpl) Commit(ctx context.Context,
 	}
 
 	var (
-		nCap = len(it.db.opts.ClusterMasters)
+		nCap = len(it.db.opts.Cluster.Masters)
 		pNum = 0
 		pLog = uint64(0)
 		pInc = uint64(0)
@@ -240,9 +243,9 @@ func (it *ServiceImpl) Commit(ctx context.Context,
 		pTTL = time.Millisecond * time.Duration(objAcceptTTL)
 	)
 
-	for _, addr := range it.db.opts.ClusterMasters {
+	for _, v := range it.db.opts.Cluster.Masters {
 
-		conn, err := clientConn(addr, it.db.clusterKey)
+		conn, err := clientConn(v.Addr, it.db.authKey(v.Addr))
 		if err != nil {
 			continue
 		}
@@ -304,9 +307,9 @@ func (it *ServiceImpl) Commit(ctx context.Context,
 	rr2.Meta.Version = pLog
 	rr2.Meta.IncrId = pInc
 
-	for _, addr := range it.db.opts.ClusterMasters {
+	for _, v := range it.db.opts.Cluster.Masters {
 
-		conn, err := clientConn(addr, it.db.clusterKey)
+		conn, err := clientConn(v.Addr, it.db.authKey(v.Addr))
 		if err != nil {
 			continue
 		}

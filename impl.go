@@ -29,7 +29,7 @@ import (
 
 func (cn *Conn) Commit(rr *sko.ObjectWriter) *sko.ObjectResult {
 
-	if len(cn.opts.ClusterMasters) > 0 {
+	if len(cn.opts.Cluster.Masters) > 0 {
 
 		if cn.opts.ClientConnectEnable {
 			return cn.objectCommitRemote(rr, 0)
@@ -136,16 +136,16 @@ func (cn *Conn) objectCommitLocal(rr *sko.ObjectWriter, cLog uint64) *sko.Object
 			batch := new(leveldb.Batch)
 
 			if meta != nil {
-				if !cn.opts.FeatureWriteMetaDisable {
+				if !cn.opts.Feature.WriteMetaDisable {
 					batch.Delete(keyEncode(nsKeyMeta, rr.Meta.Key))
 				}
 				batch.Delete(keyEncode(nsKeyData, rr.Meta.Key))
-				if !cn.opts.FeatureWriteLogDisable {
+				if !cn.opts.Feature.WriteLogDisable {
 					batch.Delete(keyEncode(nsKeyLog, uint64ToBytes(meta.Version)))
 				}
 			}
 
-			if !cn.opts.FeatureWriteLogDisable {
+			if !cn.opts.Feature.WriteLogDisable {
 				batch.Put(keyEncode(nsKeyLog, uint64ToBytes(cLog)), bsMeta)
 			}
 
@@ -158,11 +158,11 @@ func (cn *Conn) objectCommitLocal(rr *sko.ObjectWriter, cLog uint64) *sko.Object
 
 			batch := new(leveldb.Batch)
 
-			if !cn.opts.FeatureWriteMetaDisable {
+			if !cn.opts.Feature.WriteMetaDisable {
 				batch.Put(keyEncode(nsKeyMeta, rr.Meta.Key), bsMeta)
 			}
 			batch.Put(keyEncode(nsKeyData, rr.Meta.Key), bsData)
-			if !cn.opts.FeatureWriteLogDisable {
+			if !cn.opts.Feature.WriteLogDisable {
 				batch.Put(keyEncode(nsKeyLog, uint64ToBytes(cLog)), bsMeta)
 			}
 
@@ -171,7 +171,7 @@ func (cn *Conn) objectCommitLocal(rr *sko.ObjectWriter, cLog uint64) *sko.Object
 			}
 
 			if meta != nil {
-				if meta.Version < cLog && !cn.opts.FeatureWriteLogDisable {
+				if meta.Version < cLog && !cn.opts.Feature.WriteLogDisable {
 					batch.Delete(keyEncode(nsKeyLog, uint64ToBytes(meta.Version)))
 				}
 				if meta.Expired > 0 && meta.Expired != rr.Meta.Expired {
@@ -204,9 +204,9 @@ func (cn *Conn) objectCommitRemote(rr *sko.ObjectWriter, cLog uint64) *sko.Objec
 		return sko.NewObjectResultClientError(err)
 	}
 
-	for _, addr := range cn.opts.ClusterMasters {
+	for _, v := range cn.opts.Cluster.Masters {
 
-		conn, err := clientConn(addr, cn.clusterKey)
+		conn, err := clientConn(v.Addr, cn.authKey(v.Addr))
 		if err != nil {
 			continue
 		}
@@ -286,9 +286,9 @@ func (cn *Conn) Query(rr *sko.ObjectReader) *sko.ObjectResult {
 
 func (cn *Conn) objectQueryRemote(rr *sko.ObjectReader) *sko.ObjectResult {
 
-	for _, addr := range cn.opts.ClusterMasters {
+	for _, v := range cn.opts.Cluster.Masters {
 
-		conn, err := clientConn(addr, cn.clusterKey)
+		conn, err := clientConn(v.Addr, cn.authKey(v.Addr))
 		if err != nil {
 			continue
 		}

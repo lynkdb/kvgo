@@ -17,7 +17,6 @@ package kvgo
 import (
 	"errors"
 	"path/filepath"
-	"strings"
 
 	"github.com/lynkdb/iomix/connect"
 )
@@ -25,39 +24,59 @@ import (
 type Config struct {
 
 	// Storage Settings
-	StorageDataDirectory string `json:"storage_data_directory"`
+	Storage ConfigStorage `toml:"storage" json:"storage"`
 
 	// Server Settings
-	ServerBind          string `json:"server_bind,omitempty"`
-	ServerAuthSecretKey string `json:"server_auth_secret_key"`
+	Server ConfigServer `toml:"server" json:"server"`
 
 	// Performance Settings
-	PerformanceWriteBufferSize int `json:"performance_write_buffer_size,omitempty"`
-	PerformanceBlockCacheSize  int `json:"performance_block_cache_size,omitempty"`
-	PerformanceMaxTableSize    int `json:"performance_max_table_size,omitempty"`
-	PerformanceMaxOpenFiles    int `json:"performance_max_open_files,omitempty"`
+	Performance ConfigPerformance `toml:"performance" json:"performance"`
 
 	// Feature Settings
-	FeatureWriteMetaDisable bool `json:"feature_write_meta_disable,omitempty"`
-	FeatureWriteLogDisable  bool `json:"feature_write_log_disable,omitempty"`
+	Feature ConfigFeature `toml:"feature" json:"feature"`
 
 	// Cluster Settings
-	ClusterMasters       []string `json:"cluster_masters,omitempty"`
-	ClusterAuthSecretKey string   `json:"cluster_auth_secret_key,omitempty"`
+	Cluster ConfigCluster `toml:"cluster" json:"cluster"`
 
 	// Client Settings
-	ClientConnectEnable bool `json:"-"`
+	ClientConnectEnable bool `toml:"-"`
+}
+
+type ConfigStorage struct {
+	DataDirectory string `toml:"data_directory" json:"data_directory"`
+}
+
+type ConfigServer struct {
+	Bind          string `toml:"bind" json:"bind"`
+	AuthSecretKey string `toml:"auth_secret_key" json:"auth_secret_key"`
+}
+
+type ConfigPerformance struct {
+	WriteBufferSize int `toml:"write_buffer_size" json:"write_buffer_size"`
+	BlockCacheSize  int `toml:"block_cache_size" json:"block_cache_size"`
+	MaxTableSize    int `toml:"max_table_size" json:"max_table_size"`
+	MaxOpenFiles    int `toml:"max_open_files" json:"max_open_files"`
+}
+
+type ConfigFeature struct {
+	WriteMetaDisable bool `toml:"write_meta_disable" json:"write_meta_disable"`
+	WriteLogDisable  bool `toml:"write_log_disable" json:"write_log_disable"`
+}
+
+type ConfigCluster struct {
+	Masters []ConfigClusterMaster `toml:"masters" json:"masters"`
+}
+
+type ConfigClusterMaster struct {
+	Addr          string `toml:"addr" json:"addr"`
+	AuthSecretKey string `toml:"auth_secret_key" json:"auth_secret_key"`
 }
 
 func (it *Config) Valid() error {
 
 	if it.ClientConnectEnable {
-		if len(it.ClusterMasters) < 1 {
+		if len(it.Cluster.Masters) < 1 {
 			return errors.New("no cluster/masters setup")
-		}
-
-		if len(it.ClusterAuthSecretKey) < 1 {
-			return errors.New("no cluster/auth_secret_key setup")
 		}
 	}
 
@@ -66,34 +85,36 @@ func (it *Config) Valid() error {
 
 func NewConfig(dir string) *Config {
 	return &Config{
-		StorageDataDirectory: filepath.Clean(dir),
+		Storage: ConfigStorage{
+			DataDirectory: filepath.Clean(dir),
+		},
 	}
 }
 
 func (it *Config) reset() *Config {
 
-	if it.PerformanceWriteBufferSize < 4 {
-		it.PerformanceWriteBufferSize = 4
-	} else if it.PerformanceWriteBufferSize > 128 {
-		it.PerformanceWriteBufferSize = 128
+	if it.Performance.WriteBufferSize < 4 {
+		it.Performance.WriteBufferSize = 4
+	} else if it.Performance.WriteBufferSize > 128 {
+		it.Performance.WriteBufferSize = 128
 	}
 
-	if it.PerformanceBlockCacheSize < 8 {
-		it.PerformanceBlockCacheSize = 8
-	} else if it.PerformanceBlockCacheSize > 4096 {
-		it.PerformanceBlockCacheSize = 4096
+	if it.Performance.BlockCacheSize < 8 {
+		it.Performance.BlockCacheSize = 8
+	} else if it.Performance.BlockCacheSize > 4096 {
+		it.Performance.BlockCacheSize = 4096
 	}
 
-	if it.PerformanceMaxTableSize < 8 {
-		it.PerformanceMaxTableSize = 8
-	} else if it.PerformanceMaxTableSize > 64 {
-		it.PerformanceMaxTableSize = 64
+	if it.Performance.MaxTableSize < 8 {
+		it.Performance.MaxTableSize = 8
+	} else if it.Performance.MaxTableSize > 64 {
+		it.Performance.MaxTableSize = 64
 	}
 
-	if it.PerformanceMaxOpenFiles < 500 {
-		it.PerformanceMaxOpenFiles = 500
-	} else if it.PerformanceMaxOpenFiles > 10000 {
-		it.PerformanceMaxOpenFiles = 10000
+	if it.Performance.MaxOpenFiles < 500 {
+		it.Performance.MaxOpenFiles = 500
+	} else if it.Performance.MaxOpenFiles > 10000 {
+		it.Performance.MaxOpenFiles = 10000
 	}
 
 	return it
@@ -106,9 +127,9 @@ func configParse(opts connect.ConnOptions) (*Config, error) {
 	// Storage Settings
 	{
 		if v, ok := opts.Items.Get("storage/data_directory"); ok {
-			cfg.StorageDataDirectory = filepath.Clean(v.String())
+			cfg.Storage.DataDirectory = filepath.Clean(v.String())
 		} else if v, ok := opts.Items.Get("data_dir"); ok {
-			cfg.StorageDataDirectory = filepath.Clean(v.String())
+			cfg.Storage.DataDirectory = filepath.Clean(v.String())
 		} else {
 			return nil, errors.New("No storage/data_directory Found")
 		}
@@ -117,49 +138,42 @@ func configParse(opts connect.ConnOptions) (*Config, error) {
 	// Server Settings
 	{
 		if v, ok := opts.Items.Get("server/bind"); ok {
-			cfg.ServerBind = v.String()
+			cfg.Server.Bind = v.String()
 		}
 	}
 
 	// Performance Settings
 	{
 		if v, ok := opts.Items.Get("performance/write_buffer_size"); ok {
-			cfg.PerformanceWriteBufferSize = v.Int()
+			cfg.Performance.WriteBufferSize = v.Int()
 		}
 
 		if v, ok := opts.Items.Get("performance/block_cache_size"); ok {
-			cfg.PerformanceBlockCacheSize = v.Int()
+			cfg.Performance.BlockCacheSize = v.Int()
 		}
 
 		if v, ok := opts.Items.Get("performance/max_open_files"); ok {
-			cfg.PerformanceMaxOpenFiles = v.Int()
+			cfg.Performance.MaxOpenFiles = v.Int()
 		}
 
 		if v, ok := opts.Items.Get("performance/max_table_size"); ok {
-			cfg.PerformanceMaxTableSize = v.Int()
+			cfg.Performance.MaxTableSize = v.Int()
 		}
 	}
 
 	// Feature Settings
 	{
 		if v, ok := opts.Items.Get("feature/write_meta_disable"); ok && v.String() == "true" {
-			cfg.FeatureWriteMetaDisable = true
+			cfg.Feature.WriteMetaDisable = true
 		}
 
 		if v, ok := opts.Items.Get("feature/write_log_disable"); ok && v.String() == "true" {
-			cfg.FeatureWriteLogDisable = true
+			cfg.Feature.WriteLogDisable = true
 		}
 	}
 
 	// Cluster Settings
 	{
-		if v, ok := opts.Items.Get("cluster/masters"); ok {
-			cfg.ClusterMasters = strings.Split(v.String(), ",")
-		}
-
-		if v, ok := opts.Items.Get("cluster/auth_secret_key"); ok {
-			cfg.ClusterAuthSecretKey = v.String()
-		}
 	}
 
 	return cfg.reset(), nil

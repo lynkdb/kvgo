@@ -33,10 +33,6 @@ var (
 	dbTestAuthSecretKey = "9ABtTYi9qN63/8T+n1jtLWllVWoKsJeOAwR7vzZ3ch42MiCw"
 )
 
-func init() {
-	exec.Command("mkdir", "-p", "/dev/shm/kvgo").Output()
-}
-
 func dbOpen(ports []int, clientEnable bool) ([]*Conn, error) {
 
 	dbTestMu.Lock()
@@ -44,12 +40,15 @@ func dbOpen(ports []int, clientEnable bool) ([]*Conn, error) {
 
 	var (
 		dbs   = []*Conn{}
-		nodes = []string{}
+		nodes = []ConfigClusterMaster{}
 	)
 
 	for _, v := range ports {
 		if v > 0 {
-			nodes = append(nodes, fmt.Sprintf("127.0.0.1:%d", v))
+			nodes = append(nodes, ConfigClusterMaster{
+				Addr:          fmt.Sprintf("127.0.0.1:%d", v),
+				AuthSecretKey: dbTestAuthSecretKey,
+			})
 		}
 	}
 
@@ -61,8 +60,7 @@ func dbOpen(ports []int, clientEnable bool) ([]*Conn, error) {
 
 		cfg := &Config{}
 
-		cfg.ClusterMasters = nodes
-		cfg.ClusterAuthSecretKey = dbTestAuthSecretKey
+		cfg.Cluster.Masters = nodes
 		cfg.ClientConnectEnable = clientEnable
 
 		db, err := Open(cfg)
@@ -96,18 +94,17 @@ func dbOpen(ports []int, clientEnable bool) ([]*Conn, error) {
 		cfg := NewConfig(test_dir)
 
 		if port > 0 {
-			cfg.ServerBind = fmt.Sprintf("127.0.0.1:%d", port)
-			cfg.ServerAuthSecretKey = dbTestAuthSecretKey
+			cfg.Server.Bind = fmt.Sprintf("127.0.0.1:%d", port)
+			cfg.Server.AuthSecretKey = dbTestAuthSecretKey
 		}
 
 		if port < 0 {
-			cfg.FeatureWriteMetaDisable = true
-			cfg.FeatureWriteLogDisable = true
+			cfg.Feature.WriteMetaDisable = true
+			cfg.Feature.WriteLogDisable = true
 		}
 
 		if len(nodes) > 0 {
-			cfg.ClusterMasters = nodes
-			cfg.ClusterAuthSecretKey = dbTestAuthSecretKey
+			cfg.Cluster.Masters = nodes
 		}
 
 		db, err := Open(cfg)
@@ -319,9 +316,9 @@ func Test_Object_LogAsync(t *testing.T) {
 
 	for _, db := range dbs {
 
-		for _, hp := range db.opts.ClusterMasters {
+		for _, hp := range db.opts.Cluster.Masters {
 
-			conn, err := clientConn(hp, db.clusterKey)
+			conn, err := clientConn(hp.Addr, db.authKey(hp.Addr))
 			if err != nil {
 				t.Fatalf("Object AsyncLog ER! %s", err.Error())
 			}
@@ -339,11 +336,11 @@ func Test_Object_LogAsync(t *testing.T) {
 				t.Fatalf("Object AsyncLog ER! %d/%d", rs.Items[0].Meta.Version, cLog)
 			}
 
-			// t.Logf("Object AsyncLog Bind %s, Node %s OK", db.opts.ServerBind, hp)
+			// t.Logf("Object AsyncLog Bind %s, Node %s OK", db.opts.Server.Bind, hp)
 		}
 
 		t.Logf("Object AsyncLog Bind %s, Masters %d OK",
-			db.opts.ServerBind, len(db.opts.ClusterMasters))
+			db.opts.Server.Bind, len(db.opts.Cluster.Masters))
 	}
 }
 
