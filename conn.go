@@ -119,6 +119,10 @@ func Open(args ...interface{}) (*Conn, error) {
 		return nil, err
 	}
 
+	if cn.opts.Storage.DataDirectory == "" {
+		cn.opts.ClientConnectEnable = true
+	}
+
 	if cn.opts.ClientConnectEnable {
 
 		if err := cn.clusterStart(); err != nil {
@@ -134,31 +138,34 @@ func Open(args ...interface{}) (*Conn, error) {
 		return pconn, nil
 	}
 
-	dir := filepath.Clean(fmt.Sprintf("%s/%d_%d_%d", cn.opts.Storage.DataDirectory, 10, 0, 0))
-	if err := os.MkdirAll(dir, 0750); err != nil {
-		return cn, err
-	}
+	if cn.opts.Storage.DataDirectory != "" {
 
-	if cn.db, err = leveldb.OpenFile(dir, &opt.Options{
-		WriteBuffer:            cn.opts.Performance.WriteBufferSize * opt.MiB,
-		BlockCacheCapacity:     cn.opts.Performance.BlockCacheSize * opt.MiB,
-		CompactionTableSize:    cn.opts.Performance.MaxTableSize * opt.MiB,
-		OpenFilesCacheCapacity: cn.opts.Performance.MaxOpenFiles,
-		Compression:            opt.SnappyCompression,
-		Filter:                 filter.NewBloomFilter(10),
-	}); err != nil {
-		return nil, err
-	}
+		dir := filepath.Clean(fmt.Sprintf("%s/%d_%d_%d", cn.opts.Storage.DataDirectory, 10, 0, 0))
+		if err := os.MkdirAll(dir, 0750); err != nil {
+			return cn, err
+		}
 
-	if bs, err := cn.db.Get(keySysInstanceId, nil); err == nil {
-		cn.instId = string(bs)
-	} else if err.Error() == ldbNotFound {
-		cn.instId = randHexString(16)
-		if err := cn.db.Put(keySysInstanceId, []byte(cn.instId), nil); err != nil {
+		if cn.db, err = leveldb.OpenFile(dir, &opt.Options{
+			WriteBuffer:            cn.opts.Performance.WriteBufferSize * opt.MiB,
+			BlockCacheCapacity:     cn.opts.Performance.BlockCacheSize * opt.MiB,
+			CompactionTableSize:    cn.opts.Performance.MaxTableSize * opt.MiB,
+			OpenFilesCacheCapacity: cn.opts.Performance.MaxOpenFiles,
+			Compression:            opt.SnappyCompression,
+			Filter:                 filter.NewBloomFilter(10),
+		}); err != nil {
 			return nil, err
 		}
-	} else {
-		return nil, err
+
+		if bs, err := cn.db.Get(keySysInstanceId, nil); err == nil {
+			cn.instId = string(bs)
+		} else if err.Error() == ldbNotFound {
+			cn.instId = randHexString(16)
+			if err := cn.db.Put(keySysInstanceId, []byte(cn.instId), nil); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, err
+		}
 	}
 
 	if err := cn.clusterStart(); err != nil {
