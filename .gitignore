@@ -2,4 +2,5 @@ doc/*
 tests/*
 *.swp
 batch-*
+bench/*
 

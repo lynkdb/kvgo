@@ -225,7 +225,8 @@ if rs := db.NewWriter(key, "new-value").PrevDataCheckSet("old-value").Commit(); 
 	fmt.Println("OK")
 }
 
-# write the value of a key and automatically create a auto-increment meta value. the auto-increment value will keep the same if the key exist.
+# write the value of a key and automatically create a auto-increment meta value.
+# the auto-increment value will keep the same if the key exist.
 if rs := db.NewWriter(key, "value").IncrNamespaceSet("def").Commit(); rs.OK() {
 	fmt.Println("OK". rs.Meta.IncrId)
 }
@@ -293,26 +294,41 @@ if rs := db.NewReader(nil).
 # get value data in multi types
 _ = rs.DataValue().Bytes()
 _ = rs.DataValue().String()
-_ = rs.DataValue().Int()
-_ = rs.DataValue().Int8()
-_ = rs.DataValue().Int16()
-_ = rs.DataValue().Int32()
-_ = rs.DataValue().Int64()
-_ = rs.DataValue().Uint()
-_ = rs.DataValue().Uint8()
-_ = rs.DataValue().Uint16()
-_ = rs.DataValue().Uint32()
-_ = rs.DataValue().Uint64()
+_ = rs.DataValue().Int() # or Int8(), Int16(), Int32(), Int64()
+_ = rs.DataValue().Uint() # or Uint8(), Uint16(), Uint32(), Int64()
 _ = rs.DataValue().Bool()
 _ = rs.DataValue().Float64()
 type StructObject struct {
 	Name string
 }
 var item StructObject
-if err := rs.DataValue().Decode(&item,nil); err == nil {
+if err := rs.DataValue().Decode(&item, nil); err == nil {
 	// ...
 }
 ```
+
+## Performance
+
+
+### test environment
+
+* CPU: 4 x Intel i7-7700 CPU @ 3.60GHz
+* OS: CentOS 7.7.1908 x86_64 
+* SSD: Intel 760P 512GB M.2/NVMe
+* data keys: 40 bytes each
+* data values: 1024 bytes each 
+* kvgo: 0.2.0 (write_buffer 64MB, block_cache_size 64MB) 
+* redis: 5.0.7 (disable save the DB on disk)
+
+### typical performance in embed, 1 node and 3 nodes modes:
+
+![typical-benchmark](bench/kvgo_throughput_avg.svg)
+
+
+### kvgo vs redis in 1 node mode:
+
+![kvgo-vs-redis-benchmark](bench/kvgo_redis_throughput_avg.svg)
+
 
 
 ## Dependent or referenced
