@@ -145,14 +145,20 @@ func Open(args ...interface{}) (*Conn, error) {
 			return cn, err
 		}
 
-		if cn.db, err = leveldb.OpenFile(dir, &opt.Options{
+		ldbCfg := &opt.Options{
 			WriteBuffer:            cn.opts.Performance.WriteBufferSize * opt.MiB,
 			BlockCacheCapacity:     cn.opts.Performance.BlockCacheSize * opt.MiB,
 			CompactionTableSize:    cn.opts.Performance.MaxTableSize * opt.MiB,
 			OpenFilesCacheCapacity: cn.opts.Performance.MaxOpenFiles,
-			Compression:            opt.SnappyCompression,
 			Filter:                 filter.NewBloomFilter(10),
-		}); err != nil {
+		}
+		if cn.opts.Feature.TableCompressName == "snappy" {
+			ldbCfg.Compression = opt.SnappyCompression
+		} else {
+			ldbCfg.Compression = opt.NoCompression
+		}
+
+		if cn.db, err = leveldb.OpenFile(dir, ldbCfg); err != nil {
 			return nil, err
 		}
 

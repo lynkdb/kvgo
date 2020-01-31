@@ -204,9 +204,14 @@ func (cn *Conn) objectCommitRemote(rr *sko.ObjectWriter, cLog uint64) *sko.Objec
 		return sko.NewObjectResultClientError(err)
 	}
 
-	for _, v := range cn.opts.Cluster.Masters {
+	addrs := cn.opts.Cluster.masterAddrs(3)
+	if len(addrs) < 1 {
+		return sko.NewObjectResultClientError(errors.New("no master found"))
+	}
 
-		conn, err := clientConn(v.Addr, cn.authKey(v.Addr))
+	for _, addr := range addrs {
+
+		conn, err := clientConn(addr, cn.authKey(addr))
 		if err != nil {
 			continue
 		}
@@ -286,9 +291,14 @@ func (cn *Conn) Query(rr *sko.ObjectReader) *sko.ObjectResult {
 
 func (cn *Conn) objectQueryRemote(rr *sko.ObjectReader) *sko.ObjectResult {
 
-	for _, v := range cn.opts.Cluster.Masters {
+	addrs := cn.opts.Cluster.masterAddrs(3)
+	if len(addrs) < 1 {
+		return sko.NewObjectResultClientError(errors.New("no master found"))
+	}
 
-		conn, err := clientConn(v.Addr, cn.authKey(v.Addr))
+	for _, addr := range addrs {
+
+		conn, err := clientConn(addr, cn.authKey(addr))
 		if err != nil {
 			continue
 		}

@@ -16,6 +16,7 @@ package kvgo
 
 import (
 	"errors"
+	"math/rand"
 	"path/filepath"
 
 	"github.com/lynkdb/iomix/connect"
@@ -39,7 +40,7 @@ type Config struct {
 	Cluster ConfigCluster `toml:"cluster" json:"cluster"`
 
 	// Client Settings
-	ClientConnectEnable bool `toml:"-"`
+	ClientConnectEnable bool `toml:"-" json:"-"`
 }
 
 type ConfigStorage struct {
@@ -59,8 +60,9 @@ type ConfigPerformance struct {
 }
 
 type ConfigFeature struct {
-	WriteMetaDisable bool `toml:"write_meta_disable" json:"write_meta_disable"`
-	WriteLogDisable  bool `toml:"write_log_disable" json:"write_log_disable"`
+	WriteMetaDisable  bool   `toml:"write_meta_disable" json:"write_meta_disable"`
+	WriteLogDisable   bool   `toml:"write_log_disable" json:"write_log_disable"`
+	TableCompressName string `toml:"table_compress_name" json:"table_compress_name"`
 }
 
 type ConfigCluster struct {
@@ -70,6 +72,23 @@ type ConfigCluster struct {
 type ConfigClusterMaster struct {
 	Addr          string `toml:"addr" json:"addr"`
 	AuthSecretKey string `toml:"auth_secret_key" json:"auth_secret_key"`
+}
+
+func (it *ConfigCluster) masterAddrs(cap int) []string {
+
+	var (
+		addrs  = []string{}
+		offset = rand.Intn(len(it.Masters))
+	)
+
+	for i := offset; i < len(it.Masters) && len(addrs) <= cap; i++ {
+		addrs = append(addrs, it.Masters[i].Addr)
+	}
+	for i := 0; i < offset && len(addrs) <= cap; i++ {
+		addrs = append(addrs, it.Masters[i].Addr)
+	}
+
+	return addrs
 }
 
 func (it *Config) Valid() error {
@@ -115,6 +134,10 @@ func (it *Config) reset() *Config {
 		it.Performance.MaxOpenFiles = 500
 	} else if it.Performance.MaxOpenFiles > 10000 {
 		it.Performance.MaxOpenFiles = 10000
+	}
+
+	if it.Feature.TableCompressName != "snappy" {
+		it.Feature.TableCompressName = "none"
 	}
 
 	return it
