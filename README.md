@@ -312,13 +312,13 @@ if err := rs.DataValue().Decode(&item, nil); err == nil {
 
 ### test environment
 
-* CPU: 4 x Intel i7-7700 CPU @ 3.60GHz
-* OS: CentOS 7.7.1908 x86_64 
+* CPU: Intel i7-7700 CPU @ 3.60GHz (4 cores, 8 threads)
 * SSD: Intel 760P 512GB M.2/NVMe
+* OS: CentOS 7.7.1908 x86_64
+* kvgo: version 0.2.0 (write_buffer 64MB, block_cache_size 64MB)
+* redis: version 5.0.7 (disable save the DB on disk)
 * data keys: 40 bytes each
-* data values: 1024 bytes each 
-* kvgo: 0.2.0 (write_buffer 64MB, block_cache_size 64MB) 
-* redis: 5.0.7 (disable save the DB on disk)
+* data values: 1024 bytes each
 
 ### typical performance in embed, 1 node and 3 nodes modes:
 
