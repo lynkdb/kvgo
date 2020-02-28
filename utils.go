@@ -15,10 +15,17 @@
 package kvgo
 
 import (
-	"crypto/rand"
+	"bytes"
+	crand "crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/pem"
+	"math/big"
 	mrand "math/rand"
+	"time"
 )
 
 func keyExpireEncode(ns byte, expired uint64, key []byte) []byte {
@@ -56,11 +63,62 @@ func randHexString(length int) string {
 	}
 
 	bs := make([]byte, length)
-	if _, err := rand.Read(bs); err != nil {
+	if _, err := crand.Read(bs); err != nil {
 		for i := range bs {
 			bs[i] = uint8(mrand.Intn(256))
 		}
 	}
 
 	return hex.EncodeToString(bs)
+}
+
+func TLSCertCreate(cn string) (*ConfigTLSCertificate, error) {
+
+	tn := time.Now()
+
+	crt := &x509.Certificate{
+		SerialNumber: big.NewInt(mrand.Int63()),
+		Subject: pkix.Name{
+			Country:            []string{""},
+			Organization:       []string{"lynkdb"},
+			OrganizationalUnit: []string{"kvgo"},
+			CommonName:         cn,
+		},
+		NotBefore:             tn,
+		NotAfter:              tn.AddDate(10, 0, 0), // 10 years
+		BasicConstraintsValid: true,
+		IsCA:                  false,
+		KeyUsage:              x509.KeyUsageCertSign,
+		ExtKeyUsage: []x509.ExtKeyUsage{
+			x509.ExtKeyUsageClientAuth,
+			x509.ExtKeyUsageServerAuth,
+		},
+	}
+
+	key, _ := rsa.GenerateKey(crand.Reader, 2048)
+
+	buf, err := x509.CreateCertificate(crand.Reader, crt, crt, &key.PublicKey, key)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ConfigTLSCertificate{
+		ServerCertData: pemEncode("CERTIFICATE", buf),
+		ServerKeyData:  pemEncode("RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(key)),
+	}, nil
+}
+
+func pemEncode(name string, bs []byte) string {
+
+	var (
+		buf   bytes.Buffer
+		block = &pem.Block{
+			Bytes: bs,
+			Type:  name,
+		}
+	)
+
+	pem.Encode(&buf, block)
+
+	return string(buf.Bytes())
 }

@@ -8,7 +8,7 @@ import (
 
 var (
 	authSecretKey = "9ABtTYi9qN63/8T+n1jtLWllVWoKsJeOAwR7vzZ3ch42MiCw"
-	masters       = []kvgo.ConfigClusterMaster{
+	masters       = []*kvgo.ConfigClusterMaster{
 		{
 			Addr:          "127.0.0.1:9101",
 			AuthSecretKey: authSecretKey,

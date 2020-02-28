@@ -16,6 +16,9 @@ package kvgo
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net"
@@ -26,6 +29,7 @@ import (
 	"github.com/hooto/iam/iamauth"
 	"github.com/syndtr/goleveldb/leveldb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	"github.com/lynkdb/iomix/sko"
 )
@@ -53,7 +57,7 @@ func (cn *Conn) clusterStart() error {
 		}
 
 		var (
-			masters = []ConfigClusterMaster{}
+			masters = []*ConfigClusterMaster{}
 			addrs   = map[string]bool{}
 		)
 
@@ -82,8 +86,9 @@ func (cn *Conn) clusterStart() error {
 
 	if cn.opts.Server.Bind != "" && !cn.opts.ClientConnectEnable {
 
-		if err := cn.authKeySetup(cn.serverKey, cn.opts.Server.AuthSecretKey); err != nil {
-			return err
+		if len(cn.opts.Server.AuthSecretKey) > 20 &&
+			cn.serverKey.SecretKey != cn.opts.Server.AuthSecretKey {
+			cn.serverKey.SecretKey = cn.opts.Server.AuthSecretKey
 		}
 
 		host, port, err := net.SplitHostPort(cn.opts.Server.Bind)
@@ -98,11 +103,27 @@ func (cn *Conn) clusterStart() error {
 
 		cn.opts.Server.Bind = host + ":" + port
 
-		server := grpc.NewServer(
+		serverOptions := []grpc.ServerOption{
 			grpc.MaxMsgSize(grpcMsgByteMax),
 			grpc.MaxSendMsgSize(grpcMsgByteMax),
 			grpc.MaxRecvMsgSize(grpcMsgByteMax),
-		)
+		}
+
+		if cn.opts.Server.AuthTLSCert != nil {
+
+			cert, err := tls.X509KeyPair(
+				[]byte(cn.opts.Server.AuthTLSCert.ServerCertData),
+				[]byte(cn.opts.Server.AuthTLSCert.ServerKeyData))
+			if err != nil {
+				return err
+			}
+
+			certs := credentials.NewServerTLSFromCert(&cert)
+
+			serverOptions = append(serverOptions, grpc.Creds(certs))
+		}
+
+		server := grpc.NewServer(serverOptions...)
 
 		go server.Serve(lis)
 
@@ -127,7 +148,7 @@ func (cn *Conn) clusterStart() error {
 	return nil
 }
 
-func clientConn(addr string, key *iamauth.AuthKey) (*grpc.ClientConn, error) {
+func clientConn(addr string, key *iamauth.AuthKey, cert *ConfigTLSCertificate) (*grpc.ClientConn, error) {
 
 	if key == nil {
 		return nil, errors.New("not auth key setup")
@@ -140,13 +161,42 @@ func clientConn(addr string, key *iamauth.AuthKey) (*grpc.ClientConn, error) {
 		return c, nil
 	}
 
-	c, err := grpc.Dial(addr,
-		grpc.WithInsecure(),
+	dialOptions := []grpc.DialOption{
 		grpc.WithPerRPCCredentials(newAppCredential(key)),
 		grpc.WithMaxMsgSize(grpcMsgByteMax),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(grpcMsgByteMax)),
 		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(grpcMsgByteMax)),
-	)
+	}
+
+	if cert == nil {
+
+		dialOptions = append(dialOptions, grpc.WithInsecure())
+
+	} else {
+
+		block, _ := pem.Decode([]byte(cert.ServerCertData))
+		if block == nil || block.Type != "CERTIFICATE" {
+			return nil, errors.New("failed to decode CERTIFICATE")
+		}
+
+		crt, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, errors.New("failed to parse cert : " + err.Error())
+		}
+
+		certPool := x509.NewCertPool()
+		certPool.AddCert(crt)
+
+		// creds := credentials.NewClientTLSFromCert(certPool, addr)
+		creds := credentials.NewTLS(&tls.Config{
+			ServerName: crt.Subject.CommonName,
+			RootCAs:    certPool,
+		})
+
+		dialOptions = append(dialOptions, grpc.WithTransportCredentials(creds))
+	}
+
+	c, err := grpc.Dial(addr, dialOptions...)
 	if err != nil {
 		return nil, err
 	}
@@ -245,7 +295,7 @@ func (it *ServiceImpl) Commit(ctx context.Context,
 
 	for _, v := range it.db.opts.Cluster.Masters {
 
-		conn, err := clientConn(v.Addr, it.db.authKey(v.Addr))
+		conn, err := clientConn(v.Addr, it.db.authKey(v.Addr), v.AuthTLSCert)
 		if err != nil {
 			continue
 		}
@@ -309,7 +359,7 @@ func (it *ServiceImpl) Commit(ctx context.Context,
 
 	for _, v := range it.db.opts.Cluster.Masters {
 
-		conn, err := clientConn(v.Addr, it.db.authKey(v.Addr))
+		conn, err := clientConn(v.Addr, it.db.authKey(v.Addr), v.AuthTLSCert)
 		if err != nil {
 			continue
 		}

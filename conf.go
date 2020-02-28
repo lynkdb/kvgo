@@ -16,8 +16,10 @@ package kvgo
 
 import (
 	"errors"
+	"io/ioutil"
 	"math/rand"
 	"path/filepath"
+	"strings"
 
 	"github.com/lynkdb/iomix/connect"
 )
@@ -47,9 +49,17 @@ type ConfigStorage struct {
 	DataDirectory string `toml:"data_directory" json:"data_directory"`
 }
 
+type ConfigTLSCertificate struct {
+	ServerKeyFile  string `toml:"server_key_file" json:"server_key_file"`
+	ServerKeyData  string `toml:"server_key_data" json:"server_key_data"`
+	ServerCertFile string `toml:"server_cert_file" json:"server_cert_file"`
+	ServerCertData string `toml:"server_cert_data" json:"server_cert_data"`
+}
+
 type ConfigServer struct {
-	Bind          string `toml:"bind" json:"bind"`
-	AuthSecretKey string `toml:"auth_secret_key" json:"auth_secret_key"`
+	Bind          string                `toml:"bind" json:"bind"`
+	AuthSecretKey string                `toml:"auth_secret_key" json:"auth_secret_key"`
+	AuthTLSCert   *ConfigTLSCertificate `toml:"auth_tls_cert" json:"auth_tls_cert"`
 }
 
 type ConfigPerformance struct {
@@ -66,29 +76,30 @@ type ConfigFeature struct {
 }
 
 type ConfigCluster struct {
-	Masters []ConfigClusterMaster `toml:"masters" json:"masters"`
+	Masters []*ConfigClusterMaster `toml:"masters" json:"masters"`
 }
 
 type ConfigClusterMaster struct {
-	Addr          string `toml:"addr" json:"addr"`
-	AuthSecretKey string `toml:"auth_secret_key" json:"auth_secret_key"`
+	Addr          string                `toml:"addr" json:"addr"`
+	AuthSecretKey string                `toml:"auth_secret_key" json:"auth_secret_key"`
+	AuthTLSCert   *ConfigTLSCertificate `toml:"auth_tls_cert" json:"auth_tls_cert"`
 }
 
-func (it *ConfigCluster) masterAddrs(cap int) []string {
+func (it *ConfigCluster) randMasters(cap int) []*ConfigClusterMaster {
 
 	var (
-		addrs  = []string{}
+		ls     = []*ConfigClusterMaster{}
 		offset = rand.Intn(len(it.Masters))
 	)
 
-	for i := offset; i < len(it.Masters) && len(addrs) <= cap; i++ {
-		addrs = append(addrs, it.Masters[i].Addr)
+	for i := offset; i < len(it.Masters) && len(ls) <= cap; i++ {
+		ls = append(ls, it.Masters[i])
 	}
-	for i := 0; i < offset && len(addrs) <= cap; i++ {
-		addrs = append(addrs, it.Masters[i].Addr)
+	for i := 0; i < offset && len(ls) <= cap; i++ {
+		ls = append(ls, it.Masters[i])
 	}
 
-	return addrs
+	return ls
 }
 
 func (it *Config) Valid() error {
@@ -138,6 +149,23 @@ func (it *Config) reset() *Config {
 
 	if it.Feature.TableCompressName != "snappy" {
 		it.Feature.TableCompressName = "none"
+	}
+
+	if it.Server.AuthTLSCert != nil {
+
+		if it.Server.AuthTLSCert.ServerKeyFile != "" &&
+			it.Server.AuthTLSCert.ServerKeyData == "" {
+			if bs, err := ioutil.ReadFile(it.Server.AuthTLSCert.ServerKeyFile); err == nil {
+				it.Server.AuthTLSCert.ServerKeyData = strings.TrimSpace(string(bs))
+			}
+		}
+
+		if it.Server.AuthTLSCert.ServerCertFile != "" &&
+			it.Server.AuthTLSCert.ServerCertData == "" {
+			if bs, err := ioutil.ReadFile(it.Server.AuthTLSCert.ServerCertFile); err == nil {
+				it.Server.AuthTLSCert.ServerCertData = strings.TrimSpace(string(bs))
+			}
+		}
 	}
 
 	return it

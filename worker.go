@@ -134,7 +134,7 @@ func (cn *Conn) workerClusterReplicaLogAsync() error {
 			}
 		}
 
-		conn, err := clientConn(hp.Addr, cn.authKey(hp.Addr))
+		conn, err := clientConn(hp.Addr, cn.authKey(hp.Addr), hp.AuthTLSCert)
 		if err != nil {
 			continue
 		}

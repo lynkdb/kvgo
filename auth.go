@@ -56,17 +56,6 @@ func (it *Conn) authKeySet(ak, sk string) error {
 	return nil
 }
 
-func (it *Conn) authKeySetup(ak *iamauth.AuthKey, secretKey string) error {
-
-	if len(secretKey) < 20 {
-		return errors.New("invalid secret_key")
-	}
-
-	ak.SecretKey = secretKey
-
-	return nil
-}
-
 func newAppCredential(key *iamauth.AuthKey) credentials.PerRPCCredentials {
 	return iamauth.NewGrpcAppCredential(key)
 }

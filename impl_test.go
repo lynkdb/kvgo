@@ -40,12 +40,12 @@ func dbOpen(ports []int, clientEnable bool) ([]*Conn, error) {
 
 	var (
 		dbs   = []*Conn{}
-		nodes = []ConfigClusterMaster{}
+		nodes = []*ConfigClusterMaster{}
 	)
 
 	for _, v := range ports {
 		if v > 0 {
-			nodes = append(nodes, ConfigClusterMaster{
+			nodes = append(nodes, &ConfigClusterMaster{
 				Addr:          fmt.Sprintf("127.0.0.1:%d", v),
 				AuthSecretKey: dbTestAuthSecretKey,
 			})
@@ -318,7 +318,7 @@ func Test_Object_LogAsync(t *testing.T) {
 
 		for _, hp := range db.opts.Cluster.Masters {
 
-			conn, err := clientConn(hp.Addr, db.authKey(hp.Addr))
+			conn, err := clientConn(hp.Addr, db.authKey(hp.Addr), hp.AuthTLSCert)
 			if err != nil {
 				t.Fatalf("Object AsyncLog ER! %s", err.Error())
 			}
