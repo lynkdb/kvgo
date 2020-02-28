@@ -13,6 +13,7 @@ var (
 	dir          = "/tmp/kvgo-bench"
 	err          error
 	compressName = ""
+	tlsCert      *kvgo.ConfigTLSCertificate
 )
 
 func main() {
@@ -26,6 +27,10 @@ func main() {
 	}
 
 	mode := hflag.Value("mode").String()
+	tlsEnable := false
+	if _, ok := hflag.ValueOK("tls_enable"); ok {
+		tlsEnable = true
+	}
 
 	switch mode {
 	case "embed":
@@ -34,12 +39,12 @@ func main() {
 		}
 
 	case "node-x1":
-		if err := benchNodeAction(1); err != nil {
+		if err := benchNodeAction(1, tlsEnable); err != nil {
 			panic(err)
 		}
 
 	case "node-x3":
-		if err := benchNodeAction(3); err != nil {
+		if err := benchNodeAction(3, tlsEnable); err != nil {
 			panic(err)
 		}
 
@@ -65,7 +70,7 @@ func benchEmbedAction() error {
 	return kvBench.Run(bc)
 }
 
-func benchNodeAction(n int) error {
+func benchNodeAction(n int, tlsEnable bool) error {
 
 	kvBench, err := kvbench.NewKeyValueBench()
 	if err != nil {
@@ -73,7 +78,8 @@ func benchNodeAction(n int) error {
 	}
 
 	bc := &benchNode{
-		nodeNum: n,
+		nodeNum:   n,
+		tlsEnable: tlsEnable,
 	}
 
 	return kvBench.Run(bc)
@@ -132,6 +138,7 @@ var (
 
 type benchNode struct {
 	nodeNum   int
+	tlsEnable bool
 	dbServers []*kvgo.Conn
 	db        *kvgo.Conn
 }
@@ -168,18 +175,26 @@ func (it *benchNode) Clean() error {
 		it.nodeNum = 7
 	}
 
+	if it.tlsEnable && tlsCert == nil {
+		tlsCert, err = kvgo.TLSCertCreate("bench")
+		if err != nil {
+			return err
+		}
+	}
+
 	for _, vdb := range it.dbServers {
 		vdb.Close()
 	}
 
 	it.dbServers = nil
 
-	masters := []kvgo.ConfigClusterMaster{}
+	masters := []*kvgo.ConfigClusterMaster{}
 
 	for i := 0; i < it.nodeNum; i++ {
-		masters = append(masters, kvgo.ConfigClusterMaster{
+		masters = append(masters, &kvgo.ConfigClusterMaster{
 			Addr:          fmt.Sprintf(addr, i),
 			AuthSecretKey: authSecretKey,
+			AuthTLSCert:   tlsCert,
 		})
 	}
 
@@ -199,6 +214,7 @@ func (it *benchNode) Clean() error {
 		}, kvgo.ConfigServer{
 			Bind:          fmt.Sprintf(addr, i),
 			AuthSecretKey: authSecretKey,
+			AuthTLSCert:   tlsCert,
 		}, kvgo.ConfigPerformance{
 			WriteBufferSize: 64,
 			BlockCacheSize:  64,
