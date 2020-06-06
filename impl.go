@@ -232,7 +232,8 @@ func (cn *Conn) objectCommitRemote(rr *sko.ObjectWriter, cLog uint64) *sko.Objec
 
 func (cn *Conn) Query(rr *sko.ObjectReader) *sko.ObjectResult {
 
-	if cn.opts.ClientConnectEnable {
+	if cn.opts.ClientConnectEnable ||
+		(len(cn.opts.Cluster.Masters) > 0 && cn.opts.Server.Bind == "") {
 		return cn.objectQueryRemote(rr)
 	}
 

@@ -104,7 +104,7 @@ func Open(args ...interface{}) (*Conn, error) {
 			cn.opts.Cluster = cfg.(ConfigCluster)
 
 		case connect.ConnOptions:
-			if cn.opts, err = configParse(cfg.(connect.ConnOptions)); err != nil {
+			if cn.opts, err = ConfigParse(cfg.(connect.ConnOptions)); err != nil {
 				return nil, err
 			}
 

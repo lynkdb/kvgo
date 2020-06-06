@@ -85,6 +85,16 @@ type ConfigClusterMaster struct {
 	AuthTLSCert   *ConfigTLSCertificate `toml:"auth_tls_cert" json:"auth_tls_cert"`
 }
 
+func (it *ConfigCluster) Master(addr string) *ConfigClusterMaster {
+
+	for _, v := range it.Masters {
+		if addr == v.Addr {
+			return v
+		}
+	}
+	return nil
+}
+
 func (it *ConfigCluster) randMasters(cap int) []*ConfigClusterMaster {
 
 	var (
@@ -171,7 +181,7 @@ func (it *Config) reset() *Config {
 	return it
 }
 
-func configParse(opts connect.ConnOptions) (*Config, error) {
+func ConfigParse(opts connect.ConnOptions) (*Config, error) {
 
 	cfg := &Config{}
 
