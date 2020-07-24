@@ -12,15 +12,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package kvgo
 
 import (
-	"github.com/lynkdb/iomix/connect"
-	"github.com/lynkdb/kvspec/v2"
+	"errors"
 
-	"github.com/lynkdb/kvgo"
+	kv2 "github.com/lynkdb/kvspec/v2"
 )
 
-func NewConnector(copts *connect.ConnOptions) (kvspec2.ClientConnector, error) {
-	return kvgo.Open(*copts)
+func (cn *Conn) TableList(req *kv2.TableListRequest) *kv2.ObjectResult {
+
+	sReq := &kv2.SysCmdRequest{
+		Cmd: &kv2.SysCmdRequest_TableList{
+			TableList: req,
+		},
+	}
+
+	return cn.SysCmd(sReq)
+}
+
+func (cn *Conn) TableSet(req *kv2.TableSetRequest) *kv2.ObjectResult {
+
+	if req == nil || !kv2.TableNameReg.MatchString(req.Name) {
+		return kv2.NewObjectResultClientError(errors.New("invalid table name"))
+	}
+
+	sReq := &kv2.SysCmdRequest{
+		Cmd: &kv2.SysCmdRequest_TableSet{
+			TableSet: req,
+		},
+	}
+
+	return cn.SysCmd(sReq)
 }

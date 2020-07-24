@@ -23,23 +23,28 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/util"
 
-	"github.com/lynkdb/iomix/sko"
+	kv2 "github.com/lynkdb/kvspec/v2"
 )
 
 func (cn *Conn) workerLocal() {
 
-	for {
-		time.Sleep(workerLocalExpireSleep)
+	for !cn.close {
 
 		if err := cn.workerLocalExpiredRefresh(); err != nil {
 			hlog.Printf("warn", "local ttl clean err %s", err.Error())
 		}
+
+		if err := cn.workerLocalTableRefresh(); err != nil {
+			hlog.Printf("warn", "local table refresh err %s", err.Error())
+		}
+
+		time.Sleep(workerLocalExpireSleep)
 	}
 }
 
 func (cn *Conn) workerClusterReplica() {
 
-	for {
+	for !cn.close {
 		time.Sleep(workerClusterSleep)
 
 		if err := cn.workerClusterReplicaLogAsync(); err != nil {
@@ -50,13 +55,24 @@ func (cn *Conn) workerClusterReplica() {
 
 func (cn *Conn) workerLocalExpiredRefresh() error {
 
-	iter := cn.db.NewIterator(&util.Range{
+	for _, t := range cn.tables {
+		if err := cn.workerLocalExpiredRefreshTable(t); err != nil {
+			hlog.Printf("warn", "cluster ttl refresh error %s", err.Error())
+		}
+	}
+
+	return nil
+}
+
+func (cn *Conn) workerLocalExpiredRefreshTable(dt *dbTable) error {
+
+	iter := dt.db.NewIterator(&util.Range{
 		Start: keyEncode(nsKeyTtl, uint64ToBytes(0)),
 		Limit: keyEncode(nsKeyTtl, uint64ToBytes(uint64(time.Now().UnixNano()/1e6))),
 	}, nil)
 	defer iter.Release()
 
-	for {
+	for !cn.close {
 
 		var (
 			num   = 0
@@ -65,15 +81,15 @@ func (cn *Conn) workerLocalExpiredRefresh() error {
 
 		for iter.Next() {
 
-			meta, err := sko.ObjectMetaDecode(bytesClone(iter.Value()))
+			meta, err := kv2.ObjectMetaDecode(bytesClone(iter.Value()))
 			if err != nil {
 				return err
 			}
 
-			data, err := cn.db.Get(keyEncode(nsKeyMeta, meta.Key), nil)
+			data, err := dt.db.Get(keyEncode(nsKeyMeta, meta.Key), nil)
 			if err == nil {
 
-				cmeta, err := sko.ObjectMetaDecode(data)
+				cmeta, err := kv2.ObjectMetaDecode(data)
 				if err == nil && cmeta.Version == meta.Version {
 					batch.Delete(keyEncode(nsKeyMeta, meta.Key))
 					batch.Delete(keyEncode(nsKeyData, meta.Key))
@@ -90,10 +106,14 @@ func (cn *Conn) workerLocalExpiredRefresh() error {
 			if num >= workerLocalExpireLimit {
 				break
 			}
+
+			if cn.close {
+				break
+			}
 		}
 
 		if num > 0 {
-			cn.db.Write(batch, nil)
+			dt.db.Write(batch, nil)
 		}
 
 		if num < workerLocalExpireLimit {
@@ -110,75 +130,161 @@ func (cn *Conn) workerClusterReplicaLogAsync() error {
 		return nil
 	}
 
-	ctx, fc := context.WithTimeout(context.Background(), time.Second*10)
-	defer fc()
-
 	for _, hp := range cn.opts.Cluster.Masters {
+
+		if cn.close {
+			break
+		}
 
 		if hp.Addr == cn.opts.Server.Bind {
 			continue
 		}
 
-		var (
-			offset = uint64(0)
-			num    = int64(0)
-		)
+		for _, dt := range cn.tables {
 
-		if bs, err := cn.db.Get(keySysLogAsync(hp.Addr), nil); err != nil {
-			if err.Error() != ldbNotFound {
-				return err
+			if err := cn.workerClusterReplicaLogAsyncTable(hp, dt); err != nil {
+				//
 			}
-		} else {
-			if offset, err = strconv.ParseUint(string(bs), 10, 64); err != nil {
-				return err
+
+			if cn.close {
+				break
 			}
 		}
 
-		conn, err := clientConn(hp.Addr, cn.authKey(hp.Addr), hp.AuthTLSCert)
+	}
+
+	return nil
+}
+
+func (cn *Conn) workerClusterReplicaLogAsyncTable(hp *ConfigClusterMaster, dt *dbTable) error {
+
+	var (
+		offset = uint64(0)
+		num    = int64(0)
+	)
+
+	if bs, err := dt.db.Get(keySysLogAsync(hp.Addr), nil); err != nil {
+		if err.Error() != ldbNotFound {
+			return err
+		}
+	} else {
+		if offset, err = strconv.ParseUint(string(bs), 10, 64); err != nil {
+			return err
+		}
+	}
+
+	conn, err := clientConn(hp.Addr, cn.authKey(hp.Addr), hp.AuthTLSCert)
+	if err != nil {
+		return err
+	}
+
+	ctx, fc := context.WithTimeout(context.Background(), time.Second*10)
+	defer fc()
+
+	rr := kv2.NewObjectReader(nil).LogOffsetSet(offset).LimitNumSet(100)
+
+	for !cn.close {
+
+		rs, err := kv2.NewPublicClient(conn).Query(ctx, rr)
+		if err != nil || !rs.OK() || len(rs.Items) < 1 {
+			break
+		}
+
+		for _, item := range rs.Items {
+
+			ow := &kv2.ObjectWriter{
+				Meta: item.Meta,
+				Data: item.Data,
+			}
+
+			if kv2.AttrAllow(item.Meta.Attrs, kv2.ObjectMetaAttrDelete) {
+				ow.ModeDeleteSet(true)
+			}
+
+			if rs2 := cn.objectCommitLocal(ow, item.Meta.Version); rs2.OK() {
+				rr.LogOffset = item.Meta.Version
+				num += 1
+			}
+		}
+
+		if !rs.Next {
+			break
+		}
+	}
+
+	if rr.LogOffset > offset {
+		dt.db.Put(keySysLogAsync(hp.Addr),
+			[]byte(strconv.FormatUint(rr.LogOffset, 10)), nil)
+	}
+
+	if num > 0 {
+		hlog.Printf("debug", "kvgo log async num %d, ver %d", num, rr.LogOffset)
+	}
+
+	return nil
+}
+
+var (
+	workerLocalTableRefreshLastTime int64 = 0
+)
+
+func (cn *Conn) workerLocalTableRefresh() error {
+
+	tn := time.Now().Unix()
+	if workerLocalTableRefreshLastTime+workerTableRefreshTime > tn {
+		return nil
+	}
+
+	rgS := []util.Range{
+		{
+			Start: []byte{},
+			Limit: []byte{0xff},
+		},
+	}
+	rgK := &util.Range{
+		Start: keyEncode(nsKeyMeta, []byte{}),
+		Limit: keyEncode(nsKeyMeta, []byte{0xff}),
+	}
+
+	if cn.opts.Feature.WriteMetaDisable {
+		rgK.Start = keyEncode(nsKeyData, []byte{})
+		rgK.Limit = keyEncode(nsKeyData, []byte{0xff})
+	}
+
+	for _, t := range cn.tables {
+
+		s, err := t.db.SizeOf(rgS)
 		if err != nil {
+			hlog.Printf("warn", "get db size error %s", err.Error())
+			continue
+		}
+		if len(s) < 1 {
 			continue
 		}
 
-		rr := sko.NewObjectReader(nil).LogOffsetSet(offset).LimitNumSet(100)
+		kn := uint64(0)
+		iter := t.db.NewIterator(rgK, nil)
+		for ; iter.Next(); kn++ {
+		}
+		iter.Release()
 
-		for {
+		rr := kv2.NewObjectWriter(nsSysTableStatus(t.tableName), &kv2.TableStatus{
+			Name:   t.tableName,
+			KeyNum: kn,
+			DbSize: uint64(s[0]),
+		}).TableNameSet(sysTableName)
 
-			rs, err := sko.NewObjectClient(conn).Query(ctx, rr)
-			if err != nil || !rs.OK() || len(rs.Items) < 1 {
-				break
-			}
-
-			for _, item := range rs.Items {
-
-				ow := &sko.ObjectWriter{
-					Meta: item.Meta,
-					Data: item.Data,
-				}
-
-				if sko.AttrAllow(item.Meta.Attrs, sko.ObjectMetaAttrDelete) {
-					ow.ModeDeleteSet(true)
-				}
-
-				if rs2 := cn.objectCommitLocal(ow, item.Meta.Version); rs2.OK() {
-					rr.LogOffset = item.Meta.Version
-					num += 1
-				}
-			}
-
-			if !rs.Next {
-				break
-			}
+		rs := cn.objectCommitLocal(rr, 0)
+		if !rs.OK() {
+			hlog.Printf("warn", "refresh table (%s) status error %s", t.tableName, err.Error())
 		}
 
-		if rr.LogOffset > offset {
-			cn.db.Put(keySysLogAsync(hp.Addr),
-				[]byte(strconv.FormatUint(rr.LogOffset, 10)), nil)
-		}
-
-		if num > 0 {
-			hlog.Printf("debug", "kvgo log async num %d, ver %d", num, rr.LogOffset)
+		if cn.close {
+			break
 		}
 	}
+
+	workerLocalTableRefreshLastTime = tn
 
 	return nil
 }

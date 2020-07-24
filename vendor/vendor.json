@@ -76,7 +76,6 @@
 		},
 		{
 			"checksumSHA1": "10K/08I8bNIbYbzQenYBnYbnoho=",
-			"origin": "github.com/lynkdb/kvgo/vendor/github.com/syndtr/goleveldb/leveldb/util",
 			"path": "github.com/syndtr/goleveldb/leveldb/util",
 			"revision": "758128399b1df3a87e92df6c26c1d2063da8fabe",
 			"revisionTime": "2019-09-23T12:57:48Z"

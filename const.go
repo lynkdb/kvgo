@@ -14,8 +14,10 @@
 
 package kvgo
 
+//go:generate protoc --proto_path=./ --go_out=./ --go_opt=paths=source_relative --go-grpc_out=. kvgo.proto
+
 const (
-	Version = "0.2.0"
+	Version = "0.3.0"
 )
 
 const (
@@ -32,6 +34,7 @@ const (
 	workerLocalExpireSleep = 200e6
 	workerLocalExpireLimit = 200
 	workerClusterSleep     = 1e9
+	workerTableRefreshTime = int64(600)
 )
 
 var (
@@ -45,4 +48,17 @@ func keySysLogAsync(hostport string) []byte {
 
 func keySysIncrCutset(ns string) []byte {
 	return append([]byte{nsKeySys}, []byte("incr:cutset:"+ns)...)
+}
+
+const (
+	sysTableName   = "sys"
+	sysTableIncrNS = "sys_table_id"
+)
+
+func nsSysTable(name string) []byte {
+	return []byte("sys:table:" + name)
+}
+
+func nsSysTableStatus(name string) []byte {
+	return []byte("sys:table-status:" + name)
 }

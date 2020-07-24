@@ -23,6 +23,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	mrand "math/rand"
 	"time"
@@ -44,12 +45,28 @@ func bytesClone(src []byte) []byte {
 	return dst
 }
 
-func uint64ToBytes(v uint64) []byte {
+func uint32ToBytes(v uint32) []byte {
+	bs := make([]byte, 4)
+	binary.BigEndian.PutUint32(bs, v)
+	return bs
+}
 
+func uint32ToHexString(v uint32) string {
+	return bytesToHexString(uint32ToBytes(v))
+}
+
+func uint64ToBytes(v uint64) []byte {
 	bs := make([]byte, 8)
 	binary.BigEndian.PutUint64(bs, v)
-
 	return bs
+}
+
+func uint64ToHexString(v uint64) string {
+	return bytesToHexString(uint64ToBytes(v))
+}
+
+func bytesToHexString(bs []byte) string {
+	return hex.EncodeToString(bs)
 }
 
 func randHexString(length int) string {
@@ -121,4 +138,15 @@ func pemEncode(name string, bs []byte) string {
 	pem.Encode(&buf, block)
 
 	return string(buf.Bytes())
+}
+
+func attrPrint(base uint64) {
+	attrs := []int{}
+	for i := 1; i <= 63; i++ {
+		comp := uint64(1) << i
+		if (comp & base) == comp {
+			attrs = append(attrs, i)
+		}
+	}
+	fmt.Println("attrs", attrs)
 }

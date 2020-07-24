@@ -12,15 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+syntax = "proto3";
 
-import (
-	"github.com/lynkdb/iomix/connect"
-	"github.com/lynkdb/kvspec/v2"
+package kvgo;
 
-	"github.com/lynkdb/kvgo"
-)
+option optimize_for = LITE_RUNTIME;
+option go_package = ".;kvgo";
 
-func NewConnector(copts *connect.ConnOptions) (kvspec2.ClientConnector, error) {
-	return kvgo.Open(*copts)
+message TableReplica {
+	uint32 id = 1;
+	string name = 2;
+	string desc = 3;
 }
+
