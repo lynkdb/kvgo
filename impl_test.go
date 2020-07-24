@@ -343,27 +343,33 @@ func Test_Object_Common(t *testing.T) {
 				}
 			}
 
-			// Attr+MetaOnly
+			// MetaAttr On/Off
 			{
-				key := []byte(fmt.Sprintf("meta-only-%d", round))
-				ow := kv2.NewObjectWriter(key, "demo")
-				ow.Meta.Attrs |= kv2.ObjectMetaAttrMetaOnly
-				if rs := db.Commit(ow); rs.OK() {
-					t.Log("AttrMetaOnly OK")
-				} else {
-					t.Fatal("AttrMetaOnly ER!")
-				}
+				for _, va := range [][]uint64{
+					{kv2.ObjectMetaAttrMetaOff, kv2.ObjectMetaAttrDataOff},
+					{kv2.ObjectMetaAttrDataOff, kv2.ObjectMetaAttrMetaOff},
+				} {
 
-				if rs := db.NewReader(key).Query(); rs.OK() {
-					t.Fatalf("AttrMetaOnly Check ER!")
-				} else {
-					t.Log("AttrMetaOnly OK")
-				}
+					key := []byte(fmt.Sprintf("data-off-%d-%d", round, va[0]))
+					ow := kv2.NewObjectWriter(key, "demo")
+					ow.Meta.Attrs |= va[0]
+					if rs := db.Commit(ow); rs.OK() {
+						t.Log("MetaAttr On/Off OK")
+					} else {
+						t.Fatal("MetaAttr On/Off ER!")
+					}
 
-				if rs := db.NewReader(key).AttrSet(kv2.ObjectMetaAttrMetaOnly).Query(); rs.OK() {
-					t.Log("AttrMetaOnly OK")
-				} else {
-					t.Fatal("AttrMetaOnly ER!")
+					if rs := db.NewReader(key).AttrSet(va[0]).Query(); rs.OK() {
+						t.Log("MetaAttr On/Off OK")
+					} else {
+						t.Fatal("MetaAttr On/Off ER!")
+					}
+
+					if rs := db.NewReader(key).AttrSet(va[1]).Query(); rs.OK() {
+						t.Fatal("MetaAttr On/Off ER!")
+					} else {
+						t.Log("MetaAttr On/Off OK")
+					}
 				}
 			}
 
@@ -401,25 +407,30 @@ func Test_Object_LogAsync(t *testing.T) {
 	}
 
 	var (
-		key          = "log-async-key"
-		value        = "log-async-test"
-		cLog  uint64 = 0
+		key   = "log-async-key"
+		value = "log-async-test"
+		attrs = [][]uint64{
+			{0, 0},
+			{kv2.ObjectMetaAttrMetaOff, 0},
+			{kv2.ObjectMetaAttrDataOff, 0},
+		}
 	)
 
-	ow := kv2.NewObjectWriter([]byte(key), value)
-	if rs := dbs[0].objectCommitLocal(ow, 0); !rs.OK() {
-		t.Fatalf("Commit ER! %s", rs.Message)
-	} else {
-		cLog = rs.Meta.Version
-		t.Logf("Commit OK cLog %d", cLog)
+	for i, va := range attrs {
+		ow := kv2.NewObjectWriter([]byte(fmt.Sprintf("%s-%d", key, va[0])), value)
+		ow.Meta.Attrs |= va[0]
+		if rs := dbs[0].commitLocal(ow, 0); !rs.OK() {
+			t.Fatalf("Commit ER! %s", rs.Message)
+		} else {
+			attrs[i][1] = rs.Meta.Version
+			t.Logf("Commit OK cLog %d", attrs[i][1])
+		}
 	}
 
 	time.Sleep(5e9)
 
 	ctx, fc := context.WithTimeout(context.Background(), time.Second*1)
 	defer fc()
-
-	rr := kv2.NewObjectReader([]byte(key))
 
 	for _, db := range dbs {
 
@@ -430,17 +441,23 @@ func Test_Object_LogAsync(t *testing.T) {
 				t.Fatalf("Object AsyncLog ER! %s", err.Error())
 			}
 
-			rs, err := kv2.NewPublicClient(conn).Query(ctx, rr)
-			if err != nil {
-				t.Fatal("Object AsyncLog ER!")
-			}
+			for _, va := range attrs {
 
-			if !rs.OK() || len(rs.Items) == 0 {
-				t.Fatal("Object AsyncLog ER!")
-			}
+				rr := kv2.NewObjectReader([]byte(fmt.Sprintf("%s-%d", key, va[0])))
+				rr.Attrs |= va[0]
 
-			if rs.Items[0].Meta.Version != cLog {
-				t.Fatalf("Object AsyncLog ER! %d/%d", rs.Items[0].Meta.Version, cLog)
+				rs, err := kv2.NewPublicClient(conn).Query(ctx, rr)
+				if err != nil {
+					t.Fatal("Object AsyncLog ER!")
+				}
+
+				if !rs.OK() || len(rs.Items) == 0 {
+					t.Fatal("Object AsyncLog ER!")
+				}
+
+				if rs.Items[0].Meta.Version != va[1] {
+					t.Fatalf("Object AsyncLog ER! %d/%d", rs.Items[0].Meta.Version, va[1])
+				}
 			}
 
 			// t.Logf("Object AsyncLog Bind %s, Node %s OK", db.opts.Server.Bind, hp)

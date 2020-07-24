@@ -43,10 +43,10 @@ func (cn *Conn) Commit(rr *kv2.ObjectWriter) *kv2.ObjectResult {
 		return rs
 	}
 
-	return cn.objectCommitLocal(rr, 0)
+	return cn.commitLocal(rr, 0)
 }
 
-func (cn *Conn) objectCommitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult {
+func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult {
 
 	if err := rr.CommitValid(); err != nil {
 		return kv2.NewObjectResultClientError(err)
@@ -182,8 +182,10 @@ func (cn *Conn) objectCommitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.Object
 
 			batch := new(leveldb.Batch)
 
-			if kv2.AttrAllow(rr.Meta.Attrs, kv2.ObjectMetaAttrMetaOnly) {
+			if kv2.AttrAllow(rr.Meta.Attrs, kv2.ObjectMetaAttrDataOff) {
 				batch.Put(keyEncode(nsKeyMeta, rr.Meta.Key), bsData)
+			} else if kv2.AttrAllow(rr.Meta.Attrs, kv2.ObjectMetaAttrMetaOff) {
+				batch.Put(keyEncode(nsKeyData, rr.Meta.Key), bsData)
 			} else {
 				if !cn.opts.Feature.WriteMetaDisable {
 					batch.Put(keyEncode(nsKeyMeta, rr.Meta.Key), bsMeta)
@@ -288,7 +290,7 @@ func (cn *Conn) objectLocalQuery(rr *kv2.ObjectReader) *kv2.ObjectResult {
 				err error
 			)
 
-			if kv2.AttrAllow(rr.Attrs, kv2.ObjectMetaAttrMetaOnly) {
+			if kv2.AttrAllow(rr.Attrs, kv2.ObjectMetaAttrDataOff) {
 				bs, err = tdb.db.Get(keyEncode(nsKeyMeta, k), nil)
 			} else {
 				bs, err = tdb.db.Get(keyEncode(nsKeyData, k), nil)
@@ -376,7 +378,7 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 	}
 
 	nsKey := nsKeyData
-	if kv2.AttrAllow(rr.Attrs, kv2.ObjectMetaAttrMetaOnly) {
+	if kv2.AttrAllow(rr.Attrs, kv2.ObjectMetaAttrDataOff) {
 		nsKey = nsKeyMeta
 	}
 
@@ -560,7 +562,22 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 			})
 		} else {
 
-			bs, err := tdb.db.Get(keyEncode(nsKeyData, meta.Key), nil)
+			var nsKey = nsKeyData
+			if kv2.AttrAllow(meta.Attrs, kv2.ObjectMetaAttrDataOff) {
+				nsKey = nsKeyMeta
+			}
+
+			bs, err := tdb.db.Get(keyEncode(nsKey, meta.Key), nil)
+
+			if err != nil && err.Error() == ldbNotFound {
+				if nsKey == nsKeyData {
+					nsKey = nsKeyMeta
+				} else {
+					nsKey = nsKeyData
+				}
+				bs, err = tdb.db.Get(keyEncode(nsKey, meta.Key), nil)
+			}
+
 			if err != nil {
 				break
 			}
@@ -598,8 +615,8 @@ func (cn *Conn) NewReader(key []byte) *kv2.ClientReader {
 	return kv2.NewClientReader(cn, key)
 }
 
-func (cn *Conn) NewWriter(key []byte, value interface{}) *kv2.ClientWriter {
-	return kv2.NewClientWriter(cn, key, value)
+func (cn *Conn) NewWriter(key []byte, value interface{}, opts ...interface{}) *kv2.ClientWriter {
+	return kv2.NewClientWriter(cn, key, value, opts...)
 }
 
 func (cn *Conn) objectMetaGet(rr *kv2.ObjectWriter) (*kv2.ObjectMeta, error) {
@@ -609,15 +626,20 @@ func (cn *Conn) objectMetaGet(rr *kv2.ObjectWriter) (*kv2.ObjectMeta, error) {
 		return nil, errors.New("table not found")
 	}
 
-	var (
-		data []byte
-		err  error
-	)
+	var nsKey = nsKeyMeta
+	if kv2.AttrAllow(rr.Meta.Attrs, kv2.ObjectMetaAttrMetaOff) ||
+		cn.opts.Feature.WriteMetaDisable {
+		nsKey = nsKeyData
+	}
+	data, err := tdb.db.Get(keyEncode(nsKey, rr.Meta.Key), nil)
 
-	if !cn.opts.Feature.WriteMetaDisable {
-		data, err = tdb.db.Get(keyEncode(nsKeyMeta, rr.Meta.Key), nil)
-	} else {
-		data, err = tdb.db.Get(keyEncode(nsKeyData, rr.Meta.Key), nil)
+	if err != nil && err.Error() == ldbNotFound {
+		if nsKey == nsKeyData {
+			nsKey = nsKeyMeta
+		} else {
+			nsKey = nsKeyData
+		}
+		data, err = tdb.db.Get(keyEncode(nsKey, rr.Meta.Key), nil)
 	}
 
 	if err == nil {

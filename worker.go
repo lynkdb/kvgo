@@ -201,7 +201,7 @@ func (cn *Conn) workerClusterReplicaLogAsyncTable(hp *ConfigClusterMaster, dt *d
 				ow.ModeDeleteSet(true)
 			}
 
-			if rs2 := cn.objectCommitLocal(ow, item.Meta.Version); rs2.OK() {
+			if rs2 := cn.commitLocal(ow, item.Meta.Version); rs2.OK() {
 				rr.LogOffset = item.Meta.Version
 				num += 1
 			}
@@ -274,7 +274,7 @@ func (cn *Conn) workerLocalTableRefresh() error {
 			DbSize: uint64(s[0]),
 		}).TableNameSet(sysTableName)
 
-		rs := cn.objectCommitLocal(rr, 0)
+		rs := cn.commitLocal(rr, 0)
 		if !rs.OK() {
 			hlog.Printf("warn", "refresh table (%s) status error %s", t.tableName, err.Error())
 		}

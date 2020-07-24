@@ -5,11 +5,12 @@ An embeddable, persistent and distributed reliable Key-Value database engine.
 ## Features
 
 * support both embedded and server-client running modes.
-* fast and persistent key-value storage engine based on [goleveldb](github.com/syndtr/goleveldb).
+* fast and persistent key-value storage engine based on [goleveldb](https://github.com/syndtr/goleveldb).
 * data is stored sorted by key, forward and backward query is supported over the data.
 * data is automatically compressed using the snappy.
-* support paxos-based distributed deployment and provide service via gRPC
+* support paxos-based distributed deployment and provide service via gRPC.
 * friendly and easy way to run cluster mode in daemon and systemd ([kvgo-server](https://github.com/lynkdb/kvgo-server)).
+* mount a kvgo database as a FUSE filesystem [kvgo-fs-mount](https://github.com/lynkdb/kvgo-fs-mount).
 
 
 ## Getting Started

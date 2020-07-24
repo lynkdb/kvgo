@@ -181,8 +181,10 @@ func (it *InternalServiceImpl) Accept(ctx context.Context,
 
 			batch := new(leveldb.Batch)
 
-			if kv2.AttrAllow(rr.Meta.Attrs, kv2.ObjectMetaAttrMetaOnly) {
+			if kv2.AttrAllow(rr.Meta.Attrs, kv2.ObjectMetaAttrDataOff) {
 				batch.Put(keyEncode(nsKeyMeta, rr.Meta.Key), bsData)
+			} else if kv2.AttrAllow(rr.Meta.Attrs, kv2.ObjectMetaAttrMetaOff) {
+				batch.Put(keyEncode(nsKeyData, rr.Meta.Key), bsData)
 			} else {
 				batch.Put(keyEncode(nsKeyMeta, rr.Meta.Key), bsMeta)
 				batch.Put(keyEncode(nsKeyData, rr.Meta.Key), bsData)

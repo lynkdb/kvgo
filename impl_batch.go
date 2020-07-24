@@ -72,7 +72,7 @@ func (cn *Conn) batchCommitLocal(rr *kv2.BatchRequest) *kv2.BatchResult {
 			if v.Writer.TableName == "" {
 				v.Writer.TableName = rr.TableName
 			}
-			rs2 = cn.objectCommitLocal(v.Writer, 0)
+			rs2 = cn.commitLocal(v.Writer, 0)
 
 		} else {
 			rs2 = kv2.NewObjectResultClientError(errors.New("no reader/writer commit"))

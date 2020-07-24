@@ -203,6 +203,12 @@ func (cn *Conn) dbSetup(dir string, opts *opt.Options) (*dbTable, error) {
 		return nil, err
 	}
 
+	if false {
+		opts.CompactionL0Trigger = 8
+		opts.WriteL0PauseTrigger = 24
+		opts.WriteL0SlowdownTrigger = 16
+	}
+
 	db, err := leveldb.OpenFile(dir, opts)
 	if err != nil {
 		return nil, err
@@ -283,7 +289,7 @@ func (cn *Conn) dbTableListSetup() error {
 				obj.Meta.IncrId = uint64(t.tableId)
 				obj.TableName = sysTableName
 
-				rs := cn.objectCommitLocal(obj, 0)
+				rs := cn.commitLocal(obj, 0)
 				if !rs.OK() {
 					return errors.New(rs.Message)
 				}

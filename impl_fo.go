@@ -70,7 +70,7 @@ func (cn *FileObjectConn) FoFilePut(srcPath, dstPath string) *kv2.ObjectResult {
 
 		var prev kv2.FileObjectBlock
 
-		if err := ors.Decode(&prev); err != nil {
+		if err := ors.Decode(&prev, nil); err != nil {
 			return kv2.NewObjectResultClientError(err)
 		}
 
@@ -134,7 +134,7 @@ func (cn *FileObjectConn) FoFileOpen(path string) (io.ReadSeeker, error) {
 	}
 
 	var block0 kv2.FileObjectBlock
-	if err := rs.Decode(&block0); err != nil {
+	if err := rs.Decode(&block0, nil); err != nil {
 		return nil, errors.New("ERR decode meta : " + err.Error())
 	}
 
@@ -231,7 +231,7 @@ func (fo *FoReadSeeker) Read(b []byte) (n int, err error) {
 			}
 
 			var foBlock kv2.FileObjectBlock
-			if err := rs.Decode(&foBlock); err != nil {
+			if err := rs.Decode(&foBlock, nil); err != nil {
 				return 0, errors.New("io error : " + err.Error())
 			}
 

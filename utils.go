@@ -23,7 +23,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/pem"
-	"fmt"
 	"math/big"
 	mrand "math/rand"
 	"time"
@@ -138,15 +137,4 @@ func pemEncode(name string, bs []byte) string {
 	pem.Encode(&buf, block)
 
 	return string(buf.Bytes())
-}
-
-func attrPrint(base uint64) {
-	attrs := []int{}
-	for i := 1; i <= 63; i++ {
-		comp := uint64(1) << i
-		if (comp & base) == comp {
-			attrs = append(attrs, i)
-		}
-	}
-	fmt.Println("attrs", attrs)
 }
