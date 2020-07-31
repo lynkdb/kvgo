@@ -20,16 +20,12 @@ import (
 	"fmt"
 	"time"
 
-	kv2 "github.com/lynkdb/kvspec/v2"
+	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
-
-func (cn *Conn) NewBatch(tableName string) *kv2.BatchRequest {
-	return kv2.NewBatchRequest(tableName)
-}
 
 func (cn *Conn) BatchCommit(rr *kv2.BatchRequest) *kv2.BatchResult {
 
-	if len(cn.opts.Cluster.Masters) > 0 {
+	if len(cn.opts.Cluster.MainNodes) > 0 {
 
 		if cn.opts.ClientConnectEnable {
 			return cn.batchCommitRemote(rr)
@@ -99,11 +95,11 @@ func (cn *Conn) batchCommitLocal(rr *kv2.BatchRequest) *kv2.BatchResult {
 
 func (cn *Conn) batchCommitRemote(rr *kv2.BatchRequest) *kv2.BatchResult {
 
-	masters := cn.opts.Cluster.randMasters(3)
+	masters := cn.opts.Cluster.randMainNodes(3)
 
 	for _, v := range masters {
 
-		conn, err := clientConn(v.Addr, cn.authKey(v.Addr), v.AuthTLSCert)
+		conn, err := clientConn(v.Addr, v.AuthKey, v.AuthTLSCert)
 		if err != nil {
 			continue
 		}

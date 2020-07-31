@@ -29,12 +29,12 @@ const (
 )
 
 const (
-	ldbNotFound            = "leveldb: not found"
-	objAcceptTTL           = uint64(3000)
-	workerLocalExpireSleep = 200e6
-	workerLocalExpireLimit = 200
-	workerClusterSleep     = 1e9
-	workerTableRefreshTime = int64(600)
+	ldbNotFound                = "leveldb: not found"
+	objAcceptTTL               = uint64(3000)
+	workerLocalExpireSleep     = 200e6
+	workerLocalExpireLimit     = 200
+	workerReplicaLogAsyncSleep = 1e9
+	workerTableRefreshTime     = int64(600)
 )
 
 var (
@@ -42,8 +42,8 @@ var (
 	keySysLogCutset  = append([]byte{nsKeySys}, []byte("log:cutset")...)
 )
 
-func keySysLogAsync(hostport string) []byte {
-	return append([]byte{nsKeySys}, []byte("log:async:"+hostport)...)
+func keySysLogAsync(hostAddr, tableName string) []byte {
+	return append([]byte{nsKeySys}, []byte("log:async:"+hostAddr+":"+tableName)...)
 }
 
 func keySysIncrCutset(ns string) []byte {

@@ -16,53 +16,30 @@ package kvgo
 
 import (
 	"context"
-	"errors"
 
-	"github.com/hooto/iam/iamauth"
+	"github.com/hooto/hauth/go/hauth/v1"
 	"google.golang.org/grpc/credentials"
 )
 
-func authKeyDefault() *iamauth.AuthKey {
-	return &iamauth.AuthKey{
-		AccessKey: "kvgo",
-		User:      "root",
+const (
+	authKeyAccessKeySystem = "00000000"
+)
+
+func authKeyDefault() *hauth.AuthKey {
+	return &hauth.AuthKey{
+		AccessKey: authKeyAccessKeySystem,
+		SecretKey: "<empty>",
 	}
 }
 
-func (it *Conn) authKey(ak string) *iamauth.AuthKey {
-	it.keyMu.RLock()
-	defer it.keyMu.RUnlock()
-	k, ok := it.keys[ak]
-	if ok {
-		return k
-	}
-	return authKeyDefault()
+func newAppCredential(key *hauth.AuthKey) credentials.PerRPCCredentials {
+	return hauth.NewGrpcAppCredential(key)
 }
 
-func (it *Conn) authKeySet(ak, sk string) error {
-
-	if len(sk) < 20 {
-		return errors.New("invalid secret_key")
-	}
-
-	it.keyMu.Lock()
-	defer it.keyMu.Unlock()
-
-	it.keys[ak] = &iamauth.AuthKey{
-		AccessKey: ak,
-		SecretKey: sk,
-	}
-
-	return nil
+func appAuthParse(ctx context.Context) (*hauth.AppValidator, error) {
+	return hauth.GrpcAppValidator(ctx)
 }
 
-func newAppCredential(key *iamauth.AuthKey) credentials.PerRPCCredentials {
-	return iamauth.NewGrpcAppCredential(key)
-}
-
-func appAuthValid(ctx context.Context, key *iamauth.AuthKey) error {
-	if key == nil {
-		return errors.New("not auth key setup")
-	}
-	return iamauth.GrpcAppCredentialValid(ctx, key)
+func appAuthValid(ctx context.Context, keyMgr *hauth.AuthKeyManager) error {
+	return hauth.GrpcAppCredentialValid(ctx, keyMgr)
 }

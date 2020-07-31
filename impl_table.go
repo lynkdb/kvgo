@@ -17,7 +17,7 @@ package kvgo
 import (
 	"errors"
 
-	kv2 "github.com/lynkdb/kvspec/v2"
+	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
 
 func (cn *Conn) TableList(req *kv2.TableListRequest) *kv2.ObjectResult {

@@ -21,7 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/lynkdb/iomix/connect"
+	"github.com/hooto/hauth/go/hauth/v1"
 )
 
 type Config struct {
@@ -43,6 +43,9 @@ type Config struct {
 
 	// Client Settings
 	ClientConnectEnable bool `toml:"-" json:"-"`
+
+	// Client Keys
+	ClientAuthKeys []*hauth.AuthKey `toml:"client_auth_keys" json:"client_auth_keys`
 }
 
 type ConfigStorage struct {
@@ -57,9 +60,9 @@ type ConfigTLSCertificate struct {
 }
 
 type ConfigServer struct {
-	Bind          string                `toml:"bind" json:"bind"`
-	AuthSecretKey string                `toml:"auth_secret_key" json:"auth_secret_key"`
-	AuthTLSCert   *ConfigTLSCertificate `toml:"auth_tls_cert" json:"auth_tls_cert"`
+	Bind        string                `toml:"bind" json:"bind"`
+	AuthKey     *hauth.AuthKey        `toml:"auth_key" json:"auth_key"`
+	AuthTLSCert *ConfigTLSCertificate `toml:"auth_tls_cert" json:"auth_tls_cert"`
 }
 
 type ConfigPerformance struct {
@@ -76,18 +79,26 @@ type ConfigFeature struct {
 }
 
 type ConfigCluster struct {
-	Masters []*ConfigClusterMaster `toml:"masters" json:"masters"`
+	//
+	MainNodes []*ClientConfig `toml:"main_nodes" json:"main_nodes"`
+
+	// Replica-Of nodes settings
+	ReplicaOfNodes []*ConfigReplicaOfNode `toml:"replica_of_nodes" json:"replica_of_nodes"`
 }
 
-type ConfigClusterMaster struct {
-	Addr          string                `toml:"addr" json:"addr"`
-	AuthSecretKey string                `toml:"auth_secret_key" json:"auth_secret_key"`
-	AuthTLSCert   *ConfigTLSCertificate `toml:"auth_tls_cert" json:"auth_tls_cert"`
+type ConfigReplicaOfNode struct {
+	*ClientConfig
+	TableMaps []*ConfigReplicaTableMap `toml:"table_maps" json:"table_maps"`
 }
 
-func (it *ConfigCluster) Master(addr string) *ConfigClusterMaster {
+type ConfigReplicaTableMap struct {
+	From string `toml:"from" json:"from"`
+	To   string `toml:"to" json:"to"`
+}
 
-	for _, v := range it.Masters {
+func (it *ConfigCluster) Master(addr string) *ClientConfig {
+
+	for _, v := range it.MainNodes {
 		if addr == v.Addr {
 			return v
 		}
@@ -95,18 +106,18 @@ func (it *ConfigCluster) Master(addr string) *ConfigClusterMaster {
 	return nil
 }
 
-func (it *ConfigCluster) randMasters(cap int) []*ConfigClusterMaster {
+func (it *ConfigCluster) randMainNodes(cap int) []*ClientConfig {
 
 	var (
-		ls     = []*ConfigClusterMaster{}
-		offset = rand.Intn(len(it.Masters))
+		ls     = []*ClientConfig{}
+		offset = rand.Intn(len(it.MainNodes))
 	)
 
-	for i := offset; i < len(it.Masters) && len(ls) <= cap; i++ {
-		ls = append(ls, it.Masters[i])
+	for i := offset; i < len(it.MainNodes) && len(ls) <= cap; i++ {
+		ls = append(ls, it.MainNodes[i])
 	}
 	for i := 0; i < offset && len(ls) <= cap; i++ {
-		ls = append(ls, it.Masters[i])
+		ls = append(ls, it.MainNodes[i])
 	}
 
 	return ls
@@ -115,8 +126,8 @@ func (it *ConfigCluster) randMasters(cap int) []*ConfigClusterMaster {
 func (it *Config) Valid() error {
 
 	if it.ClientConnectEnable {
-		if len(it.Cluster.Masters) < 1 {
-			return errors.New("no cluster/masters setup")
+		if len(it.Cluster.MainNodes) < 1 {
+			return errors.New("no cluster/main_nodes setup")
 		}
 	}
 
@@ -161,6 +172,11 @@ func (it *Config) reset() *Config {
 		it.Feature.TableCompressName = "none"
 	}
 
+	if it.Server.Bind != "" && it.Server.AuthKey == nil {
+		it.Server.AuthKey = hauth.NewAuthKey()
+		it.Server.AuthKey.AccessKey = authKeyAccessKeySystem
+	}
+
 	if it.Server.AuthTLSCert != nil {
 
 		if it.Server.AuthTLSCert.ServerKeyFile != "" &&
@@ -181,6 +197,7 @@ func (it *Config) reset() *Config {
 	return it
 }
 
+/**
 func ConfigParse(opts connect.ConnOptions) (*Config, error) {
 
 	cfg := &Config{}
@@ -239,3 +256,4 @@ func ConfigParse(opts connect.ConnOptions) (*Config, error) {
 
 	return cfg.reset(), nil
 }
+*/

@@ -19,12 +19,12 @@ import (
 	"errors"
 	"time"
 
-	kv2 "github.com/lynkdb/kvspec/v2"
+	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
 
 func (cn *Conn) SysCmd(rr *kv2.SysCmdRequest) *kv2.ObjectResult {
 
-	if len(cn.opts.Cluster.Masters) > 0 {
+	if len(cn.opts.Cluster.MainNodes) > 0 {
 
 		if cn.opts.ClientConnectEnable {
 			return cn.sysCmdRemote(rr)
@@ -123,14 +123,14 @@ func (cn *Conn) sysCmdRemote(rr *kv2.SysCmdRequest) *kv2.ObjectResult {
 		return kv2.NewObjectResultClientError(errors.New("cmd not found"))
 	}
 
-	masters := cn.opts.Cluster.randMasters(3)
+	masters := cn.opts.Cluster.randMainNodes(3)
 	if len(masters) < 1 {
 		return kv2.NewObjectResultClientError(errors.New("no master found"))
 	}
 
 	for _, v := range masters {
 
-		conn, err := clientConn(v.Addr, cn.authKey(v.Addr), v.AuthTLSCert)
+		conn, err := clientConn(v.Addr, v.AuthKey, v.AuthTLSCert)
 		if err != nil {
 			continue
 		}
@@ -152,12 +152,12 @@ func (cn *Conn) sysCmdRemote(rr *kv2.SysCmdRequest) *kv2.ObjectResult {
 func (it *PublicServiceImpl) SysCmd(ctx context.Context, req *kv2.SysCmdRequest) (*kv2.ObjectResult, error) {
 
 	if ctx != nil {
-		if err := appAuthValid(ctx, it.db.serverKey); err != nil {
+		if err := appAuthValid(ctx, it.db.keyMgr); err != nil {
 			return kv2.NewObjectResultClientError(err), nil
 		}
 	}
 
-	if len(it.db.opts.Cluster.Masters) == 0 {
+	if len(it.db.opts.Cluster.MainNodes) == 0 {
 		return it.db.SysCmd(req), nil
 	}
 

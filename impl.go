@@ -21,16 +21,17 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/hooto/hlog4g/hlog"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/iterator"
 	"github.com/syndtr/goleveldb/leveldb/util"
 
-	kv2 "github.com/lynkdb/kvspec/v2"
+	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
 
 func (cn *Conn) Commit(rr *kv2.ObjectWriter) *kv2.ObjectResult {
 
-	if len(cn.opts.Cluster.Masters) > 0 {
+	if len(cn.opts.Cluster.MainNodes) > 0 {
 
 		if cn.opts.ClientConnectEnable {
 			return cn.objectCommitRemote(rr, 0)
@@ -235,14 +236,14 @@ func (cn *Conn) objectCommitRemote(rr *kv2.ObjectWriter, cLog uint64) *kv2.Objec
 		return kv2.NewObjectResultClientError(err)
 	}
 
-	masters := cn.opts.Cluster.randMasters(3)
+	masters := cn.opts.Cluster.randMainNodes(3)
 	if len(masters) < 1 {
 		return kv2.NewObjectResultClientError(errors.New("no master found"))
 	}
 
 	for _, v := range masters {
 
-		conn, err := clientConn(v.Addr, cn.authKey(v.Addr), v.AuthTLSCert)
+		conn, err := clientConn(v.Addr, v.AuthKey, v.AuthTLSCert)
 		if err != nil {
 			continue
 		}
@@ -264,7 +265,7 @@ func (cn *Conn) objectCommitRemote(rr *kv2.ObjectWriter, cLog uint64) *kv2.Objec
 func (cn *Conn) Query(rr *kv2.ObjectReader) *kv2.ObjectResult {
 
 	if cn.opts.ClientConnectEnable ||
-		(len(cn.opts.Cluster.Masters) > 0 && cn.opts.Server.Bind == "") {
+		(len(cn.opts.Cluster.MainNodes) > 0 && cn.opts.Server.Bind == "") {
 		return cn.objectQueryRemote(rr)
 	}
 
@@ -344,14 +345,14 @@ func (cn *Conn) objectLocalQuery(rr *kv2.ObjectReader) *kv2.ObjectResult {
 
 func (cn *Conn) objectQueryRemote(rr *kv2.ObjectReader) *kv2.ObjectResult {
 
-	masters := cn.opts.Cluster.randMasters(3)
+	masters := cn.opts.Cluster.randMainNodes(3)
 	if len(masters) < 1 {
 		return kv2.NewObjectResultClientError(errors.New("no master found"))
 	}
 
 	for _, v := range masters {
 
-		conn, err := clientConn(v.Addr, cn.authKey(v.Addr), v.AuthTLSCert)
+		conn, err := clientConn(v.Addr, v.AuthKey, v.AuthTLSCert)
 		if err != nil {
 			continue
 		}
@@ -552,6 +553,7 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 
 		meta, err := kv2.ObjectMetaDecode(iter.Value())
 		if err != nil || meta == nil {
+			hlog.Printf("debug", "db-log-range err %s", err.Error())
 			break
 		}
 
@@ -579,6 +581,7 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 			}
 
 			if err != nil {
+				hlog.Printf("debug", "db-log-range err %s", err.Error())
 				break
 			}
 
@@ -611,8 +614,8 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 	return nil
 }
 
-func (cn *Conn) NewReader(key []byte) *kv2.ClientReader {
-	return kv2.NewClientReader(cn, key)
+func (cn *Conn) NewReader(keys ...[]byte) *kv2.ClientReader {
+	return kv2.NewClientReader(cn, keys...)
 }
 
 func (cn *Conn) NewWriter(key []byte, value interface{}, opts ...interface{}) *kv2.ClientWriter {

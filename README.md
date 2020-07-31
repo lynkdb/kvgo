@@ -58,15 +58,33 @@ package main
 import (
 	"fmt"
 
+	hauth "github.com/hooto/hauth/go/hauth/v1"
+	"github.com/hooto/hflag4g/hflag"
+
 	"github.com/lynkdb/kvgo"
 )
 
 var (
-	addr          = "127.0.0.1:9100"
-	authSecretKey = "9ABtTYi9qN63/8T+n1jtLWllVWoKsJeOAwR7vzZ3ch42MiCw"
+	addr    = "127.0.0.1:9100"
+	authKey = &hauth.AuthKey{
+		AccessKey: "00000000",
+		SecretKey: "9ABtTYi9qN63/8T+n1jtLWllVWoKsJeOAwR7vzZ3ch42MiCw",
+	}
+	Server  *kvgo.Conn
+	tlsCert *kvgo.ConfigTLSCertificate
+	err     error
 )
 
 func main() {
+
+	if _, ok := hflag.ValueOK("tls_enable"); ok {
+		// openssl genrsa -out server.key 2048
+		// openssl req -new -x509 -sha256 -key server.key -out server.crt -days 3650 -subj '/CN=CommonName'
+		tlsCert = &kvgo.ConfigTLSCertificate{
+			ServerKeyFile:  "server.key",
+			ServerCertFile: "server.crt",
+		}
+	}
 
 	if err := startServer(); err != nil {
 		panic(err)
@@ -77,13 +95,13 @@ func main() {
 
 func startServer() error {
 
-	_, err := kvgo.Open(kvgo.ConfigStorage{
+	if Server, err = kvgo.Open(kvgo.ConfigStorage{
 		DataDirectory: "/tmp/kvgo-server",
 	}, kvgo.ConfigServer{
-		Bind:          addr,
-		AuthSecretKey: authSecretKey,
-	})
-	if err != nil {
+		Bind:        addr,
+		AuthKey:     authKey,
+		AuthTLSCert: tlsCert,
+	}); err != nil {
 		return err
 	}
 
@@ -93,12 +111,14 @@ func startServer() error {
 func client() {
 
 	db, err := kvgo.Open(kvgo.ConfigCluster{
-		Masters: []*kvgo.ConfigClusterMaster{
+		MainNodes: []*kvgo.ClientConfig{
 			{
-				Addr:          addr,
-				AuthSecretKey: authSecretKey,
+				Addr:    addr,
+				AuthKey: authKey,
 			},
 		},
+	}, kvgo.ConfigServer{
+		AuthTLSCert: tlsCert,
 	})
 	if err != nil {
 		panic(err)
@@ -120,23 +140,28 @@ package main
 import (
 	"fmt"
 
+	hauth "github.com/hooto/hauth/go/hauth/v1"
+
 	"github.com/lynkdb/kvgo"
 )
 
 var (
-	authSecretKey = "9ABtTYi9qN63/8T+n1jtLWllVWoKsJeOAwR7vzZ3ch42MiCw"
-	masters       = []*kvgo.ConfigClusterMaster{
+	authKey = &hauth.AuthKey{
+		AccessKey: "00000000",
+		SecretKey: "9ABtTYi9qN63/8T+n1jtLWllVWoKsJeOAwR7vzZ3ch42MiCw",
+	}
+	mainNodes = []*kvgo.ClientConfig{
 		{
-			Addr:          "127.0.0.1:9101",
-			AuthSecretKey: authSecretKey,
+			Addr:    "127.0.0.1:9101",
+			AuthKey: authKey,
 		},
 		{
-			Addr:          "127.0.0.1:9102",
-			AuthSecretKey: authSecretKey,
+			Addr:    "127.0.0.1:9102",
+			AuthKey: authKey,
 		},
 		{
-			Addr:          "127.0.0.1:9103",
-			AuthSecretKey: authSecretKey,
+			Addr:    "127.0.0.1:9103",
+			AuthKey: authKey,
 		},
 	}
 )
@@ -152,15 +177,15 @@ func main() {
 
 func startCluster() error {
 
-	for i, m := range masters {
+	for i, m := range mainNodes {
 
 		_, err := kvgo.Open(kvgo.ConfigStorage{
 			DataDirectory: fmt.Sprintf("/tmp/kvgo-cluster-%d", i),
 		}, kvgo.ConfigServer{
-			Bind:          m.Addr,
-			AuthSecretKey: authSecretKey,
+			Bind:    m.Addr,
+			AuthKey: authKey,
 		}, kvgo.ConfigCluster{
-			Masters: masters,
+			MainNodes: mainNodes,
 		})
 		if err != nil {
 			return err
@@ -173,7 +198,7 @@ func startCluster() error {
 func client() {
 
 	db, err := kvgo.Open(kvgo.ConfigCluster{
-		Masters: masters,
+		MainNodes: mainNodes,
 	})
 	if err != nil {
 		panic(err)
@@ -263,7 +288,7 @@ if rs := db.NewReader(key).Query(); rs.OK() {
 }
 
 # query multi key-value items from a key-range in forward way
-if rs := db.NewReader(nil).
+if rs := db.NewReader().
 	KeyRangeSet([]byte("00"), []byte("zz")).
 	LimitNumSet(10).Query(); rs.OK() {
 	for i, item := range rs.Items {
@@ -272,7 +297,7 @@ if rs := db.NewReader(nil).
 }
 
 # query multi key-value items from a key-range in backward way
-if rs := db.NewReader(nil).
+if rs := db.NewReader().
 	KeyRangeSet([]byte("zz"), []byte("00")).
 	ModeRevRangeSet(true).
 	LimitNumSet(10).Query(); rs.OK() {
@@ -283,7 +308,7 @@ if rs := db.NewReader(nil).
 
 # query multi key-value items by the paxos-based auto-increment log version.
 lastVersion := uint64(0)
-if rs := db.NewReader(nil).
+if rs := db.NewReader().
 	LogOffsetSet(lastVersion).
 	LimitNumSet(10).Query(); rs.OK() {
 	for i, item := range rs.Items {

@@ -24,7 +24,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 	"google.golang.org/grpc"
 
-	kv2 "github.com/lynkdb/kvspec/v2"
+	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
 
 type InternalServiceImpl struct {
@@ -39,7 +39,7 @@ type InternalServiceImpl struct {
 func (it *InternalServiceImpl) Prepare(ctx context.Context,
 	or *kv2.ObjectWriter) (*kv2.ObjectResult, error) {
 
-	if err := appAuthValid(ctx, it.db.serverKey); err != nil {
+	if err := appAuthValid(ctx, it.db.keyMgr); err != nil {
 		return kv2.NewObjectResultClientError(err), nil
 	}
 
@@ -98,7 +98,7 @@ func (it *InternalServiceImpl) Prepare(ctx context.Context,
 func (it *InternalServiceImpl) Accept(ctx context.Context,
 	rr2 *kv2.ObjectWriter) (*kv2.ObjectResult, error) {
 
-	if err := appAuthValid(ctx, it.db.serverKey); err != nil {
+	if err := appAuthValid(ctx, it.db.keyMgr); err != nil {
 		return kv2.NewObjectResultClientError(err), nil
 	}
 

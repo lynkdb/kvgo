@@ -21,17 +21,18 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 
+	"github.com/hooto/hauth/go/hauth/v1"
+	"github.com/hooto/hflag4g/hflag"
 	"github.com/hooto/hlog4g/hlog"
-	"github.com/hooto/iam/iamauth"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/filter"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/syndtr/goleveldb/leveldb/util"
 
-	"github.com/lynkdb/iomix/connect"
-	kv2 "github.com/lynkdb/kvspec/v2"
+	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
 
 var (
@@ -53,24 +54,26 @@ type dbTable struct {
 }
 
 type Conn struct {
-	mu         sync.RWMutex
-	dbmu       sync.Mutex
-	dbSys      *leveldb.DB
-	tables     map[string]*dbTable
-	opts       *Config
-	clients    int
-	logMu      sync.RWMutex
-	logOffset  uint64
-	logCutset  uint64
-	incrMu     sync.RWMutex
-	incrOffset uint64
-	incrCutset uint64
-	public     *PublicServiceImpl
-	internal   *InternalServiceImpl
-	serverKey  *iamauth.AuthKey
-	keyMu      sync.RWMutex
-	keys       map[string]*iamauth.AuthKey
-	close      bool
+	mu                 sync.RWMutex
+	dbmu               sync.Mutex
+	dbSys              *leveldb.DB
+	tables             map[string]*dbTable
+	opts               *Config
+	clients            int
+	logMu              sync.RWMutex
+	logOffset          uint64
+	logCutset          uint64
+	incrMu             sync.RWMutex
+	incrOffset         uint64
+	incrCutset         uint64
+	client             *kv2.PublicClient
+	public             *PublicServiceImpl
+	internal           *InternalServiceImpl
+	keyMgr             *hauth.AuthKeyManager
+	close              bool
+	tableName          string
+	workmu             sync.Mutex
+	workerLocalRunning bool
 }
 
 func Open(args ...interface{}) (*Conn, error) {
@@ -89,12 +92,10 @@ func Open(args ...interface{}) (*Conn, error) {
 			logCutset:  0,
 			incrOffset: 0,
 			incrCutset: 0,
-			serverKey:  authKeyDefault(),
-			keys:       map[string]*iamauth.AuthKey{},
+			keyMgr:     hauth.NewAuthKeyManager(),
 			tables:     map[string]*dbTable{},
 			opts:       &Config{},
 		}
-		err error
 	)
 
 	for _, cfg := range args {
@@ -123,11 +124,6 @@ func Open(args ...interface{}) (*Conn, error) {
 
 		case ConfigCluster:
 			cn.opts.Cluster = cfg.(ConfigCluster)
-
-		case connect.ConnOptions:
-			if cn.opts, err = ConfigParse(cfg.(connect.ConnOptions)); err != nil {
-				return nil, err
-			}
 
 		default:
 			return nil, errors.New("invalid config")
@@ -186,6 +182,10 @@ func Open(args ...interface{}) (*Conn, error) {
 	return cn, nil
 }
 
+func (it *Conn) NewClient() (kv2.Client, error) {
+	return kv2.NewClient(it)
+}
+
 func (cn *Conn) tabledb(name string) *dbTable {
 	if name == "" {
 		name = "main"
@@ -212,6 +212,52 @@ func (cn *Conn) dbSetup(dir string, opts *opt.Options) (*dbTable, error) {
 	db, err := leveldb.OpenFile(dir, opts)
 	if err != nil {
 		return nil, err
+	}
+
+	if _, ok := hflag.ValueOK("db-ns-stats"); ok {
+
+		for _, v := range []uint8{
+			nsKeySys,
+			nsKeyMeta,
+			nsKeyData,
+			nsKeyLog,
+			nsKeyTtl,
+		} {
+
+			if strings.HasSuffix(dir, "/sys") {
+				continue
+			}
+
+			iter := db.NewIterator(&util.Range{
+				Start: []byte{v},
+				Limit: []byte{v, 0xff},
+			}, nil)
+			defer iter.Release()
+
+			num := 0
+
+			for iter.Next() {
+				num += 1
+			}
+
+			if num == 0 {
+				continue
+			}
+
+			hlog.Printf("info", "db-ns-stats table %s, ns %d, num %d",
+				dir, v, num)
+
+			if v == nsKeyLog {
+
+				if iter.Prev() {
+					meta, err := kv2.ObjectMetaDecode(bytesClone(iter.Value()))
+					if err == nil {
+						hlog.Printf("info", "db-ns-stats table %s, ns %d, log-id %d",
+							dir, v, meta.Version)
+					}
+				}
+			}
+		}
 	}
 
 	dt := &dbTable{
@@ -414,6 +460,10 @@ func (cn *Conn) dbTableSetup(tableName string, tableId uint32) error {
 	return nil
 }
 
+func (cn *Conn) OptionApply(opts ...kv2.ClientOption) {
+	// TODO
+}
+
 func (cn *Conn) Close() error {
 
 	connMu.Lock()
@@ -477,4 +527,20 @@ func (it *dbTable) Close() error {
 	it.db = nil
 
 	return nil
+}
+
+type connTable struct {
+	*Conn
+	tableName string
+}
+
+func (it *Conn) OpenTable(tableName string) kv2.ClientTable {
+	return &connTable{
+		Conn:      it,
+		tableName: tableName,
+	}
+}
+
+func (it *connTable) NewBatch() *kv2.ClientBatch {
+	return kv2.NewClientBatch(it, it.tableName)
 }

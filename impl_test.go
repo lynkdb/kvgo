@@ -24,13 +24,17 @@ import (
 	"testing"
 	"time"
 
-	kv2 "github.com/lynkdb/kvspec/v2"
+	hauth "github.com/hooto/hauth/go/hauth/v1"
+	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
 
 var (
-	dbTestCaches        = map[string]*Conn{}
-	dbTestMu            sync.Mutex
-	dbTestAuthSecretKey = "9ABtTYi9qN63/8T+n1jtLWllVWoKsJeOAwR7vzZ3ch42MiCw"
+	dbTestCaches  = map[string]*Conn{}
+	dbTestMu      sync.Mutex
+	dbTestAuthKey = &hauth.AuthKey{
+		AccessKey: "00000000",
+		SecretKey: "9ABtTYi9qN63/8T+n1jtLWllVWoKsJeOAwR7vzZ3ch42MiCw",
+	}
 )
 
 func dbOpen(ports []int, clientEnable bool) ([]*Conn, error) {
@@ -40,14 +44,14 @@ func dbOpen(ports []int, clientEnable bool) ([]*Conn, error) {
 
 	var (
 		dbs   = []*Conn{}
-		nodes = []*ConfigClusterMaster{}
+		nodes = []*ClientConfig{}
 	)
 
 	for _, v := range ports {
 		if v > 0 {
-			nodes = append(nodes, &ConfigClusterMaster{
-				Addr:          fmt.Sprintf("127.0.0.1:%d", v),
-				AuthSecretKey: dbTestAuthSecretKey,
+			nodes = append(nodes, &ClientConfig{
+				Addr:    fmt.Sprintf("127.0.0.1:%d", v),
+				AuthKey: dbTestAuthKey,
 			})
 		}
 	}
@@ -60,7 +64,7 @@ func dbOpen(ports []int, clientEnable bool) ([]*Conn, error) {
 
 		cfg := &Config{}
 
-		cfg.Cluster.Masters = nodes
+		cfg.Cluster.MainNodes = nodes
 		cfg.ClientConnectEnable = clientEnable
 
 		db, err := Open(cfg)
@@ -95,7 +99,7 @@ func dbOpen(ports []int, clientEnable bool) ([]*Conn, error) {
 
 		if port > 0 {
 			cfg.Server.Bind = fmt.Sprintf("127.0.0.1:%d", port)
-			cfg.Server.AuthSecretKey = dbTestAuthSecretKey
+			cfg.Server.AuthKey = dbTestAuthKey
 		}
 
 		if port < 0 {
@@ -104,7 +108,7 @@ func dbOpen(ports []int, clientEnable bool) ([]*Conn, error) {
 		}
 
 		if len(nodes) > 0 {
-			cfg.Cluster.Masters = nodes
+			cfg.Cluster.MainNodes = nodes
 		}
 
 		db, err := Open(cfg)
@@ -434,9 +438,9 @@ func Test_Object_LogAsync(t *testing.T) {
 
 	for _, db := range dbs {
 
-		for _, hp := range db.opts.Cluster.Masters {
+		for _, hp := range db.opts.Cluster.MainNodes {
 
-			conn, err := clientConn(hp.Addr, db.authKey(hp.Addr), hp.AuthTLSCert)
+			conn, err := clientConn(hp.Addr, hp.AuthKey, hp.AuthTLSCert)
 			if err != nil {
 				t.Fatalf("Object AsyncLog ER! %s", err.Error())
 			}
@@ -463,8 +467,8 @@ func Test_Object_LogAsync(t *testing.T) {
 			// t.Logf("Object AsyncLog Bind %s, Node %s OK", db.opts.Server.Bind, hp)
 		}
 
-		t.Logf("Object AsyncLog Bind %s, Masters %d OK",
-			db.opts.Server.Bind, len(db.opts.Cluster.Masters))
+		t.Logf("Object AsyncLog Bind %s, MainNodes %d OK",
+			db.opts.Server.Bind, len(db.opts.Cluster.MainNodes))
 	}
 }
 
@@ -582,7 +586,7 @@ func Benchmark_Commit_Rand_MetaLogDisable(b *testing.B) {
 	}
 }
 
-func Benchmark_Commit_Rand_Cluster(b *testing.B) {
+func Benchmark_Commit_Rand_Cluster_x3_1k(b *testing.B) {
 
 	dbs, err := dbOpen([]int{10001, 10002, 10003}, false)
 	if err != nil {
@@ -590,6 +594,23 @@ func Benchmark_Commit_Rand_Cluster(b *testing.B) {
 	}
 
 	bs := []byte(strings.Repeat("a", 1000))
+	for i := 0; i < b.N; i++ {
+		ow := kv2.NewObjectWriter(
+			[]byte(fmt.Sprintf("%032d", rand.Int31())), bs)
+		if rs := dbs[rand.Intn(len(dbs))].Commit(ow); !rs.OK() {
+			b.Fatalf("Commit ER!, Err %s", rs.Message)
+		}
+	}
+}
+
+func Benchmark_Commit_Rand_Cluster_x3_100b(b *testing.B) {
+
+	dbs, err := dbOpen([]int{11001, 11002, 11003}, false)
+	if err != nil {
+		b.Fatalf("Can Not Open Database %s", err.Error())
+	}
+
+	bs := []byte(strings.Repeat("a", 100))
 	for i := 0; i < b.N; i++ {
 		ow := kv2.NewObjectWriter(
 			[]byte(fmt.Sprintf("%032d", rand.Int31())), bs)

@@ -3,23 +3,28 @@ package main
 import (
 	"fmt"
 
+	hauth "github.com/hooto/hauth/go/hauth/v1"
+
 	"github.com/lynkdb/kvgo"
 )
 
 var (
-	authSecretKey = "9ABtTYi9qN63/8T+n1jtLWllVWoKsJeOAwR7vzZ3ch42MiCw"
-	masters       = []*kvgo.ConfigClusterMaster{
+	authKey = &hauth.AuthKey{
+		AccessKey: "00000000",
+		SecretKey: "9ABtTYi9qN63/8T+n1jtLWllVWoKsJeOAwR7vzZ3ch42MiCw",
+	}
+	mainNodes = []*kvgo.ClientConfig{
 		{
-			Addr:          "127.0.0.1:9101",
-			AuthSecretKey: authSecretKey,
+			Addr:    "127.0.0.1:9101",
+			AuthKey: authKey,
 		},
 		{
-			Addr:          "127.0.0.1:9102",
-			AuthSecretKey: authSecretKey,
+			Addr:    "127.0.0.1:9102",
+			AuthKey: authKey,
 		},
 		{
-			Addr:          "127.0.0.1:9103",
-			AuthSecretKey: authSecretKey,
+			Addr:    "127.0.0.1:9103",
+			AuthKey: authKey,
 		},
 	}
 )
@@ -35,15 +40,15 @@ func main() {
 
 func startCluster() error {
 
-	for i, m := range masters {
+	for i, m := range mainNodes {
 
 		_, err := kvgo.Open(kvgo.ConfigStorage{
 			DataDirectory: fmt.Sprintf("/tmp/kvgo-cluster-%d", i),
 		}, kvgo.ConfigServer{
-			Bind:          m.Addr,
-			AuthSecretKey: authSecretKey,
+			Bind:    m.Addr,
+			AuthKey: authKey,
 		}, kvgo.ConfigCluster{
-			Masters: masters,
+			MainNodes: mainNodes,
 		})
 		if err != nil {
 			return err
@@ -56,7 +61,7 @@ func startCluster() error {
 func client() {
 
 	db, err := kvgo.Open(kvgo.ConfigCluster{
-		Masters: masters,
+		MainNodes: mainNodes,
 	})
 	if err != nil {
 		panic(err)

@@ -24,7 +24,7 @@ import (
 
 	"google.golang.org/grpc"
 
-	kv2 "github.com/lynkdb/kvspec/v2"
+	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
 
 type PublicServiceImpl struct {
@@ -44,7 +44,22 @@ type pQueItem struct {
 func (it *PublicServiceImpl) Query(ctx context.Context,
 	or *kv2.ObjectReader) (*kv2.ObjectResult, error) {
 	if ctx != nil {
-		if err := appAuthValid(ctx, it.db.serverKey); err != nil {
+
+		av, err := appAuthParse(ctx)
+		if err != nil {
+			return kv2.NewObjectResultClientError(err), nil
+		}
+
+		if or.TableName == "sys" && av.AccessKey != authKeyAccessKeySystem {
+			return kv2.NewObjectResultClientError(errors.New("auth fail")), nil
+		}
+
+		key := it.db.keyMgr.KeyGet(av.AccessKey)
+		if key == nil {
+			return kv2.NewObjectResultClientError(errors.New("auth fail")), nil
+		}
+
+		if err := av.SignValid(nil, key); err != nil {
 			return kv2.NewObjectResultClientError(err), nil
 		}
 	}
@@ -55,12 +70,27 @@ func (it *PublicServiceImpl) Commit(ctx context.Context,
 	rr *kv2.ObjectWriter) (*kv2.ObjectResult, error) {
 
 	if ctx != nil {
-		if err := appAuthValid(ctx, it.db.serverKey); err != nil {
+
+		av, err := appAuthParse(ctx)
+		if err != nil {
+			return kv2.NewObjectResultClientError(err), nil
+		}
+
+		if rr.TableName == "sys" && av.AccessKey != authKeyAccessKeySystem {
+			return kv2.NewObjectResultClientError(errors.New("auth fail")), nil
+		}
+
+		key := it.db.keyMgr.KeyGet(av.AccessKey)
+		if key == nil {
+			return kv2.NewObjectResultClientError(errors.New("auth fail")), nil
+		}
+
+		if err := av.SignValid(nil, key); err != nil {
 			return kv2.NewObjectResultClientError(err), nil
 		}
 	}
 
-	if len(it.db.opts.Cluster.Masters) == 0 {
+	if len(it.db.opts.Cluster.MainNodes) == 0 {
 		return it.db.Commit(rr), nil
 	}
 
@@ -131,7 +161,7 @@ func (it *PublicServiceImpl) Commit(ctx context.Context,
 	}
 
 	var (
-		nCap = len(it.db.opts.Cluster.Masters)
+		nCap = len(it.db.opts.Cluster.MainNodes)
 		pNum = 0
 		pLog = uint64(0)
 		pInc = uint64(0)
@@ -139,9 +169,9 @@ func (it *PublicServiceImpl) Commit(ctx context.Context,
 		pTTL = time.Millisecond * time.Duration(objAcceptTTL)
 	)
 
-	for _, v := range it.db.opts.Cluster.Masters {
+	for _, v := range it.db.opts.Cluster.MainNodes {
 
-		conn, err := clientConn(v.Addr, it.db.authKey(v.Addr), v.AuthTLSCert)
+		conn, err := clientConn(v.Addr, v.AuthKey, v.AuthTLSCert)
 		if err != nil {
 			continue
 		}
@@ -203,9 +233,9 @@ func (it *PublicServiceImpl) Commit(ctx context.Context,
 	rr2.Meta.Version = pLog
 	rr2.Meta.IncrId = pInc
 
-	for _, v := range it.db.opts.Cluster.Masters {
+	for _, v := range it.db.opts.Cluster.MainNodes {
 
-		conn, err := clientConn(v.Addr, it.db.authKey(v.Addr), v.AuthTLSCert)
+		conn, err := clientConn(v.Addr, v.AuthKey, v.AuthTLSCert)
 		if err != nil {
 			continue
 		}
@@ -262,7 +292,7 @@ func (it *PublicServiceImpl) BatchCommit(ctx context.Context,
 	rr *kv2.BatchRequest) (*kv2.BatchResult, error) {
 
 	if ctx != nil {
-		if err := appAuthValid(ctx, it.db.serverKey); err != nil {
+		if err := appAuthValid(ctx, it.db.keyMgr); err != nil {
 			return rr.NewResult(kv2.ResultClientError, err.Error()), nil
 		}
 	}
@@ -271,7 +301,7 @@ func (it *PublicServiceImpl) BatchCommit(ctx context.Context,
 		return rr.NewResult(kv2.ResultOK, ""), nil
 	}
 
-	if len(it.db.opts.Cluster.Masters) == 0 {
+	if len(it.db.opts.Cluster.MainNodes) == 0 {
 		return it.db.BatchCommit(rr), nil
 	}
 

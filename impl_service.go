@@ -22,12 +22,12 @@ import (
 	"net"
 	"sync"
 
+	"github.com/hooto/hauth/go/hauth/v1"
 	"github.com/hooto/hlog4g/hlog"
-	"github.com/hooto/iam/iamauth"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	kv2 "github.com/lynkdb/kvspec/v2"
+	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
 
 var (
@@ -38,23 +38,24 @@ var (
 
 func (cn *Conn) serviceStart() error {
 
-	if nCap := len(cn.opts.Cluster.Masters); nCap > 0 {
+	if nCap := len(cn.opts.Cluster.MainNodes); nCap > 0 {
 
 		if nCap > kv2.ObjectClusterNodeMax {
 			return errors.New("Deny of kv2.ObjectClusterNodeMax")
 		}
 
 		var (
-			masters = []*ConfigClusterMaster{}
+			masters = []*ClientConfig{}
 			addrs   = map[string]bool{}
 		)
 
-		for _, v := range cn.opts.Cluster.Masters {
+		for _, v := range cn.opts.Cluster.MainNodes {
 
 			host, port, err := net.SplitHostPort(v.Addr)
 			if err != nil {
 				return err
 			}
+
 			if _, ok := addrs[host+":"+port]; ok {
 				hlog.Printf("warn", "Duplicate host:port (%s:%s) setting", host, port)
 				continue
@@ -62,22 +63,23 @@ func (cn *Conn) serviceStart() error {
 
 			v.Addr = host + ":" + port
 
-			if err := cn.authKeySet(v.Addr, v.AuthSecretKey); err != nil {
+			if err := cn.keyMgr.KeySet(v.AuthKey); err != nil {
 				return err
 			}
 
 			masters = append(masters, v)
 		}
 
-		cn.opts.Cluster.Masters = masters
+		cn.opts.Cluster.MainNodes = masters
 	}
 
 	if cn.opts.Server.Bind != "" && !cn.opts.ClientConnectEnable {
 
-		if len(cn.opts.Server.AuthSecretKey) > 20 &&
-			cn.serverKey.SecretKey != cn.opts.Server.AuthSecretKey {
-			cn.serverKey.SecretKey = cn.opts.Server.AuthSecretKey
+		if cn.opts.Server.AuthKey == nil {
+			return errors.New("no [server.auth_key] setup")
 		}
+
+		cn.keyMgr.KeySet(cn.opts.Server.AuthKey)
 
 		host, port, err := net.SplitHostPort(cn.opts.Server.Bind)
 		if err != nil {
@@ -138,14 +140,10 @@ func (cn *Conn) serviceStart() error {
 		}
 	}
 
-	if len(cn.opts.Cluster.Masters) > 0 && !cn.opts.ClientConnectEnable {
-		go cn.workerClusterReplica()
-	}
-
 	return nil
 }
 
-func clientConn(addr string, key *iamauth.AuthKey, cert *ConfigTLSCertificate) (*grpc.ClientConn, error) {
+func clientConn(addr string, key *hauth.AuthKey, cert *ConfigTLSCertificate) (*grpc.ClientConn, error) {
 
 	if key == nil {
 		return nil, errors.New("not auth key setup")

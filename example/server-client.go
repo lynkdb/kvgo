@@ -3,17 +3,21 @@ package main
 import (
 	"fmt"
 
+	hauth "github.com/hooto/hauth/go/hauth/v1"
 	"github.com/hooto/hflag4g/hflag"
 
 	"github.com/lynkdb/kvgo"
 )
 
 var (
-	addr          = "127.0.0.1:9100"
-	authSecretKey = "9ABtTYi9qN63/8T+n1jtLWllVWoKsJeOAwR7vzZ3ch42MiCw"
-	Server        *kvgo.Conn
-	tlsCert       *kvgo.ConfigTLSCertificate
-	err           error
+	addr    = "127.0.0.1:9100"
+	authKey = &hauth.AuthKey{
+		AccessKey: "00000000",
+		SecretKey: "9ABtTYi9qN63/8T+n1jtLWllVWoKsJeOAwR7vzZ3ch42MiCw",
+	}
+	Server  *kvgo.Conn
+	tlsCert *kvgo.ConfigTLSCertificate
+	err     error
 )
 
 func main() {
@@ -40,9 +44,9 @@ func startServer() error {
 	if Server, err = kvgo.Open(kvgo.ConfigStorage{
 		DataDirectory: "/tmp/kvgo-server",
 	}, kvgo.ConfigServer{
-		Bind:          addr,
-		AuthSecretKey: authSecretKey,
-		TLSCert:       tlsCert,
+		Bind:        addr,
+		AuthKey:     authKey,
+		AuthTLSCert: tlsCert,
 	}); err != nil {
 		return err
 	}
@@ -53,14 +57,14 @@ func startServer() error {
 func client() {
 
 	db, err := kvgo.Open(kvgo.ConfigCluster{
-		Masters: []*kvgo.ConfigClusterMaster{
+		MainNodes: []*kvgo.ClientConfig{
 			{
-				Addr:          addr,
-				AuthSecretKey: authSecretKey,
+				Addr:    addr,
+				AuthKey: authKey,
 			},
 		},
 	}, kvgo.ConfigServer{
-		TLSCert: tlsCert,
+		AuthTLSCert: tlsCert,
 	})
 	if err != nil {
 		panic(err)
