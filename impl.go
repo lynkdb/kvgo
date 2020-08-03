@@ -140,6 +140,7 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 		}
 	}
 
+	cLogOn := true
 	if cLog == 0 {
 		if meta != nil && meta.Version > 0 {
 			cLog = meta.Version
@@ -149,6 +150,12 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 		if err != nil {
 			return kv2.NewObjectResultServerError(err)
 		}
+	} else {
+		_, err = cn.objectLogVersionSet(tdb, 0, cLog)
+		if err != nil {
+			return kv2.NewObjectResultServerError(err)
+		}
+		cLogOn = false
 	}
 	rr.Meta.Version = cLog
 
@@ -170,7 +177,7 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 				}
 			}
 
-			if !cn.opts.Feature.WriteLogDisable {
+			if cLogOn && !cn.opts.Feature.WriteLogDisable {
 				batch.Put(keyEncode(nsKeyLog, uint64ToBytes(cLog)), bsMeta)
 			}
 
@@ -194,7 +201,7 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 				batch.Put(keyEncode(nsKeyData, rr.Meta.Key), bsData)
 			}
 
-			if !cn.opts.Feature.WriteLogDisable {
+			if cLogOn && !cn.opts.Feature.WriteLogDisable {
 				batch.Put(keyEncode(nsKeyLog, uint64ToBytes(cLog)), bsMeta)
 			}
 
@@ -553,7 +560,9 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 
 		meta, err := kv2.ObjectMetaDecode(iter.Value())
 		if err != nil || meta == nil {
-			hlog.Printf("debug", "db-log-range err %s", err.Error())
+			if err != nil {
+				hlog.Printf("debug", "db-log-range err %s", err.Error())
+			}
 			break
 		}
 

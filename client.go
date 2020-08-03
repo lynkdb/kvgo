@@ -29,8 +29,6 @@ type ClientConfig struct {
 	AuthKey     *hauth.AuthKey        `toml:"auth_key" json:"auth_key"`
 	AuthTLSCert *ConfigTLSCertificate `toml:"auth_tls_cert" json:"auth_tls_cert"`
 	Options     *kv2.ClientOptions    `toml:"options,omitempty" json:"options,omitempty"`
-	// TODEL
-	AuthSecretKeyDel string `toml:"auth_secret_key" json:"auth_secret_key"`
 }
 
 type ClientConnector struct {

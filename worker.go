@@ -281,7 +281,7 @@ func (cn *Conn) workerLocalReplicaOfLogAsyncTable(hp *ClientConfig, tm *ConfigRe
 		num    = int64(0)
 	)
 
-	if bs, err := dt.db.Get(keySysLogAsync(hp.Addr, tm.To), nil); err != nil {
+	if bs, err := dt.db.Get(keySysLogAsync(hp.Addr, tm.From), nil); err != nil {
 		if err.Error() != ldbNotFound {
 			return err
 		}
@@ -334,6 +334,11 @@ func (cn *Conn) workerLocalReplicaOfLogAsyncTable(hp *ClientConfig, tm *ConfigRe
 			if rs2 := cn.commitLocal(ow, item.Meta.Version); rs2.OK() {
 				rr.LogOffset = item.Meta.Version
 				num += 1
+			} else {
+				hlog.Printf("info", "log-async addr %d, table %s -> %s, err %s",
+					hp.Addr, tm.From, tm.To, rs2.Message)
+				rs.Next = false
+				break
 			}
 		}
 

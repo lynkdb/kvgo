@@ -187,6 +187,42 @@ func Test_Object_Common(t *testing.T) {
 				}
 			}
 
+			// Log
+			{
+				key := []byte("log-id-test")
+				if rs := db.NewWriter(key, 123).Commit(); !rs.OK() {
+					t.Fatal("Object LogId ER!")
+				}
+				logId := uint64(0)
+				if rs := db.NewReader(key).Query(); !rs.OK() {
+					t.Fatal("Object LogId ER!")
+				} else if rs.Meta.Version < 1 {
+					t.Fatal("Object LogId ER!")
+				} else {
+					logId = rs.Meta.Version
+				}
+
+				if rs := db.NewWriter(key, 123).Commit(); !rs.OK() {
+					t.Fatal("Object LogId ER!")
+				}
+				if rs := db.NewReader(key).Query(); !rs.OK() {
+					t.Fatal("Object LogId ER!")
+				} else if rs.Meta.Version != logId {
+					t.Fatal("Object LogId ER!")
+				}
+
+				if rs := db.NewWriter(key, 321).Commit(); !rs.OK() {
+					t.Fatal("Object LogId ER!")
+				}
+				if rs := db.NewReader(key).Query(); !rs.OK() {
+					t.Fatal("Object LogId ER!")
+				} else if rs.Meta.Version <= logId {
+					t.Fatal("Object LogId ER!")
+				} else {
+					t.Logf("Object LogId OK from %d to %d", logId, rs.Meta.Version)
+				}
+			}
+
 			//
 			for _, n := range []int{1, 2, 3} {
 				db.NewWriter([]byte(fmt.Sprintf("%04d", n)), n).Commit()
