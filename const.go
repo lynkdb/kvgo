@@ -16,6 +16,10 @@ package kvgo
 
 //go:generate protoc --proto_path=./ --go_out=./ --go_opt=paths=source_relative --go-grpc_out=. kvgo.proto
 
+import (
+	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
+)
+
 const (
 	Version = "0.3.0"
 )
@@ -26,6 +30,10 @@ const (
 	nsKeyData uint8 = 18
 	nsKeyLog  uint8 = 19
 	nsKeyTtl  uint8 = 20
+)
+
+const (
+	grpcMsgByteMax = 12 * int(kv2.MiB)
 )
 
 const (
@@ -43,6 +51,9 @@ var (
 )
 
 func keySysLogAsync(hostAddr, tableName string) []byte {
+	if hostAddr == "" {
+		return append([]byte{nsKeySys}, []byte("log:async:")...)
+	}
 	return append([]byte{nsKeySys}, []byte("log:async:"+hostAddr+":"+tableName)...)
 }
 

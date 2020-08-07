@@ -15,9 +15,7 @@
 package kvgo
 
 import (
-	"context"
 	"errors"
-	"time"
 
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
@@ -87,8 +85,9 @@ func (cn *Conn) sysCmdLocal(rr *kv2.SysCmdRequest) *kv2.ObjectResult {
 
 		if rs = cn.Query(rr2); rs.OK() {
 
-			if rs2 := cn.Query(
-				rr2.KeyRangeSet(nsSysTableStatus(""), append(nsSysTableStatus(""), 0xff))); rs2.OK() {
+			rr2.KeyRangeSet(nsSysTableStatus(""), append(nsSysTableStatus(""), 0xff))
+
+			if rs2 := cn.Query(rr2); rs2.OK() {
 
 				statuses := map[string]*kv2.TableStatus{}
 				for _, v := range rs2.Items {
@@ -123,45 +122,22 @@ func (cn *Conn) sysCmdRemote(rr *kv2.SysCmdRequest) *kv2.ObjectResult {
 		return kv2.NewObjectResultClientError(errors.New("cmd not found"))
 	}
 
-	masters := cn.opts.Cluster.randMainNodes(3)
-	if len(masters) < 1 {
+	mainNodes := cn.opts.Cluster.randMainNodes(3)
+	if len(mainNodes) < 1 {
 		return kv2.NewObjectResultClientError(errors.New("no master found"))
 	}
 
-	for _, v := range masters {
+	for _, v := range mainNodes {
 
-		conn, err := clientConn(v.Addr, v.AuthKey, v.AuthTLSCert)
+		c, err := v.NewClient()
 		if err != nil {
 			continue
 		}
 
-		ctx, fc := context.WithTimeout(context.Background(), time.Second*3)
-		defer fc()
-
-		rs, err := kv2.NewPublicClient(conn).SysCmd(ctx, rr)
-		if err != nil {
-			return kv2.NewObjectResultServerError(err)
+		if rs := c.Connector().SysCmd(rr); rs.OK() {
+			return rs
 		}
-
-		return rs
 	}
 
 	return kv2.NewObjectResultServerError(errors.New("no cluster nodes"))
-}
-
-func (it *PublicServiceImpl) SysCmd(ctx context.Context, req *kv2.SysCmdRequest) (*kv2.ObjectResult, error) {
-
-	if ctx != nil {
-		if err := appAuthValid(ctx, it.db.keyMgr); err != nil {
-			return kv2.NewObjectResultClientError(err), nil
-		}
-	}
-
-	if len(it.db.opts.Cluster.MainNodes) == 0 {
-		return it.db.SysCmd(req), nil
-	}
-
-	rs := kv2.NewObjectResultOK()
-
-	return rs, nil
 }

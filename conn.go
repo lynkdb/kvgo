@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hooto/hauth/go/hauth/v1"
 	"github.com/hooto/hflag4g/hflag"
@@ -54,26 +55,28 @@ type dbTable struct {
 }
 
 type Conn struct {
-	mu                 sync.RWMutex
-	dbmu               sync.Mutex
-	dbSys              *leveldb.DB
-	tables             map[string]*dbTable
-	opts               *Config
-	clients            int
-	logMu              sync.RWMutex
-	logOffset          uint64
-	logCutset          uint64
-	incrMu             sync.RWMutex
-	incrOffset         uint64
-	incrCutset         uint64
-	client             *kv2.PublicClient
-	public             *PublicServiceImpl
-	internal           *InternalServiceImpl
-	keyMgr             *hauth.AuthKeyManager
-	close              bool
-	tableName          string
-	workmu             sync.Mutex
-	workerLocalRunning bool
+	mu                   sync.RWMutex
+	dbmu                 sync.Mutex
+	dbSys                *leveldb.DB
+	tables               map[string]*dbTable
+	opts                 *Config
+	clients              int
+	logMu                sync.RWMutex
+	logOffset            uint64
+	logCutset            uint64
+	incrMu               sync.RWMutex
+	incrOffset           uint64
+	incrCutset           uint64
+	client               *kv2.PublicClient
+	public               *PublicServiceImpl
+	internal             *InternalServiceImpl
+	keyMgr               *hauth.AuthKeyManager
+	close                bool
+	tableName            string
+	workmu               sync.Mutex
+	workerLocalRunning   bool
+	uptime               int64
+	workerTableRefreshed int64
 }
 
 func Open(args ...interface{}) (*Conn, error) {
@@ -95,6 +98,7 @@ func Open(args ...interface{}) (*Conn, error) {
 			keyMgr:     hauth.NewAuthKeyManager(),
 			tables:     map[string]*dbTable{},
 			opts:       &Config{},
+			uptime:     time.Now().Unix(),
 		}
 	)
 
@@ -175,7 +179,7 @@ func Open(args ...interface{}) (*Conn, error) {
 
 	go cn.workerLocal()
 
-	hlog.Printf("info", "kvgo started")
+	hlog.Printf("info", "kvgo started (%s)", cn.opts.Storage.DataDirectory)
 
 	conns[cn.opts.Storage.DataDirectory] = cn
 

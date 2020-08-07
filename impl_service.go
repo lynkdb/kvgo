@@ -16,24 +16,14 @@ package kvgo
 
 import (
 	"crypto/tls"
-	"crypto/x509"
-	"encoding/pem"
 	"errors"
 	"net"
-	"sync"
 
-	"github.com/hooto/hauth/go/hauth/v1"
 	"github.com/hooto/hlog4g/hlog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
-)
-
-var (
-	grpcMsgByteMax  = 12 * int(kv2.MiB)
-	grpcClientConns = map[string]*grpc.ClientConn{}
-	grpcClientMu    sync.Mutex
 )
 
 func (cn *Conn) serviceStart() error {
@@ -90,6 +80,7 @@ func (cn *Conn) serviceStart() error {
 		if err != nil {
 			return err
 		}
+		hlog.Printf("info", "server bind %s:%s", host, port)
 
 		cn.opts.Server.Bind = host + ":" + port
 
@@ -141,62 +132,4 @@ func (cn *Conn) serviceStart() error {
 	}
 
 	return nil
-}
-
-func clientConn(addr string, key *hauth.AuthKey, cert *ConfigTLSCertificate) (*grpc.ClientConn, error) {
-
-	if key == nil {
-		return nil, errors.New("not auth key setup")
-	}
-
-	grpcClientMu.Lock()
-	defer grpcClientMu.Unlock()
-
-	if c, ok := grpcClientConns[addr]; ok {
-		return c, nil
-	}
-
-	dialOptions := []grpc.DialOption{
-		grpc.WithPerRPCCredentials(newAppCredential(key)),
-		grpc.WithMaxMsgSize(grpcMsgByteMax),
-		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(grpcMsgByteMax)),
-		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(grpcMsgByteMax)),
-	}
-
-	if cert == nil {
-
-		dialOptions = append(dialOptions, grpc.WithInsecure())
-
-	} else {
-
-		block, _ := pem.Decode([]byte(cert.ServerCertData))
-		if block == nil || block.Type != "CERTIFICATE" {
-			return nil, errors.New("failed to decode CERTIFICATE")
-		}
-
-		crt, err := x509.ParseCertificate(block.Bytes)
-		if err != nil {
-			return nil, errors.New("failed to parse cert : " + err.Error())
-		}
-
-		certPool := x509.NewCertPool()
-		certPool.AddCert(crt)
-
-		// creds := credentials.NewClientTLSFromCert(certPool, addr)
-		creds := credentials.NewTLS(&tls.Config{
-			ServerName: crt.Subject.CommonName,
-			RootCAs:    certPool,
-		})
-
-		dialOptions = append(dialOptions, grpc.WithTransportCredentials(creds))
-	}
-
-	c, err := grpc.Dial(addr, dialOptions...)
-	if err != nil {
-		return nil, err
-	}
-
-	grpcClientConns[addr] = c
-
-	return c, nil
 }

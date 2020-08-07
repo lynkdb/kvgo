@@ -171,16 +171,21 @@ func (it *PublicServiceImpl) Commit(ctx context.Context,
 
 	for _, v := range it.db.opts.Cluster.MainNodes {
 
-		conn, err := clientConn(v.Addr, v.AuthKey, v.AuthTLSCert)
-		if err != nil {
-			continue
-		}
+		go func(v *ClientConfig, rr *kv2.ObjectWriter) {
 
-		go func(conn *grpc.ClientConn, rr *kv2.ObjectWriter) {
-			ctx, fc := context.WithTimeout(context.Background(), time.Second*3)
-			defer fc()
+			conn, err := clientConn(v.Addr, v.AuthKey, v.AuthTLSCert, false)
+			var rs *kv2.ObjectResult
 
-			rs, err := kv2.NewInternalClient(conn).Prepare(ctx, rr)
+			if err == nil {
+				ctx, fc := context.WithTimeout(context.Background(), time.Second*3)
+				defer fc()
+				rs, err = kv2.NewInternalClient(conn).Prepare(ctx, rr)
+				if err != nil {
+					conn, err = clientConn(v.Addr, v.AuthKey, v.AuthTLSCert, true)
+					rs, err = kv2.NewInternalClient(conn).Prepare(ctx, rr)
+				}
+			}
+
 			if err == nil && rs.Meta != nil && rs.Meta.Version > 0 {
 				pQue <- pQueItem{
 					Log: rs.Meta.Version,
@@ -191,7 +196,7 @@ func (it *PublicServiceImpl) Commit(ctx context.Context,
 					Log: 0,
 				}
 			}
-		}(conn, rr)
+		}(v, rr)
 	}
 
 	for {
@@ -235,22 +240,26 @@ func (it *PublicServiceImpl) Commit(ctx context.Context,
 
 	for _, v := range it.db.opts.Cluster.MainNodes {
 
-		conn, err := clientConn(v.Addr, v.AuthKey, v.AuthTLSCert)
-		if err != nil {
-			continue
-		}
+		go func(v *ClientConfig, rr *kv2.ObjectWriter) {
 
-		go func(conn *grpc.ClientConn, rr *kv2.ObjectWriter) {
-			ctx, fc := context.WithTimeout(context.Background(), time.Second*3)
-			defer fc()
+			conn, err := clientConn(v.Addr, v.AuthKey, v.AuthTLSCert, false)
+			var rs *kv2.ObjectResult
+			if err == nil {
+				ctx, fc := context.WithTimeout(context.Background(), time.Second*3)
+				defer fc()
+				rs, err = kv2.NewInternalClient(conn).Accept(ctx, rr2)
+				if err != nil {
+					conn, err = clientConn(v.Addr, v.AuthKey, v.AuthTLSCert, true)
+					rs, err = kv2.NewInternalClient(conn).Accept(ctx, rr2)
+				}
+			}
 
-			rs, err := kv2.NewInternalClient(conn).Accept(ctx, rr2)
 			if err == nil && rs.Meta != nil && rs.Meta.Version == pLog {
 				pQue2 <- 1
 			} else {
 				pQue2 <- 0
 			}
-		}(conn, rr)
+		}(v, rr)
 	}
 
 	for {
@@ -354,6 +363,23 @@ func (it *PublicServiceImpl) BatchCommit(ctx context.Context,
 	if ok == len(rs.Items) {
 		rs.Status = kv2.ResultOK
 	}
+
+	return rs, nil
+}
+
+func (it *PublicServiceImpl) SysCmd(ctx context.Context, req *kv2.SysCmdRequest) (*kv2.ObjectResult, error) {
+
+	if ctx != nil {
+		if err := appAuthValid(ctx, it.db.keyMgr); err != nil {
+			return kv2.NewObjectResultClientError(err), nil
+		}
+	}
+
+	if len(it.db.opts.Cluster.MainNodes) == 0 {
+		return it.db.SysCmd(req), nil
+	}
+
+	rs := kv2.NewObjectResultOK()
 
 	return rs, nil
 }

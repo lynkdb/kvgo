@@ -15,8 +15,10 @@
 package kvgo
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -136,14 +138,11 @@ func (cn *Conn) workerLocalExpiredRefreshTable(dt *dbTable) error {
 	return nil
 }
 
-var (
-	workerLocalTableRefreshLastTime int64 = 0
-)
-
 func (cn *Conn) workerLocalTableRefresh() error {
 
 	tn := time.Now().Unix()
-	if workerLocalTableRefreshLastTime+workerTableRefreshTime > tn {
+
+	if (cn.workerTableRefreshed + workerTableRefreshTime) > tn {
 		return nil
 	}
 
@@ -157,6 +156,14 @@ func (cn *Conn) workerLocalTableRefresh() error {
 		Start: keyEncode(nsKeyMeta, []byte{}),
 		Limit: keyEncode(nsKeyMeta, []byte{0xff}),
 	}
+	rgIncr := &util.Range{
+		Start: keySysIncrCutset(""),
+		Limit: append(keySysIncrCutset(""), []byte{0xff}...),
+	}
+	rgAsync := &util.Range{
+		Start: keySysLogAsync("", ""),
+		Limit: append(keySysLogAsync("", ""), []byte{0xff}...),
+	}
 
 	if cn.opts.Feature.WriteMetaDisable {
 		rgK.Start = keyEncode(nsKeyData, []byte{})
@@ -165,6 +172,7 @@ func (cn *Conn) workerLocalTableRefresh() error {
 
 	for _, t := range cn.tables {
 
+		// db size
 		s, err := t.db.SizeOf(rgS)
 		if err != nil {
 			hlog.Printf("warn", "get db size error %s", err.Error())
@@ -174,18 +182,78 @@ func (cn *Conn) workerLocalTableRefresh() error {
 			continue
 		}
 
+		// db keys
 		kn := uint64(0)
 		iter := t.db.NewIterator(rgK, nil)
 		for ; iter.Next(); kn++ {
 		}
 		iter.Release()
 
-		rr := kv2.NewObjectWriter(nsSysTableStatus(t.tableName), &kv2.TableStatus{
-			Name:   t.tableName,
-			KeyNum: kn,
-			DbSize: uint64(s[0]),
-		}).TableNameSet(sysTableName)
+		tableStatus := kv2.TableStatus{
+			Name:    t.tableName,
+			KeyNum:  kn,
+			DbSize:  uint64(s[0]),
+			Options: map[string]int64{},
+		}
 
+		// log-id
+		if bs, err := t.db.Get(keySysLogCutset, nil); err == nil {
+			if logid, err := strconv.ParseInt(string(bs), 10, 64); err == nil {
+				tableStatus.Options["log_id"] = logid
+			}
+		}
+
+		// incr
+		iterIncr := t.db.NewIterator(rgIncr, nil)
+		for iterIncr.Next() {
+
+			if bytes.Compare(iterIncr.Key(), rgIncr.Start) <= 0 {
+				continue
+			}
+
+			if bytes.Compare(iterIncr.Key(), rgIncr.Limit) > 0 {
+				break
+			}
+
+			incrid, err := strconv.ParseInt(string(iterIncr.Value()), 10, 64)
+			if err != nil {
+				continue
+			}
+
+			key := bytes.TrimPrefix(iterIncr.Key(), rgIncr.Start)
+			if len(key) > 0 {
+				tableStatus.Options[fmt.Sprintf("incr_id_%s", string(key))] = incrid
+			}
+		}
+		iterIncr.Release()
+
+		// async
+		iterAsync := t.db.NewIterator(rgAsync, nil)
+		for iterAsync.Next() {
+
+			if bytes.Compare(iterAsync.Key(), rgAsync.Start) <= 0 {
+				continue
+			}
+
+			if bytes.Compare(iterAsync.Key(), rgAsync.Limit) > 0 {
+				break
+			}
+
+			logid, err := strconv.ParseInt(string(iterAsync.Value()), 10, 64)
+			if err != nil {
+				continue
+			}
+
+			key := bytes.TrimPrefix(iterAsync.Key(), rgAsync.Start)
+			if len(key) > 0 {
+				tableStatus.Options[fmt.Sprintf("async_%s", string(key))] = logid
+			}
+		}
+		iterAsync.Release()
+
+		//
+		rr := kv2.NewObjectWriter(nsSysTableStatus(t.tableName), tableStatus).
+			TableNameSet(sysTableName)
 		rs := cn.commitLocal(rr, 0)
 		if !rs.OK() {
 			hlog.Printf("warn", "refresh table (%s) status error %s", t.tableName, err.Error())
@@ -196,7 +264,7 @@ func (cn *Conn) workerLocalTableRefresh() error {
 		}
 	}
 
-	workerLocalTableRefreshLastTime = tn
+	cn.workerTableRefreshed = tn
 
 	return nil
 }
@@ -279,6 +347,7 @@ func (cn *Conn) workerLocalReplicaOfLogAsyncTable(hp *ClientConfig, tm *ConfigRe
 	var (
 		offset = uint64(0)
 		num    = int64(0)
+		retry  = 0
 	)
 
 	if bs, err := dt.db.Get(keySysLogAsync(hp.Addr, tm.From), nil); err != nil {
@@ -291,7 +360,7 @@ func (cn *Conn) workerLocalReplicaOfLogAsyncTable(hp *ClientConfig, tm *ConfigRe
 		}
 	}
 
-	conn, err := clientConn(hp.Addr, hp.AuthKey, hp.AuthTLSCert)
+	conn, err := clientConn(hp.Addr, hp.AuthKey, hp.AuthTLSCert, false)
 	if err != nil {
 		return err
 	}
@@ -307,16 +376,21 @@ func (cn *Conn) workerLocalReplicaOfLogAsyncTable(hp *ClientConfig, tm *ConfigRe
 		rs, err := kv2.NewPublicClient(conn).Query(ctx, rr)
 		fc()
 
-		if err != nil || !rs.OK() || len(rs.Items) < 1 {
-			if err != nil {
-				hlog.Printf("warn", "worker replica-of log-async, addr %s, table %s, err %s",
-					hp.Addr, dt.tableName, err.Error())
-			} else if !rs.OK() {
-				hlog.Printf("warn", "worker replica-of log-async, addr %s, table %s, err %s",
-					hp.Addr, dt.tableName, rs.Message)
+		if err != nil {
+
+			hlog.Printf("warn", "worker replica-of log-async, addr %s, table %s, err %s",
+				hp.Addr, dt.tableName, err.Error())
+
+			retry += 1
+			if retry >= 3 {
+				break
 			}
-			break
+
+			time.Sleep(1e9)
+			conn, err = clientConn(hp.Addr, hp.AuthKey, hp.AuthTLSCert, true)
+			continue
 		}
+		retry = 0
 
 		for _, item := range rs.Items {
 
@@ -348,7 +422,7 @@ func (cn *Conn) workerLocalReplicaOfLogAsyncTable(hp *ClientConfig, tm *ConfigRe
 	}
 
 	if rr.LogOffset > offset {
-		dt.db.Put(keySysLogAsync(hp.Addr, tm.To),
+		dt.db.Put(keySysLogAsync(hp.Addr, tm.From),
 			[]byte(strconv.FormatUint(rr.LogOffset, 10)), nil)
 	}
 

@@ -243,14 +243,14 @@ func (cn *Conn) objectCommitRemote(rr *kv2.ObjectWriter, cLog uint64) *kv2.Objec
 		return kv2.NewObjectResultClientError(err)
 	}
 
-	masters := cn.opts.Cluster.randMainNodes(3)
-	if len(masters) < 1 {
+	mainNodes := cn.opts.Cluster.randMainNodes(3)
+	if len(mainNodes) < 1 {
 		return kv2.NewObjectResultClientError(errors.New("no master found"))
 	}
 
-	for _, v := range masters {
+	for _, v := range mainNodes {
 
-		conn, err := clientConn(v.Addr, v.AuthKey, v.AuthTLSCert)
+		conn, err := clientConn(v.Addr, v.AuthKey, v.AuthTLSCert, false)
 		if err != nil {
 			continue
 		}
@@ -352,14 +352,14 @@ func (cn *Conn) objectLocalQuery(rr *kv2.ObjectReader) *kv2.ObjectResult {
 
 func (cn *Conn) objectQueryRemote(rr *kv2.ObjectReader) *kv2.ObjectResult {
 
-	masters := cn.opts.Cluster.randMainNodes(3)
-	if len(masters) < 1 {
+	mainNodes := cn.opts.Cluster.randMainNodes(3)
+	if len(mainNodes) < 1 {
 		return kv2.NewObjectResultClientError(errors.New("no master found"))
 	}
 
-	for _, v := range masters {
+	for _, v := range mainNodes {
 
-		conn, err := clientConn(v.Addr, v.AuthKey, v.AuthTLSCert)
+		conn, err := clientConn(v.Addr, v.AuthKey, v.AuthTLSCert, false)
 		if err != nil {
 			continue
 		}
@@ -782,4 +782,8 @@ func (cn *Conn) objectIncrSet(tdb *dbTable, ns string, incr, set uint64) (uint64
 	}
 
 	return incrSet.offset, nil
+}
+
+func (it *Conn) Connector() kv2.ClientConnector {
+	return it
 }

@@ -15,10 +15,8 @@
 package kvgo
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
@@ -95,24 +93,18 @@ func (cn *Conn) batchCommitLocal(rr *kv2.BatchRequest) *kv2.BatchResult {
 
 func (cn *Conn) batchCommitRemote(rr *kv2.BatchRequest) *kv2.BatchResult {
 
-	masters := cn.opts.Cluster.randMainNodes(3)
+	mainNodes := cn.opts.Cluster.randMainNodes(3)
 
-	for _, v := range masters {
+	for _, v := range mainNodes {
 
-		conn, err := clientConn(v.Addr, v.AuthKey, v.AuthTLSCert)
+		c, err := v.NewClient()
 		if err != nil {
 			continue
 		}
 
-		ctx, fc := context.WithTimeout(context.Background(), time.Second*3)
-		defer fc()
-
-		rs, err := kv2.NewPublicClient(conn).BatchCommit(ctx, rr)
-		if err != nil {
-			return rr.NewResult(kv2.ResultClientError, err.Error())
+		if rs := c.Connector().BatchCommit(rr); rs.OK() {
+			return rs
 		}
-
-		return rs
 	}
 
 	return rr.NewResult(kv2.ResultClientError, "no master found")

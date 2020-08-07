@@ -476,7 +476,7 @@ func Test_Object_LogAsync(t *testing.T) {
 
 		for _, hp := range db.opts.Cluster.MainNodes {
 
-			conn, err := clientConn(hp.Addr, hp.AuthKey, hp.AuthTLSCert)
+			conn, err := clientConn(hp.Addr, hp.AuthKey, hp.AuthTLSCert, false)
 			if err != nil {
 				t.Fatalf("Object AsyncLog ER! %s", err.Error())
 			}
