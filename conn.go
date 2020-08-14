@@ -70,7 +70,7 @@ type Conn struct {
 	client               *kv2.PublicClient
 	public               *PublicServiceImpl
 	internal             *InternalServiceImpl
-	keyMgr               *hauth.AuthKeyManager
+	keyMgr               *hauth.AccessKeyManager
 	close                bool
 	tableName            string
 	workmu               sync.Mutex
@@ -95,7 +95,7 @@ func Open(args ...interface{}) (*Conn, error) {
 			logCutset:  0,
 			incrOffset: 0,
 			incrCutset: 0,
-			keyMgr:     hauth.NewAuthKeyManager(),
+			keyMgr:     hauth.NewAccessKeyManager(),
 			tables:     map[string]*dbTable{},
 			opts:       &Config{},
 			uptime:     time.Now().Unix(),
@@ -134,7 +134,7 @@ func Open(args ...interface{}) (*Conn, error) {
 		}
 	}
 
-	cn.opts.reset()
+	cn.opts.Reset()
 
 	if err := cn.opts.Valid(); err != nil {
 		return nil, err
@@ -182,6 +182,8 @@ func Open(args ...interface{}) (*Conn, error) {
 	hlog.Printf("info", "kvgo started (%s)", cn.opts.Storage.DataDirectory)
 
 	conns[cn.opts.Storage.DataDirectory] = cn
+
+	time.Sleep(500e6)
 
 	return cn, nil
 }
@@ -293,25 +295,63 @@ func (cn *Conn) dbSysSetup() error {
 			WriteBuffer:            2 * opt.MiB,
 			BlockCacheCapacity:     2 * opt.MiB,
 			CompactionTableSize:    2 * opt.MiB,
-			OpenFilesCacheCapacity: 20,
+			OpenFilesCacheCapacity: 10,
 			Filter:                 filter.NewBloomFilter(10),
 			Compression:            opt.NoCompression,
 		}
 	)
 
 	dt, err := cn.dbSetup(dir, opts)
-	if err == nil {
-		cn.dbSys = dt.db
+	if err != nil {
+		return err
+	}
 
-		cn.tables[sysTableName] = &dbTable{
-			tableId:   0,
-			tableName: sysTableName,
-			db:        dt.db,
-			incrSets:  map[string]*dbTableIncrSet{},
+	cn.dbSys = dt.db
+	cn.tables[sysTableName] = &dbTable{
+		tableId:   0,
+		tableName: sysTableName,
+		db:        dt.db,
+		incrSets:  map[string]*dbTableIncrSet{},
+	}
+
+	if cn.opts.Server.Bind != "" {
+
+		rr2 := kv2.NewObjectReader(nil).
+			TableNameSet(sysTableName).
+			KeyRangeSet(nsSysAccessKey(""), append(nsSysAccessKey(""), 0xff)).
+			LimitNumSet(1000)
+
+		if rs := cn.objectLocalQuery(rr2); rs.OK() {
+			for _, v := range rs.Items {
+				var key hauth.AccessKey
+				if err := v.DataValue().Decode(&key, nil); err == nil {
+					cn.keyMgr.KeySet(&key)
+				}
+			}
+			hlog.Printf("info", "server load access keys %d", len(rs.Items))
+		}
+
+		if cn.opts.Server.AccessKey != nil &&
+			len(cn.opts.Server.AccessKey.Secret) > 20 {
+			key := cn.opts.Server.AccessKey
+			if pkey := cn.keyMgr.KeyGet(key.Id); pkey == nil || key.Secret != pkey.Secret {
+				rr2 := kv2.NewObjectWriter(nsSysAccessKey(key.Id), key).
+					TableNameSet(sysTableName)
+				tdb := cn.tabledb(sysTableName)
+				if tdb != nil {
+					cn.commitLocal(rr2, 0)
+					cn.keyMgr.KeySet(key)
+					hlog.Printf("warn", "server force rewrite root access key")
+				}
+			}
+		}
+
+		for _, role := range defaultRoles {
+			cn.keyMgr.RoleSet(role)
 		}
 	}
 
-	return err
+	return nil
 }
 
 func (cn *Conn) dbTableListSetup() error {

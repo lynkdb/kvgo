@@ -19,9 +19,11 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/hooto/hauth/go/hauth/v1"
 	"google.golang.org/grpc"
 
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
@@ -43,26 +45,28 @@ type pQueItem struct {
 
 func (it *PublicServiceImpl) Query(ctx context.Context,
 	or *kv2.ObjectReader) (*kv2.ObjectResult, error) {
+
 	if ctx != nil {
 
-		av, err := appAuthParse(ctx)
+		av, err := appAuthParse(ctx, it.db.keyMgr)
 		if err != nil {
-			return kv2.NewObjectResultClientError(err), nil
+			return kv2.NewObjectResultAccessDenied(err.Error()), nil
 		}
 
-		if or.TableName == "sys" && av.AccessKey != authKeyAccessKeySystem {
-			return kv2.NewObjectResultClientError(errors.New("auth fail")), nil
+		if err := av.SignValid(nil); err != nil {
+			return kv2.NewObjectResultAccessDenied(err.Error()), nil
 		}
 
-		key := it.db.keyMgr.KeyGet(av.AccessKey)
-		if key == nil {
-			return kv2.NewObjectResultClientError(errors.New("auth fail")), nil
+		if or.TableName == "sys" && !av.Allow(authPermSysAll) {
+			return kv2.NewObjectResultAccessDenied(), nil
 		}
 
-		if err := av.SignValid(nil, key); err != nil {
-			return kv2.NewObjectResultClientError(err), nil
+		if !av.Allow(authPermTableRead,
+			hauth.NewScopeFilter(AuthScopeTable, or.TableName)) {
+			return kv2.NewObjectResultAccessDenied(), nil
 		}
 	}
+
 	return it.db.Query(or), nil
 }
 
@@ -71,22 +75,22 @@ func (it *PublicServiceImpl) Commit(ctx context.Context,
 
 	if ctx != nil {
 
-		av, err := appAuthParse(ctx)
+		av, err := appAuthParse(ctx, it.db.keyMgr)
 		if err != nil {
-			return kv2.NewObjectResultClientError(err), nil
+			return kv2.NewObjectResultAccessDenied(err.Error()), nil
 		}
 
-		if rr.TableName == "sys" && av.AccessKey != authKeyAccessKeySystem {
-			return kv2.NewObjectResultClientError(errors.New("auth fail")), nil
+		if err := av.SignValid(nil); err != nil {
+			return kv2.NewObjectResultAccessDenied(err.Error()), nil
 		}
 
-		key := it.db.keyMgr.KeyGet(av.AccessKey)
-		if key == nil {
-			return kv2.NewObjectResultClientError(errors.New("auth fail")), nil
+		if rr.TableName == "sys" && !av.Allow(authPermSysAll) {
+			return kv2.NewObjectResultAccessDenied(), nil
 		}
 
-		if err := av.SignValid(nil, key); err != nil {
-			return kv2.NewObjectResultClientError(err), nil
+		if !av.Allow(authPermTableWrite,
+			hauth.NewScopeFilter(AuthScopeTable, rr.TableName)) {
+			return kv2.NewObjectResultAccessDenied(), nil
 		}
 	}
 
@@ -173,7 +177,7 @@ func (it *PublicServiceImpl) Commit(ctx context.Context,
 
 		go func(v *ClientConfig, rr *kv2.ObjectWriter) {
 
-			conn, err := clientConn(v.Addr, v.AuthKey, v.AuthTLSCert, false)
+			conn, err := clientConn(v.Addr, v.AccessKey, v.AuthTLSCert, false)
 			var rs *kv2.ObjectResult
 
 			if err == nil {
@@ -181,7 +185,7 @@ func (it *PublicServiceImpl) Commit(ctx context.Context,
 				defer fc()
 				rs, err = kv2.NewInternalClient(conn).Prepare(ctx, rr)
 				if err != nil {
-					conn, err = clientConn(v.Addr, v.AuthKey, v.AuthTLSCert, true)
+					conn, err = clientConn(v.Addr, v.AccessKey, v.AuthTLSCert, true)
 					rs, err = kv2.NewInternalClient(conn).Prepare(ctx, rr)
 				}
 			}
@@ -242,14 +246,14 @@ func (it *PublicServiceImpl) Commit(ctx context.Context,
 
 		go func(v *ClientConfig, rr *kv2.ObjectWriter) {
 
-			conn, err := clientConn(v.Addr, v.AuthKey, v.AuthTLSCert, false)
+			conn, err := clientConn(v.Addr, v.AccessKey, v.AuthTLSCert, false)
 			var rs *kv2.ObjectResult
 			if err == nil {
 				ctx, fc := context.WithTimeout(context.Background(), time.Second*3)
 				defer fc()
 				rs, err = kv2.NewInternalClient(conn).Accept(ctx, rr2)
 				if err != nil {
-					conn, err = clientConn(v.Addr, v.AuthKey, v.AuthTLSCert, true)
+					conn, err = clientConn(v.Addr, v.AccessKey, v.AuthTLSCert, true)
 					rs, err = kv2.NewInternalClient(conn).Accept(ctx, rr2)
 				}
 			}
@@ -301,8 +305,40 @@ func (it *PublicServiceImpl) BatchCommit(ctx context.Context,
 	rr *kv2.BatchRequest) (*kv2.BatchResult, error) {
 
 	if ctx != nil {
-		if err := appAuthValid(ctx, it.db.keyMgr); err != nil {
-			return rr.NewResult(kv2.ResultClientError, err.Error()), nil
+
+		av, err := appAuthParse(ctx, it.db.keyMgr)
+		if err != nil {
+			return kv2.NewBatchResultAccessDenied(err.Error()), nil
+		}
+
+		if err := av.SignValid(nil); err != nil {
+			return kv2.NewBatchResultAccessDenied(err.Error()), nil
+		}
+
+		for _, v := range rr.Items {
+
+			if v.Reader != nil {
+
+				if v.Reader.TableName == "sys" && !av.Allow(authPermSysAll) {
+					return kv2.NewBatchResultAccessDenied(), nil
+				}
+
+				if !av.Allow(authPermTableRead,
+					hauth.NewScopeFilter(AuthScopeTable, v.Reader.TableName)) {
+					return kv2.NewBatchResultAccessDenied(), nil
+				}
+
+			} else if v.Writer != nil {
+
+				if v.Writer.TableName == "sys" && !av.Allow(authPermSysAll) {
+					return kv2.NewBatchResultAccessDenied(), nil
+				}
+
+				if !av.Allow(authPermTableWrite,
+					hauth.NewScopeFilter(AuthScopeTable, v.Writer.TableName)) {
+					return kv2.NewBatchResultAccessDenied(), nil
+				}
+			}
 		}
 	}
 
@@ -369,14 +405,30 @@ func (it *PublicServiceImpl) BatchCommit(ctx context.Context,
 
 func (it *PublicServiceImpl) SysCmd(ctx context.Context, req *kv2.SysCmdRequest) (*kv2.ObjectResult, error) {
 
+	var (
+		av  *hauth.AppValidator
+		err error
+	)
+
 	if ctx != nil {
-		if err := appAuthValid(ctx, it.db.keyMgr); err != nil {
-			return kv2.NewObjectResultClientError(err), nil
+
+		av, err = appAuthParse(ctx, it.db.keyMgr)
+		if err != nil {
+			return kv2.NewObjectResultAccessDenied(err.Error()), nil
+		}
+
+		if err := av.SignValid(nil); err != nil {
+			return kv2.NewObjectResultAccessDenied(err.Error()), nil
+		}
+
+		if !strings.HasPrefix(req.Method, "Table") &&
+			!av.Allow(authPermSysAll, nil) {
+			return kv2.NewObjectResultAccessDenied(), nil
 		}
 	}
 
 	if len(it.db.opts.Cluster.MainNodes) == 0 {
-		return it.db.SysCmd(req), nil
+		return it.db.sysCmdLocal(av, req), nil
 	}
 
 	rs := kv2.NewObjectResultOK()

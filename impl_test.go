@@ -24,17 +24,13 @@ import (
 	"testing"
 	"time"
 
-	hauth "github.com/hooto/hauth/go/hauth/v1"
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
 
 var (
-	dbTestCaches  = map[string]*Conn{}
-	dbTestMu      sync.Mutex
-	dbTestAuthKey = &hauth.AuthKey{
-		AccessKey: "00000000",
-		SecretKey: "9ABtTYi9qN63/8T+n1jtLWllVWoKsJeOAwR7vzZ3ch42MiCw",
-	}
+	dbTestMu        sync.Mutex
+	dbTestCaches    = map[string]*Conn{}
+	dbTestAccessKey = NewSystemAccessKey()
 )
 
 func dbOpen(ports []int, clientEnable bool) ([]*Conn, error) {
@@ -50,8 +46,8 @@ func dbOpen(ports []int, clientEnable bool) ([]*Conn, error) {
 	for _, v := range ports {
 		if v > 0 {
 			nodes = append(nodes, &ClientConfig{
-				Addr:    fmt.Sprintf("127.0.0.1:%d", v),
-				AuthKey: dbTestAuthKey,
+				Addr:      fmt.Sprintf("127.0.0.1:%d", v),
+				AccessKey: dbTestAccessKey,
 			})
 		}
 	}
@@ -99,7 +95,7 @@ func dbOpen(ports []int, clientEnable bool) ([]*Conn, error) {
 
 		if port > 0 {
 			cfg.Server.Bind = fmt.Sprintf("127.0.0.1:%d", port)
-			cfg.Server.AuthKey = dbTestAuthKey
+			cfg.Server.AccessKey = dbTestAccessKey
 		}
 
 		if port < 0 {
@@ -476,7 +472,7 @@ func Test_Object_LogAsync(t *testing.T) {
 
 		for _, hp := range db.opts.Cluster.MainNodes {
 
-			conn, err := clientConn(hp.Addr, hp.AuthKey, hp.AuthTLSCert, false)
+			conn, err := clientConn(hp.Addr, hp.AccessKey, hp.AuthTLSCert, false)
 			if err != nil {
 				t.Fatalf("Object AsyncLog ER! %s", err.Error())
 			}
@@ -516,16 +512,16 @@ func Test_Table(t *testing.T) {
 	}
 
 	// TableSet
-	rs := dbs[0].TableSet(&kv2.TableSetRequest{
+	rs := dbs[0].SysCmd(kv2.NewSysCmdRequest("TableSet", &kv2.TableSetRequest{
 		Name: "demo",
 		Desc: "desc ...",
-	})
+	}))
 	if !rs.OK() {
 		t.Fatalf(rs.Message)
 	}
 
 	// TableList
-	rs = dbs[0].TableList(&kv2.TableListRequest{})
+	rs = dbs[0].SysCmd(kv2.NewSysCmdRequest("TableList", &kv2.TableListRequest{}))
 	if !rs.OK() {
 		t.Fatalf(rs.Message)
 	}

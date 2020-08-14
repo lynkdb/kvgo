@@ -38,7 +38,7 @@ var (
 
 type ClientConfig struct {
 	Addr        string                `toml:"addr" json:"addr"`
-	AuthKey     *hauth.AuthKey        `toml:"auth_key" json:"auth_key"`
+	AccessKey   *hauth.AccessKey      `toml:"access_key" json:"access_key"`
 	AuthTLSCert *ConfigTLSCertificate `toml:"auth_tls_cert" json:"auth_tls_cert"`
 	Options     *kv2.ClientOptions    `toml:"options,omitempty" json:"options,omitempty"`
 	c           kv2.Client            `toml:"-" json:"-"`
@@ -62,7 +62,7 @@ func (it *ClientConnector) reconnect(retry bool) error {
 	}
 
 	if it.conn == nil {
-		it.conn, it.err = clientConn(it.cfg.Addr, it.cfg.AuthKey, it.cfg.AuthTLSCert, true)
+		it.conn, it.err = clientConn(it.cfg.Addr, it.cfg.AccessKey, it.cfg.AuthTLSCert, true)
 		if it.err != nil {
 			return it.err
 		}
@@ -202,14 +202,14 @@ func (it *ClientConnector) Close() error {
 }
 
 func clientConn(addr string,
-	key *hauth.AuthKey, cert *ConfigTLSCertificate,
+	key *hauth.AccessKey, cert *ConfigTLSCertificate,
 	forceNew bool) (*grpc.ClientConn, error) {
 
 	if key == nil {
 		return nil, errors.New("not auth key setup")
 	}
 
-	ck := fmt.Sprintf("%s.%s", addr, key.AccessKey)
+	ck := fmt.Sprintf("%s.%s", addr, key.Id)
 
 	grpcClientMu.Lock()
 	defer grpcClientMu.Unlock()

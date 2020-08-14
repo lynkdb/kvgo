@@ -250,7 +250,7 @@ func (cn *Conn) objectCommitRemote(rr *kv2.ObjectWriter, cLog uint64) *kv2.Objec
 
 	for _, v := range mainNodes {
 
-		conn, err := clientConn(v.Addr, v.AuthKey, v.AuthTLSCert, false)
+		conn, err := clientConn(v.Addr, v.AccessKey, v.AuthTLSCert, false)
 		if err != nil {
 			continue
 		}
@@ -359,7 +359,7 @@ func (cn *Conn) objectQueryRemote(rr *kv2.ObjectReader) *kv2.ObjectResult {
 
 	for _, v := range mainNodes {
 
-		conn, err := clientConn(v.Addr, v.AuthKey, v.AuthTLSCert, false)
+		conn, err := clientConn(v.Addr, v.AccessKey, v.AuthTLSCert, false)
 		if err != nil {
 			continue
 		}

@@ -53,7 +53,7 @@ func (cn *Conn) serviceStart() error {
 
 			v.Addr = host + ":" + port
 
-			if err := cn.keyMgr.KeySet(v.AuthKey); err != nil {
+			if err := cn.keyMgr.KeySet(v.AccessKey); err != nil {
 				return err
 			}
 
@@ -65,11 +65,11 @@ func (cn *Conn) serviceStart() error {
 
 	if cn.opts.Server.Bind != "" && !cn.opts.ClientConnectEnable {
 
-		if cn.opts.Server.AuthKey == nil {
-			return errors.New("no [server.auth_key] setup")
+		if cn.opts.Server.AccessKey == nil {
+			return errors.New("no [server.access_key] setup")
 		}
 
-		cn.keyMgr.KeySet(cn.opts.Server.AuthKey)
+		cn.keyMgr.KeySet(cn.opts.Server.AccessKey)
 
 		host, port, err := net.SplitHostPort(cn.opts.Server.Bind)
 		if err != nil {

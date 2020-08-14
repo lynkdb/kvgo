@@ -17,6 +17,7 @@ package kvgo
 //go:generate protoc --proto_path=./ --go_out=./ --go_opt=paths=source_relative --go-grpc_out=. kvgo.proto
 
 import (
+	"github.com/hooto/hauth/go/hauth/v1"
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
 
@@ -73,3 +74,43 @@ func nsSysTable(name string) []byte {
 func nsSysTableStatus(name string) []byte {
 	return []byte("sys:table-status:" + name)
 }
+
+func nsSysAuthRole(name string) []byte {
+	return []byte("sys:role:" + name)
+}
+
+func nsSysAccessKey(id string) []byte {
+	return []byte("sys:ak:" + id)
+}
+
+var (
+	authPermSysAll     = "sys/all"
+	authPermTableList  = "table/list"
+	authPermTableRead  = "table/read"
+	authPermTableWrite = "table/write"
+	AuthScopeTable     = "kvgo/table"
+	defaultScopes      = []string{
+		AuthScopeTable,
+	}
+	defaultRoles = []*hauth.Role{
+		{
+			Name:  "sa",
+			Title: "System Administrator",
+			Permissions: []string{
+				authPermSysAll,
+				authPermTableList,
+				authPermTableRead,
+				authPermTableWrite,
+			},
+		},
+		{
+			Name:  "client",
+			Title: "General Client",
+			Permissions: []string{
+				authPermTableList,
+				authPermTableRead,
+				authPermTableWrite,
+			},
+		},
+	}
+)

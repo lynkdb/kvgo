@@ -13,6 +13,7 @@ var (
 	dir          = "/tmp/kvgo-bench"
 	err          error
 	compressName = ""
+	accessKey    = kvgo.NewSystemAccessKey()
 	tlsCert      *kvgo.ConfigTLSCertificate
 )
 
@@ -132,8 +133,7 @@ func (it *benchEmbed) Clean() error {
 }
 
 var (
-	addr          = "127.0.0.1:6%04d"
-	authSecretKey = "9ABtTYi9qN63/8T+n1jtLWllVWoKsJeOAwR7vzZ3ch42MiCw"
+	addr = "127.0.0.1:6%04d"
 )
 
 type benchNode struct {
@@ -188,19 +188,19 @@ func (it *benchNode) Clean() error {
 
 	it.dbServers = nil
 
-	masters := []*kvgo.ConfigClusterMaster{}
+	mainNodes := []*kvgo.ClientConfig{}
 
 	for i := 0; i < it.nodeNum; i++ {
-		masters = append(masters, &kvgo.ConfigClusterMaster{
-			Addr:          fmt.Sprintf(addr, i),
-			AuthSecretKey: authSecretKey,
-			AuthTLSCert:   tlsCert,
+		mainNodes = append(mainNodes, &kvgo.ClientConfig{
+			Addr:        fmt.Sprintf(addr, i),
+			AccessKey:   accessKey,
+			AuthTLSCert: tlsCert,
 		})
 	}
 
 	cfgCC := kvgo.ConfigCluster{}
-	if len(masters) > 1 {
-		cfgCC.Masters = masters
+	if len(mainNodes) > 1 {
+		cfgCC.MainNodes = mainNodes
 	}
 
 	for i := 0; i < it.nodeNum; i++ {
@@ -212,9 +212,9 @@ func (it *benchNode) Clean() error {
 		dbServer, err := kvgo.Open(kvgo.ConfigStorage{
 			DataDirectory: sdir,
 		}, kvgo.ConfigServer{
-			Bind:          fmt.Sprintf(addr, i),
-			AuthSecretKey: authSecretKey,
-			AuthTLSCert:   tlsCert,
+			Bind:        fmt.Sprintf(addr, i),
+			AccessKey:   accessKey,
+			AuthTLSCert: tlsCert,
 		}, kvgo.ConfigPerformance{
 			WriteBufferSize: 64,
 			BlockCacheSize:  64,
@@ -231,7 +231,7 @@ func (it *benchNode) Clean() error {
 	}
 
 	it.db, err = kvgo.Open(kvgo.ConfigCluster{
-		Masters: masters,
+		MainNodes: mainNodes,
 	})
 
 	return err

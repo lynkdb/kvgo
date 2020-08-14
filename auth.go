@@ -22,24 +22,38 @@ import (
 )
 
 const (
-	authKeyAccessKeySystem = "00000000"
+	authKeyAccessKeySystem   = "00000000"
+	authKeyAccessKeyClient01 = "00000001"
 )
 
-func authKeyDefault() *hauth.AuthKey {
-	return &hauth.AuthKey{
-		AccessKey: authKeyAccessKeySystem,
-		SecretKey: "<empty>",
+func authKeyDefault() *hauth.AccessKey {
+	return &hauth.AccessKey{
+		Id:     authKeyAccessKeySystem,
+		Secret: "<empty>",
 	}
 }
 
-func newAppCredential(key *hauth.AuthKey) credentials.PerRPCCredentials {
+func NewSystemAccessKey() *hauth.AccessKey {
+	key := hauth.NewAccessKey()
+	key.Id = authKeyAccessKeySystem
+	key.Roles = []string{"sa"}
+	key.Scopes = []*hauth.ScopeFilter{
+		{
+			Name:  AuthScopeTable,
+			Value: "*",
+		},
+	}
+	return key
+}
+
+func newAppCredential(key *hauth.AccessKey) credentials.PerRPCCredentials {
 	return hauth.NewGrpcAppCredential(key)
 }
 
-func appAuthParse(ctx context.Context) (*hauth.AppValidator, error) {
-	return hauth.GrpcAppValidator(ctx)
+func appAuthParse(ctx context.Context, keyMgr *hauth.AccessKeyManager) (*hauth.AppValidator, error) {
+	return hauth.GrpcAppValidator(ctx, keyMgr)
 }
 
-func appAuthValid(ctx context.Context, keyMgr *hauth.AuthKeyManager) error {
+func appAuthValid(ctx context.Context, keyMgr *hauth.AccessKeyManager) error {
 	return hauth.GrpcAppCredentialValid(ctx, keyMgr)
 }

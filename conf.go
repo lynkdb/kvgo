@@ -27,25 +27,25 @@ import (
 type Config struct {
 
 	// Storage Settings
-	Storage ConfigStorage `toml:"storage" json:"storage"`
+	Storage ConfigStorage `toml:"storage" json:"storage" desc:"Storage Settings"`
 
 	// Server Settings
-	Server ConfigServer `toml:"server" json:"server"`
+	Server ConfigServer `toml:"server" json:"server" desc:"Server Settings"`
 
 	// Performance Settings
-	Performance ConfigPerformance `toml:"performance" json:"performance"`
+	Performance ConfigPerformance `toml:"performance" json:"performance" desc:"Performance Settings"`
 
 	// Feature Settings
 	Feature ConfigFeature `toml:"feature" json:"feature"`
 
 	// Cluster Settings
-	Cluster ConfigCluster `toml:"cluster" json:"cluster"`
+	Cluster ConfigCluster `toml:"cluster" json:"cluster" desc:"Cluster Settings"`
 
 	// Client Settings
 	ClientConnectEnable bool `toml:"-" json:"-"`
 
 	// Client Keys
-	ClientAuthKeys []*hauth.AuthKey `toml:"client_auth_keys" json:"client_auth_keys`
+	// ClientAccessKeys []*hauth.AccessKey `toml:"client_access_keys" json:"client_access_keys`
 }
 
 type ConfigStorage struct {
@@ -61,15 +61,15 @@ type ConfigTLSCertificate struct {
 
 type ConfigServer struct {
 	Bind        string                `toml:"bind" json:"bind"`
-	AuthKey     *hauth.AuthKey        `toml:"auth_key" json:"auth_key"`
+	AccessKey   *hauth.AccessKey      `toml:"access_key" json:"access_key"`
 	AuthTLSCert *ConfigTLSCertificate `toml:"auth_tls_cert" json:"auth_tls_cert"`
 }
 
 type ConfigPerformance struct {
-	WriteBufferSize int `toml:"write_buffer_size" json:"write_buffer_size"`
-	BlockCacheSize  int `toml:"block_cache_size" json:"block_cache_size"`
-	MaxTableSize    int `toml:"max_table_size" json:"max_table_size"`
-	MaxOpenFiles    int `toml:"max_open_files" json:"max_open_files"`
+	WriteBufferSize int `toml:"write_buffer_size" json:"write_buffer_size" desc:"in MiB, default to 8"`
+	BlockCacheSize  int `toml:"block_cache_size" json:"block_cache_size" desc:"in MiB, default to 32"`
+	MaxTableSize    int `toml:"max_table_size" json:"max_table_size" desc:"in MiB, default to 8"`
+	MaxOpenFiles    int `toml:"max_open_files" json:"max_open_files" desc:"default to 500"`
 }
 
 type ConfigFeature struct {
@@ -83,7 +83,7 @@ type ConfigCluster struct {
 	MainNodes []*ClientConfig `toml:"main_nodes" json:"main_nodes"`
 
 	// Replica-Of nodes settings
-	ReplicaOfNodes []*ConfigReplicaOfNode `toml:"replica_of_nodes" json:"replica_of_nodes"`
+	ReplicaOfNodes []*ConfigReplicaOfNode `toml:"replica_of_nodes" json:"replica_of_nodes" desc:"Replica-Of nodes settings"`
 }
 
 type ConfigReplicaOfNode struct {
@@ -142,7 +142,7 @@ func NewConfig(dir string) *Config {
 	}
 }
 
-func (it *Config) reset() *Config {
+func (it *Config) Reset() *Config {
 
 	if it.Performance.WriteBufferSize < 4 {
 		it.Performance.WriteBufferSize = 4
@@ -168,13 +168,12 @@ func (it *Config) reset() *Config {
 		it.Performance.MaxOpenFiles = 10000
 	}
 
-	if it.Feature.TableCompressName != "snappy" {
-		it.Feature.TableCompressName = "none"
+	if it.Feature.TableCompressName != "none" {
+		it.Feature.TableCompressName = "snappy"
 	}
 
-	if it.Server.Bind != "" && it.Server.AuthKey == nil {
-		it.Server.AuthKey = hauth.NewAuthKey()
-		it.Server.AuthKey.AccessKey = authKeyAccessKeySystem
+	if it.Server.Bind != "" && it.Server.AccessKey == nil {
+		it.Server.AccessKey = NewSystemAccessKey()
 	}
 
 	if it.Server.AuthTLSCert != nil {

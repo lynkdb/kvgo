@@ -3,21 +3,16 @@ package main
 import (
 	"fmt"
 
-	hauth "github.com/hooto/hauth/go/hauth/v1"
 	"github.com/hooto/hflag4g/hflag"
-
 	"github.com/lynkdb/kvgo"
 )
 
 var (
-	addr    = "127.0.0.1:9100"
-	authKey = &hauth.AuthKey{
-		AccessKey: "00000000",
-		SecretKey: "9ABtTYi9qN63/8T+n1jtLWllVWoKsJeOAwR7vzZ3ch42MiCw",
-	}
-	Server  *kvgo.Conn
-	tlsCert *kvgo.ConfigTLSCertificate
-	err     error
+	addr      = "127.0.0.1:9100"
+	accessKey = kvgo.NewSystemAccessKey()
+	Server    *kvgo.Conn
+	tlsCert   *kvgo.ConfigTLSCertificate
+	err       error
 )
 
 func main() {
@@ -45,7 +40,7 @@ func startServer() error {
 		DataDirectory: "/tmp/kvgo-server",
 	}, kvgo.ConfigServer{
 		Bind:        addr,
-		AuthKey:     authKey,
+		AccessKey:   accessKey,
 		AuthTLSCert: tlsCert,
 	}); err != nil {
 		return err
@@ -56,21 +51,18 @@ func startServer() error {
 
 func client() {
 
-	db, err := kvgo.Open(kvgo.ConfigCluster{
-		MainNodes: []*kvgo.ClientConfig{
-			{
-				Addr:    addr,
-				AuthKey: authKey,
-			},
-		},
-	}, kvgo.ConfigServer{
+	clientConfig := kvgo.ClientConfig{
+		Addr:        addr,
+		AccessKey:   accessKey,
 		AuthTLSCert: tlsCert,
-	})
+	}
+
+	client, err := clientConfig.NewClient()
 	if err != nil {
 		panic(err)
 	}
 
-	if rs := db.NewWriter([]byte("demo-key"), []byte("demo-value")).Commit(); rs.OK() {
+	if rs := client.NewWriter([]byte("demo-key"), []byte("demo-value")).Commit(); rs.OK() {
 		fmt.Println("OK")
 	} else {
 		fmt.Println("ER", rs.Message)

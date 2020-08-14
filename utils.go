@@ -23,10 +23,15 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	mrand "math/rand"
 	"time"
 )
+
+func debugPrint(args ...interface{}) {
+	fmt.Println(args...)
+}
 
 func keyExpireEncode(ns byte, expired uint64, key []byte) []byte {
 	return append(append([]byte{ns}, uint64ToBytes(expired)...), key...)

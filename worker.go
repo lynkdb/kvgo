@@ -360,7 +360,7 @@ func (cn *Conn) workerLocalReplicaOfLogAsyncTable(hp *ClientConfig, tm *ConfigRe
 		}
 	}
 
-	conn, err := clientConn(hp.Addr, hp.AuthKey, hp.AuthTLSCert, false)
+	conn, err := clientConn(hp.Addr, hp.AccessKey, hp.AuthTLSCert, false)
 	if err != nil {
 		return err
 	}
@@ -387,7 +387,7 @@ func (cn *Conn) workerLocalReplicaOfLogAsyncTable(hp *ClientConfig, tm *ConfigRe
 			}
 
 			time.Sleep(1e9)
-			conn, err = clientConn(hp.Addr, hp.AuthKey, hp.AuthTLSCert, true)
+			conn, err = clientConn(hp.Addr, hp.AccessKey, hp.AuthTLSCert, true)
 			continue
 		}
 		retry = 0
