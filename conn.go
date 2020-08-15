@@ -335,6 +335,11 @@ func (cn *Conn) dbSysSetup() error {
 			len(cn.opts.Server.AccessKey.Secret) > 20 {
 			key := cn.opts.Server.AccessKey
 			if pkey := cn.keyMgr.KeyGet(key.Id); pkey == nil || key.Secret != pkey.Secret {
+
+				rootKey := NewSystemAccessKey()
+				key.Roles = rootKey.Roles
+				key.Scopes = rootKey.Scopes
+
 				rr2 := kv2.NewObjectWriter(nsSysAccessKey(key.Id), key).
 					TableNameSet(sysTableName)
 				tdb := cn.tabledb(sysTableName)

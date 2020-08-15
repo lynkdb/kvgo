@@ -59,9 +59,11 @@ func (cn *Conn) sysCmdLocal(av *hauth.AppValidator, rr *kv2.SysCmdRequest) *kv2.
 			return kv2.NewObjectResultClientError(errors.New("invalid table name"))
 		}
 
-		if av != nil && !av.Allow(authPermTableWrite,
-			hauth.NewScopeFilter(AuthScopeTable, req2.Name)) {
-			return kv2.NewObjectResultAccessDenied(fmt.Sprintf("table (%s)", req2.Name))
+		if av != nil {
+			if err := av.Allow(authPermTableWrite,
+				hauth.NewScopeFilter(AuthScopeTable, req2.Name)); err != nil {
+				return kv2.NewObjectResultAccessDenied(fmt.Sprintf("table (%s) %s", req2.Name, err.Error()))
+			}
 		}
 
 		rr2 := kv2.NewObjectWriter(nsSysTable(req2.Name), &kv2.TableItem{

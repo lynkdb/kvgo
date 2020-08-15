@@ -57,13 +57,13 @@ func (it *PublicServiceImpl) Query(ctx context.Context,
 			return kv2.NewObjectResultAccessDenied(err.Error()), nil
 		}
 
-		if or.TableName == "sys" && !av.Allow(authPermSysAll) {
+		if or.TableName == "sys" && av.Allow(authPermSysAll) != nil {
 			return kv2.NewObjectResultAccessDenied(), nil
 		}
 
-		if !av.Allow(authPermTableRead,
-			hauth.NewScopeFilter(AuthScopeTable, or.TableName)) {
-			return kv2.NewObjectResultAccessDenied(), nil
+		if err := av.Allow(authPermTableRead,
+			hauth.NewScopeFilter(AuthScopeTable, or.TableName)); err != nil {
+			return kv2.NewObjectResultAccessDenied(err.Error()), nil
 		}
 	}
 
@@ -84,13 +84,13 @@ func (it *PublicServiceImpl) Commit(ctx context.Context,
 			return kv2.NewObjectResultAccessDenied(err.Error()), nil
 		}
 
-		if rr.TableName == "sys" && !av.Allow(authPermSysAll) {
+		if rr.TableName == "sys" && av.Allow(authPermSysAll) != nil {
 			return kv2.NewObjectResultAccessDenied(), nil
 		}
 
-		if !av.Allow(authPermTableWrite,
-			hauth.NewScopeFilter(AuthScopeTable, rr.TableName)) {
-			return kv2.NewObjectResultAccessDenied(), nil
+		if err := av.Allow(authPermTableWrite,
+			hauth.NewScopeFilter(AuthScopeTable, rr.TableName)); err != nil {
+			return kv2.NewObjectResultAccessDenied(err.Error()), nil
 		}
 	}
 
@@ -319,23 +319,23 @@ func (it *PublicServiceImpl) BatchCommit(ctx context.Context,
 
 			if v.Reader != nil {
 
-				if v.Reader.TableName == "sys" && !av.Allow(authPermSysAll) {
+				if v.Reader.TableName == "sys" && av.Allow(authPermSysAll) != nil {
 					return kv2.NewBatchResultAccessDenied(), nil
 				}
 
-				if !av.Allow(authPermTableRead,
-					hauth.NewScopeFilter(AuthScopeTable, v.Reader.TableName)) {
-					return kv2.NewBatchResultAccessDenied(), nil
+				if err := av.Allow(authPermTableRead,
+					hauth.NewScopeFilter(AuthScopeTable, v.Reader.TableName)); err != nil {
+					return kv2.NewBatchResultAccessDenied(err.Error()), nil
 				}
 
 			} else if v.Writer != nil {
 
-				if v.Writer.TableName == "sys" && !av.Allow(authPermSysAll) {
+				if v.Writer.TableName == "sys" && av.Allow(authPermSysAll) != nil {
 					return kv2.NewBatchResultAccessDenied(), nil
 				}
 
-				if !av.Allow(authPermTableWrite,
-					hauth.NewScopeFilter(AuthScopeTable, v.Writer.TableName)) {
+				if err := av.Allow(authPermTableWrite,
+					hauth.NewScopeFilter(AuthScopeTable, v.Writer.TableName)); err != nil {
 					return kv2.NewBatchResultAccessDenied(), nil
 				}
 			}
@@ -422,7 +422,7 @@ func (it *PublicServiceImpl) SysCmd(ctx context.Context, req *kv2.SysCmdRequest)
 		}
 
 		if !strings.HasPrefix(req.Method, "Table") &&
-			!av.Allow(authPermSysAll, nil) {
+			av.Allow(authPermSysAll) != nil {
 			return kv2.NewObjectResultAccessDenied(), nil
 		}
 	}
