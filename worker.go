@@ -378,7 +378,7 @@ func (cn *Conn) workerLocalReplicaOfLogAsyncTable(hp *ClientConfig, tm *ConfigRe
 
 		if err != nil {
 
-			hlog.Printf("warn", "worker replica-of log-async, addr %s, table %s, err %s",
+			hlog.Printf("warn", "kvgo log async from %s/%s, err %s",
 				hp.Addr, dt.tableName, err.Error())
 
 			retry += 1
@@ -409,7 +409,7 @@ func (cn *Conn) workerLocalReplicaOfLogAsyncTable(hp *ClientConfig, tm *ConfigRe
 				rr.LogOffset = item.Meta.Version
 				num += 1
 			} else {
-				hlog.Printf("info", "log-async addr %d, table %s -> %s, err %s",
+				hlog.Printf("info", "kvgo log async from %s/%s to local/%s, err %s",
 					hp.Addr, tm.From, tm.To, rs2.Message)
 				rs.Next = false
 				break
@@ -427,7 +427,9 @@ func (cn *Conn) workerLocalReplicaOfLogAsyncTable(hp *ClientConfig, tm *ConfigRe
 	}
 
 	if num > 0 {
-		hlog.Printf("info", "kvgo log async num %d, ver %d", num, rr.LogOffset)
+		hlog.Printf("info", "kvgo log async from %s/%s to local/%s, num %d, offset %d",
+			hp.Addr, tm.From, tm.To,
+			num, rr.LogOffset)
 	}
 
 	return nil
