@@ -27,21 +27,12 @@ func foFilePathBlock(path string, n uint32) []byte {
 }
 
 type FileObjectConn struct {
-	*Conn
-	tableName string
+	kv2.ClientTable
 }
 
-func NewFileObjectConn(cn *Conn, tableName string) (*FileObjectConn, error) {
-
-	if tableName == "" {
-		tableName = "main"
-	} else if !kv2.TableNameReg.MatchString(tableName) {
-		return nil, errors.New("invalid table name")
-	}
-
+func NewFileObjectConn(c kv2.ClientTable) (*FileObjectConn, error) {
 	return &FileObjectConn{
-		Conn:      cn,
-		tableName: tableName,
+		ClientTable: c,
 	}, nil
 }
 
@@ -117,7 +108,7 @@ func (cn *FileObjectConn) FoFilePut(srcPath, dstPath string) *kv2.ObjectResult {
 			}
 
 			if rs := cn.NewWriter(foFilePathBlock(block0.Path, n), mpBlock).
-				TableNameSet(cn.tableName).Commit(); !rs.OK() {
+				Commit(); !rs.OK() {
 				return kv2.NewObjectResultServerError(rs.Error())
 			}
 		}
@@ -128,7 +119,7 @@ func (cn *FileObjectConn) FoFilePut(srcPath, dstPath string) *kv2.ObjectResult {
 
 func (cn *FileObjectConn) FoFileOpen(path string) (io.ReadSeeker, error) {
 
-	rs := cn.NewReader(foFilePathBlock(path, 0)).TableNameSet(cn.tableName).Query()
+	rs := cn.NewReader(foFilePathBlock(path, 0)).Query()
 	if !rs.OK() {
 		return nil, rs.Error()
 	}
@@ -139,15 +130,19 @@ func (cn *FileObjectConn) FoFileOpen(path string) (io.ReadSeeker, error) {
 	}
 
 	return &FoReadSeeker{
-		conn:   cn.Conn,
+		dbt:    cn.ClientTable,
 		block0: block0,
 		path:   path,
 		offset: 0,
 	}, nil
 }
 
+func (cn *FileObjectConn) Close() error {
+	return cn.Close()
+}
+
 type FoReadSeeker struct {
-	conn   *Conn
+	dbt    kv2.ClientTable
 	block0 kv2.FileObjectBlock
 	blockx *kv2.FileObjectBlock
 	path   string
@@ -225,7 +220,7 @@ func (fo *FoReadSeeker) Read(b []byte) (n int, err error) {
 
 		if fo.blockx == nil || fo.blockx.Num != blk_num {
 
-			rs := fo.conn.NewReader(foFilePathBlock(fo.path, blk_num)).Query()
+			rs := fo.dbt.NewReader(foFilePathBlock(fo.path, blk_num)).Query()
 			if !rs.OK() {
 				return 0, errors.New("io error : " + rs.Message)
 			}

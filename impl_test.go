@@ -474,7 +474,7 @@ func Test_Object_LogAsync(t *testing.T) {
 
 			conn, err := clientConn(hp.Addr, hp.AccessKey, hp.AuthTLSCert, false)
 			if err != nil {
-				t.Fatalf("Object AsyncLog ER! %s", err.Error())
+				t.Fatalf("Object AsyncLog ER %s", err.Error())
 			}
 
 			for _, va := range attrs {
@@ -484,15 +484,17 @@ func Test_Object_LogAsync(t *testing.T) {
 
 				rs, err := kv2.NewPublicClient(conn).Query(ctx, rr)
 				if err != nil {
-					t.Fatal("Object AsyncLog ER!")
+					t.Fatal("Object AsyncLog ER")
 				}
 
 				if !rs.OK() || len(rs.Items) == 0 {
-					t.Fatal("Object AsyncLog ER!")
+					t.Fatal("Object AsyncLog ER")
+				} else {
+					t.Log("Object AsyncLog OK")
 				}
 
 				if rs.Items[0].Meta.Version != va[1] {
-					t.Fatalf("Object AsyncLog ER! %d/%d", rs.Items[0].Meta.Version, va[1])
+					t.Fatalf("Object AsyncLog ER %d/%d", rs.Items[0].Meta.Version, va[1])
 				}
 			}
 

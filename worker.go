@@ -289,13 +289,15 @@ func (cn *Conn) workerLocalReplicaOfLogAsync() error {
 
 		for _, dt := range cn.tables {
 
-			if err := cn.workerLocalReplicaOfLogAsyncTable(hp, &ConfigReplicaTableMap{
-				From: dt.tableName,
-				To:   dt.tableName,
-			}); err != nil {
-				hlog.Printf("warn", "worker replica-of log-async table %s -> %s, err %s",
-					dt.tableName, dt.tableName, err.Error())
-			}
+			go func(hp *ClientConfig, dt *dbTable) {
+				if err := cn.workerLocalReplicaOfLogAsyncTable(hp, &ConfigReplicaTableMap{
+					From: dt.tableName,
+					To:   dt.tableName,
+				}); err != nil {
+					hlog.Printf("warn", "worker replica-of log-async table %s -> %s, err %s",
+						dt.tableName, dt.tableName, err.Error())
+				}
+			}(hp, dt)
 
 			if cn.close {
 				break
@@ -321,10 +323,12 @@ func (cn *Conn) workerLocalReplicaOfLogAsync() error {
 
 		for _, tm := range hp.TableMaps {
 
-			if err := cn.workerLocalReplicaOfLogAsyncTable(hp.ClientConfig, tm); err != nil {
-				hlog.Printf("warn", "worker replica-of log-async table %s -> %s, err %s",
-					tm.From, tm.To, err.Error())
-			}
+			go func(hp *ClientConfig, tm *ConfigReplicaTableMap) {
+				if err := cn.workerLocalReplicaOfLogAsyncTable(hp, tm); err != nil {
+					hlog.Printf("warn", "worker replica-of log-async table %s -> %s, err %s",
+						tm.From, tm.To, err.Error())
+				}
+			}(hp.ClientConfig, tm)
 
 			if cn.close {
 				break
@@ -343,6 +347,22 @@ func (cn *Conn) workerLocalReplicaOfLogAsyncTable(hp *ClientConfig, tm *ConfigRe
 	if dt == nil {
 		return errors.New("no table found in local server")
 	}
+
+	lkey := hp.Addr + "/" + tm.From
+
+	dt.logAsyncMu.Lock()
+	if _, ok := dt.logAsyncSets[lkey]; ok {
+		dt.logAsyncMu.Unlock()
+		return nil
+	}
+	dt.logAsyncSets[lkey] = true
+	dt.logAsyncMu.Unlock()
+
+	defer func() {
+		dt.logAsyncMu.Lock()
+		delete(dt.logAsyncSets, lkey)
+		dt.logAsyncMu.Unlock()
+	}()
 
 	var (
 		offset = uint64(0)
@@ -369,12 +389,17 @@ func (cn *Conn) workerLocalReplicaOfLogAsyncTable(hp *ClientConfig, tm *ConfigRe
 		TableNameSet(tm.From).
 		LogOffsetSet(offset).LimitNumSet(100)
 	rr.LimitSize = kv2.ObjectReaderLimitSizeMax
+	rr.WaitTime = 3000
 
 	for !cn.close {
 
 		ctx, fc := context.WithTimeout(context.Background(), time.Second*1000)
 		rs, err := kv2.NewPublicClient(conn).Query(ctx, rr)
 		fc()
+
+		if cn.close {
+			break
+		}
 
 		if err != nil {
 
@@ -416,20 +441,19 @@ func (cn *Conn) workerLocalReplicaOfLogAsyncTable(hp *ClientConfig, tm *ConfigRe
 			}
 		}
 
+		if rr.LogOffset > offset {
+			dt.db.Put(keySysLogAsync(hp.Addr, tm.From),
+				[]byte(strconv.FormatUint(rr.LogOffset, 10)), nil)
+		}
+
+		if num > 0 {
+			hlog.Printf("info", "kvgo log async from %s/%s to local/%s, num %d, offset %d",
+				hp.Addr, tm.From, tm.To, num, rr.LogOffset)
+		}
+
 		if !rs.Next {
 			break
 		}
-	}
-
-	if rr.LogOffset > offset {
-		dt.db.Put(keySysLogAsync(hp.Addr, tm.From),
-			[]byte(strconv.FormatUint(rr.LogOffset, 10)), nil)
-	}
-
-	if num > 0 {
-		hlog.Printf("info", "kvgo log async from %s/%s to local/%s, num %d, offset %d",
-			hp.Addr, tm.From, tm.To,
-			num, rr.LogOffset)
 	}
 
 	return nil

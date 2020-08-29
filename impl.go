@@ -532,88 +532,112 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 		limitSize = kv2.ObjectReaderLimitSizeMax
 	}
 
-	var (
-		tto  = uint64(time.Now().UnixNano()/1e6) - 3000
-		iter = tdb.db.NewIterator(&util.Range{
-			Start: offset,
-			Limit: cutset,
-		}, nil)
-	)
-
-	for iter.Next() {
-
-		if limitNum < 1 {
-			break
-		}
-
-		if bytes.Compare(iter.Key(), offset) <= 0 {
-			continue
-		}
-
-		if bytes.Compare(iter.Key(), cutset) >= 0 {
-			break
-		}
-
-		if len(iter.Value()) < 2 {
-			continue
-		}
-
-		meta, err := kv2.ObjectMetaDecode(iter.Value())
-		if err != nil || meta == nil {
-			if err != nil {
-				hlog.Printf("debug", "db-log-range err %s", err.Error())
-			}
-			break
-		}
-
-		//
-		if kv2.AttrAllow(meta.Attrs, kv2.ObjectMetaAttrDelete) {
-			rs.Items = append(rs.Items, &kv2.ObjectItem{
-				Meta: meta,
-			})
-		} else {
-
-			var nsKey = nsKeyData
-			if kv2.AttrAllow(meta.Attrs, kv2.ObjectMetaAttrDataOff) {
-				nsKey = nsKeyMeta
-			}
-
-			bs, err := tdb.db.Get(keyEncode(nsKey, meta.Key), nil)
-
-			if err != nil && err.Error() == ldbNotFound {
-				if nsKey == nsKeyData {
-					nsKey = nsKeyMeta
-				} else {
-					nsKey = nsKeyData
-				}
-				bs, err = tdb.db.Get(keyEncode(nsKey, meta.Key), nil)
-			}
-
-			if err != nil {
-				hlog.Printf("debug", "db-log-range err %s", err.Error())
-				break
-			}
-
-			limitSize -= int64(len(bs))
-			if limitSize < 1 {
-				break
-			}
-
-			if item, err := kv2.ObjectItemDecode(bs); err == nil {
-				if item.Meta.Updated >= tto {
-					break
-				}
-				rs.Items = append(rs.Items, item)
-			}
-		}
-
-		limitNum -= 1
+	if rr.WaitTime < 0 {
+		rr.WaitTime = 0
+	} else if rr.WaitTime > workerLogRangeWaitTimeMax {
+		rr.WaitTime = workerLogRangeWaitTimeMax
 	}
 
-	iter.Release()
+	for ; rr.WaitTime >= 0; rr.WaitTime -= workerLogRangeWaitSleep {
 
-	if iter.Error() != nil {
-		return iter.Error()
+		if tdb.logOffset <= rr.LogOffset {
+			time.Sleep(time.Duration(workerLogRangeWaitSleep) * time.Millisecond)
+			continue
+		}
+
+		var (
+			tto  = uint64(time.Now().UnixNano()/1e6) - 3000
+			iter = tdb.db.NewIterator(&util.Range{
+				Start: offset,
+				Limit: cutset,
+			}, nil)
+		)
+
+		for iter.Next() {
+
+			if limitNum < 1 {
+				break
+			}
+
+			if bytes.Compare(iter.Key(), offset) <= 0 {
+				continue
+			}
+
+			if bytes.Compare(iter.Key(), cutset) >= 0 {
+				break
+			}
+
+			if len(iter.Value()) < 2 {
+				continue
+			}
+
+			meta, err := kv2.ObjectMetaDecode(iter.Value())
+			if err != nil || meta == nil {
+				if err != nil {
+					hlog.Printf("debug", "db-log-range err %s", err.Error())
+				}
+				break
+			}
+
+			//
+			if kv2.AttrAllow(meta.Attrs, kv2.ObjectMetaAttrDelete) {
+				rs.Items = append(rs.Items, &kv2.ObjectItem{
+					Meta: meta,
+				})
+			} else {
+
+				var nsKey = nsKeyData
+				if kv2.AttrAllow(meta.Attrs, kv2.ObjectMetaAttrDataOff) {
+					nsKey = nsKeyMeta
+				}
+
+				bs, err := tdb.db.Get(keyEncode(nsKey, meta.Key), nil)
+
+				if err != nil && err.Error() == ldbNotFound {
+					if nsKey == nsKeyData {
+						nsKey = nsKeyMeta
+					} else {
+						nsKey = nsKeyData
+					}
+					bs, err = tdb.db.Get(keyEncode(nsKey, meta.Key), nil)
+				}
+
+				if err != nil {
+					hlog.Printf("debug", "db-log-range err %s", err.Error())
+					break
+				}
+
+				limitSize -= int64(len(bs))
+				if limitSize < 1 {
+					break
+				}
+
+				if item, err := kv2.ObjectItemDecode(bs); err == nil {
+					if item.Meta.Updated >= tto {
+						break
+					}
+					if item.Meta.Version == meta.Version {
+						rs.Items = append(rs.Items, item)
+					}
+				}
+			}
+
+			limitNum -= 1
+		}
+
+		iter.Release()
+
+		if iter.Error() != nil {
+			return iter.Error()
+		}
+
+		if len(rs.Items) > 0 || rr.WaitTime < 0 {
+			break
+		}
+
+		if rr.WaitTime >= workerLogRangeWaitSleep {
+			time.Sleep(time.Duration(workerLogRangeWaitSleep) * time.Millisecond)
+		}
 	}
 
 	if limitNum < 1 || limitSize < 1 {
@@ -667,42 +691,42 @@ func (cn *Conn) objectMetaGet(rr *kv2.ObjectWriter) (*kv2.ObjectMeta, error) {
 
 func (cn *Conn) objectLogVersionSet(tdb *dbTable, incr, set uint64) (uint64, error) {
 
-	cn.logMu.Lock()
-	defer cn.logMu.Unlock()
+	tdb.logMu.Lock()
+	defer tdb.logMu.Unlock()
 
 	if incr == 0 && set == 0 {
-		return cn.logOffset, nil
+		return tdb.logOffset, nil
 	}
 
-	if cn.logCutset <= 100 {
+	if tdb.logCutset <= 100 {
 
 		if bs, err := tdb.db.Get(keySysLogCutset, nil); err != nil {
 			if err.Error() != ldbNotFound {
 				return 0, err
 			}
 		} else {
-			if cn.logCutset, err = strconv.ParseUint(string(bs), 10, 64); err != nil {
+			if tdb.logCutset, err = strconv.ParseUint(string(bs), 10, 64); err != nil {
 				return 0, err
 			}
-			if cn.logOffset < cn.logCutset {
-				cn.logOffset = cn.logCutset
+			if tdb.logOffset < tdb.logCutset {
+				tdb.logOffset = tdb.logCutset
 			}
 		}
 	}
 
-	if cn.logOffset < 100 {
-		cn.logOffset = 100
+	if tdb.logOffset < 100 {
+		tdb.logOffset = 100
 	}
 
-	if set > 0 && set > cn.logOffset {
-		incr += (set - cn.logOffset)
+	if set > 0 && set > tdb.logOffset {
+		incr += (set - tdb.logOffset)
 	}
 
 	if incr > 0 {
 
-		if (cn.logOffset + incr) >= cn.logCutset {
+		if (tdb.logOffset + incr) >= tdb.logCutset {
 
-			cutset := cn.logOffset + incr + 100
+			cutset := tdb.logOffset + incr + 100
 
 			if n := cutset % 100; n > 0 {
 				cutset += n
@@ -713,13 +737,16 @@ func (cn *Conn) objectLogVersionSet(tdb *dbTable, incr, set uint64) (uint64, err
 				return 0, err
 			}
 
-			cn.logCutset = cutset
+			hlog.Printf("debug", "table %s, reset log-version to %d~%d",
+				tdb.tableName, tdb.logOffset+incr, cutset)
+
+			tdb.logCutset = cutset
 		}
 
-		cn.logOffset += incr
+		tdb.logOffset += incr
 	}
 
-	return cn.logOffset, nil
+	return tdb.logOffset, nil
 }
 
 func (cn *Conn) objectIncrSet(tdb *dbTable, ns string, incr, set uint64) (uint64, error) {
