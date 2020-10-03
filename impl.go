@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"strconv"
 	"time"
 
 	"github.com/hooto/hlog4g/hlog"
@@ -120,23 +119,25 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 		}
 	}
 
+	updated := uint64(time.Now().UnixNano() / 1e6)
+
 	if rr.Meta.Updated < 1 {
-		rr.Meta.Updated = uint64(time.Now().UnixNano() / 1e6)
+		rr.Meta.Updated = updated
 	}
 
 	if rr.Meta.Created < 1 {
-		rr.Meta.Created = rr.Meta.Updated
+		rr.Meta.Created = updated
 	}
 
 	if rr.IncrNamespace != "" {
 
 		if rr.Meta.IncrId == 0 {
-			rr.Meta.IncrId, err = cn.objectIncrSet(tdb, rr.IncrNamespace, 1, 0)
+			rr.Meta.IncrId, err = tdb.objectIncrSet(rr.IncrNamespace, 1, 0)
 			if err != nil {
 				return kv2.NewObjectResultServerError(err)
 			}
 		} else {
-			cn.objectIncrSet(tdb, rr.IncrNamespace, 0, rr.Meta.IncrId)
+			tdb.objectIncrSet(rr.IncrNamespace, 0, rr.Meta.IncrId)
 		}
 	}
 
@@ -146,12 +147,12 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 			cLog = meta.Version
 		}
 
-		cLog, err = cn.objectLogVersionSet(tdb, 1, cLog)
+		cLog, err = tdb.objectLogVersionSet(1, cLog, updated)
 		if err != nil {
 			return kv2.NewObjectResultServerError(err)
 		}
 	} else {
-		_, err = cn.objectLogVersionSet(tdb, 0, cLog)
+		_, err = tdb.objectLogVersionSet(0, cLog, updated)
 		if err != nil {
 			return kv2.NewObjectResultServerError(err)
 		}
@@ -219,6 +220,10 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 			}
 
 			err = tdb.db.Write(batch, nil)
+
+			if err == nil && cLogOn {
+				tdb.objectLogFree(cLog)
+			}
 		}
 	}
 
@@ -546,7 +551,7 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 		}
 
 		var (
-			tto  = uint64(time.Now().UnixNano()/1e6) - 3000
+			tto  = tdb.objectLogDelay() // uint64(time.Now().UnixNano()/1e6) - 3000
 			iter = tdb.db.NewIterator(&util.Range{
 				Start: offset,
 				Limit: cutset,
@@ -687,128 +692,6 @@ func (cn *Conn) objectMetaGet(rr *kv2.ObjectWriter) (*kv2.ObjectMeta, error) {
 	}
 
 	return nil, err
-}
-
-func (cn *Conn) objectLogVersionSet(tdb *dbTable, incr, set uint64) (uint64, error) {
-
-	tdb.logMu.Lock()
-	defer tdb.logMu.Unlock()
-
-	if incr == 0 && set == 0 {
-		return tdb.logOffset, nil
-	}
-
-	if tdb.logCutset <= 100 {
-
-		if bs, err := tdb.db.Get(keySysLogCutset, nil); err != nil {
-			if err.Error() != ldbNotFound {
-				return 0, err
-			}
-		} else {
-			if tdb.logCutset, err = strconv.ParseUint(string(bs), 10, 64); err != nil {
-				return 0, err
-			}
-			if tdb.logOffset < tdb.logCutset {
-				tdb.logOffset = tdb.logCutset
-			}
-		}
-	}
-
-	if tdb.logOffset < 100 {
-		tdb.logOffset = 100
-	}
-
-	if set > 0 && set > tdb.logOffset {
-		incr += (set - tdb.logOffset)
-	}
-
-	if incr > 0 {
-
-		if (tdb.logOffset + incr) >= tdb.logCutset {
-
-			cutset := tdb.logOffset + incr + 100
-
-			if n := cutset % 100; n > 0 {
-				cutset += n
-			}
-
-			if err := tdb.db.Put(keySysLogCutset,
-				[]byte(strconv.FormatUint(cutset, 10)), nil); err != nil {
-				return 0, err
-			}
-
-			hlog.Printf("debug", "table %s, reset log-version to %d~%d",
-				tdb.tableName, tdb.logOffset+incr, cutset)
-
-			tdb.logCutset = cutset
-		}
-
-		tdb.logOffset += incr
-	}
-
-	return tdb.logOffset, nil
-}
-
-func (cn *Conn) objectIncrSet(tdb *dbTable, ns string, incr, set uint64) (uint64, error) {
-
-	cn.incrMu.Lock()
-	defer cn.incrMu.Unlock()
-
-	incrSet := tdb.incrSets[ns]
-	if incrSet == nil {
-		incrSet = &dbTableIncrSet{
-			offset: 0,
-			cutset: 0,
-		}
-		tdb.incrSets[ns] = incrSet
-	}
-
-	if incr == 0 && set == 0 {
-		return incrSet.offset, nil
-	}
-
-	if incrSet.cutset <= 100 {
-
-		if bs, err := tdb.db.Get(keySysIncrCutset(ns), nil); err != nil {
-			if err.Error() != ldbNotFound {
-				return 0, err
-			}
-		} else {
-			if incrSet.cutset, err = strconv.ParseUint(string(bs), 10, 64); err != nil {
-				return 0, err
-			}
-			if incrSet.offset < incrSet.cutset {
-				incrSet.offset = incrSet.cutset
-			}
-		}
-	}
-
-	if incrSet.offset < 100 {
-		incrSet.offset = 100
-	}
-
-	if set > 0 && set > incrSet.offset {
-		incr += (set - incrSet.offset)
-	}
-
-	if incr > 0 {
-
-		if (incrSet.offset + incr) >= incrSet.cutset {
-
-			cutset := incrSet.offset + incr + 100
-
-			if err := tdb.db.Put(keySysIncrCutset(ns),
-				[]byte(strconv.FormatUint(cutset, 10)), nil); err != nil {
-				return 0, err
-			}
-
-			incrSet.cutset = cutset
-		}
-
-		incrSet.offset += incr
-	}
-
-	return incrSet.offset, nil
 }
 
 func (it *Conn) Connector() kv2.ClientConnector {

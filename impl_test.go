@@ -463,7 +463,7 @@ func Test_Object_LogAsync(t *testing.T) {
 		}
 	}
 
-	time.Sleep(5e9)
+	time.Sleep(1e9)
 
 	ctx, fc := context.WithTimeout(context.Background(), time.Second*1)
 	defer fc()

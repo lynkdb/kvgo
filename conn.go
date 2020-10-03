@@ -51,12 +51,14 @@ type dbTable struct {
 	tableId      uint32
 	tableName    string
 	db           *leveldb.DB
+	incrMu       sync.RWMutex
 	incrSets     map[string]*dbTableIncrSet
 	logMu        sync.RWMutex
 	logOffset    uint64
 	logCutset    uint64
 	logAsyncMu   sync.Mutex
 	logAsyncSets map[string]bool
+	logLockSets  map[uint64]uint64
 }
 
 type Conn struct {
@@ -66,7 +68,6 @@ type Conn struct {
 	tables               map[string]*dbTable
 	opts                 *Config
 	clients              int
-	incrMu               sync.RWMutex
 	client               *kv2.PublicClient
 	public               *PublicServiceImpl
 	internal             *InternalServiceImpl
@@ -265,6 +266,7 @@ func (cn *Conn) dbSetup(dir string, opts *opt.Options) (*dbTable, error) {
 		db:           db,
 		incrSets:     map[string]*dbTableIncrSet{},
 		logAsyncSets: map[string]bool{},
+		logLockSets:  map[uint64]uint64{},
 	}
 
 	bs, err := dt.db.Get(keySysInstanceId, nil)
@@ -309,6 +311,7 @@ func (cn *Conn) dbSysSetup() error {
 		db:           dt.db,
 		incrSets:     map[string]*dbTableIncrSet{},
 		logAsyncSets: map[string]bool{},
+		logLockSets:  map[uint64]uint64{},
 	}
 
 	if cn.opts.Server.Bind != "" {
@@ -364,6 +367,7 @@ func (cn *Conn) dbTableListSetup() error {
 			tableName:    "main",
 			incrSets:     map[string]*dbTableIncrSet{},
 			logAsyncSets: map[string]bool{},
+			logLockSets:  map[uint64]uint64{},
 		},
 	}
 
@@ -451,6 +455,7 @@ func (cn *Conn) dbTableListSetup() error {
 			tableName:    tb.Name,
 			incrSets:     map[string]*dbTableIncrSet{},
 			logAsyncSets: map[string]bool{},
+			logLockSets:  map[uint64]uint64{},
 		}
 	}
 
@@ -503,6 +508,7 @@ func (cn *Conn) dbTableSetup(tableName string, tableId uint32) error {
 		tableName:    tableName,
 		incrSets:     map[string]*dbTableIncrSet{},
 		logAsyncSets: map[string]bool{},
+		logLockSets:  map[uint64]uint64{},
 		db:           dt.db,
 	}
 
