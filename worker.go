@@ -172,6 +172,11 @@ func (cn *Conn) workerLocalTableRefresh() error {
 
 	for _, t := range cn.tables {
 
+		if err := cn.workerLocalLogCleanTable(t); err != nil {
+			hlog.Printf("warn", "worker log clean table %s, err %s",
+				t.tableName, err.Error())
+		}
+
 		// db size
 		s, err := t.db.SizeOf(rgS)
 		if err != nil {
@@ -366,7 +371,7 @@ func (cn *Conn) workerLocalReplicaOfLogAsyncTable(hp *ClientConfig, tm *ConfigRe
 
 	var (
 		offset = uint64(0)
-		num    = int64(0)
+		num    = 0
 		retry  = 0
 	)
 
@@ -389,7 +394,9 @@ func (cn *Conn) workerLocalReplicaOfLogAsyncTable(hp *ClientConfig, tm *ConfigRe
 		TableNameSet(tm.From).
 		LogOffsetSet(offset).LimitNumSet(100)
 	rr.LimitSize = kv2.ObjectReaderLimitSizeMax
-	rr.WaitTime = 3000
+	rr.WaitTime = 10000
+
+	// hlog.Printf("info", "pull from %s/%s at %d", hp.Addr, tm.From, offset)
 
 	for !cn.close {
 
@@ -446,15 +453,87 @@ func (cn *Conn) workerLocalReplicaOfLogAsyncTable(hp *ClientConfig, tm *ConfigRe
 				[]byte(strconv.FormatUint(rr.LogOffset, 10)), nil)
 		}
 
-		if num > 0 {
-			hlog.Printf("info", "kvgo log async from %s/%s to local/%s, num %d, offset %d",
-				hp.Addr, tm.From, tm.To, num, rr.LogOffset)
-		}
-
 		if !rs.Next {
 			break
 		}
 	}
+
+	if num > 0 {
+		hlog.Printf("debug", "kvgo log async from %s/%s to local/%s, num %d, offset %d",
+			hp.Addr, tm.From, tm.To, num, rr.LogOffset)
+	}
+
+	return nil
+}
+
+func (cn *Conn) workerLocalLogCleanTable(tdb *dbTable) error {
+
+	var (
+		offset = keyEncode(nsKeyLog, uint64ToBytes(0))
+		cutset = keyEncode(nsKeyLog, []byte{0xff})
+	)
+
+	var (
+		iter = tdb.db.NewIterator(&util.Range{
+			Start: offset,
+			Limit: cutset,
+		}, nil)
+		sets  = map[string]uint64{}
+		ndel  = 0
+		batch = new(leveldb.Batch)
+	)
+
+	for ok := iter.Last(); ok; ok = iter.Prev() {
+
+		if bytes.Compare(iter.Key(), cutset) >= 0 {
+			continue
+		}
+
+		if bytes.Compare(iter.Key(), offset) <= 0 {
+			break
+		}
+
+		if len(iter.Value()) >= 2 {
+
+			logMeta, err := kv2.ObjectMetaDecode(iter.Value())
+			if err == nil && logMeta != nil {
+
+				tdb.objectLogVersionSet(0, logMeta.Version, 0)
+
+				if _, ok := sets[string(logMeta.Key)]; !ok {
+
+					if bs, err := tdb.db.Get(keyEncode(nsKeyMeta, logMeta.Key), nil); err == nil {
+						meta, err := kv2.ObjectMetaDecode(bs)
+						if err == nil && meta.Version > 0 && meta.Version != logMeta.Version {
+							batch.Delete(iter.Key())
+							ndel += 1
+							continue
+						}
+					}
+
+					sets[string(logMeta.Key)] = logMeta.Version
+					continue
+				}
+			}
+		}
+
+		batch.Delete(iter.Key())
+		ndel += 1
+
+		if ndel >= 1000 {
+			tdb.db.Write(batch, nil)
+			batch = new(leveldb.Batch)
+			ndel = 0
+			hlog.Printf("info", "table %s, log clean %d/%d", tdb.tableName, ndel, len(sets))
+		}
+	}
+
+	if ndel > 0 {
+		tdb.db.Write(batch, nil)
+		hlog.Printf("info", "table %s, log clean %d/%d", tdb.tableName, ndel, len(sets))
+	}
+
+	iter.Release()
 
 	return nil
 }

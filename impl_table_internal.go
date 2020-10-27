@@ -77,7 +77,9 @@ func (tdb *dbTable) objectLogVersionSet(incr, set, updated uint64) (uint64, erro
 
 		tdb.logOffset += incr
 
-		tdb.logLockSets[tdb.logOffset] = updated
+		if updated > 0 {
+			tdb.logLockSets[tdb.logOffset] = updated
+		}
 	}
 
 	return tdb.logOffset, nil

@@ -91,6 +91,7 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 
 		if (cLog > 0 && meta.Version == cLog) ||
 			kv2.AttrAllow(rr.Mode, kv2.ObjectWriterModeCreate) ||
+			(rr.Meta.Updated < meta.Updated) ||
 			(rr.Meta.Expired == meta.Expired &&
 				(rr.Meta.IncrId == 0 || rr.Meta.IncrId == meta.IncrId) &&
 				(rr.PrevIncrId == 0 || rr.PrevIncrId == meta.IncrId) &&
@@ -579,7 +580,7 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 			meta, err := kv2.ObjectMetaDecode(iter.Value())
 			if err != nil || meta == nil {
 				if err != nil {
-					hlog.Printf("debug", "db-log-range err %s", err.Error())
+					hlog.Printf("info", "db-log-range err %s", err.Error())
 				}
 				break
 			}
@@ -608,7 +609,20 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 				}
 
 				if err != nil {
-					hlog.Printf("debug", "db-log-range err %s", err.Error())
+					hlog.Printf("info", "db-log-range err %s", err.Error())
+					continue
+				}
+
+				item, err := kv2.ObjectItemDecode(bs)
+				if err != nil {
+					continue
+				}
+
+				if item.Meta.Version != meta.Version {
+					continue
+				}
+
+				if item.Meta.Updated >= tto {
 					break
 				}
 
@@ -617,14 +631,7 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 					break
 				}
 
-				if item, err := kv2.ObjectItemDecode(bs); err == nil {
-					if item.Meta.Updated >= tto {
-						break
-					}
-					if item.Meta.Version == meta.Version {
-						rs.Items = append(rs.Items, item)
-					}
-				}
+				rs.Items = append(rs.Items, item)
 			}
 
 			limitNum -= 1
