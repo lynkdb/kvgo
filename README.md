@@ -231,8 +231,8 @@ if rs := db.NewWriter(key, val).ExpireSet(3000).Commit(); rs.OK() {
 	fmt.Println("OK")
 }
 
-# delete key
-if rs := db.NewWriter(key).ModeDeleteSet(true).Commit(); rs.OK() {
+# delete key/value
+if rs := db.NewWriter(key, nil).ModeDeleteSet(true).Commit(); rs.OK() {
 	fmt.Println("OK")
 }
 
