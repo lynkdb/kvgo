@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/hooto/hauth/go/hauth/v1"
+	"github.com/valuedig/apis/go/tsd/v1"
 	"google.golang.org/grpc"
 
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
@@ -67,7 +68,23 @@ func (it *PublicServiceImpl) Query(ctx context.Context,
 		}
 	}
 
-	return it.db.Query(or), nil
+	rs := it.db.Query(or)
+
+	if it.db.perfStatus != nil {
+
+		if kv2.AttrAllow(or.Mode, kv2.ObjectReaderModeKey) {
+			it.db.perfStatus.Sync(PerfAPIReadKey, 0, 1, tsd.ValueAttrSum)
+		} else if kv2.AttrAllow(or.Mode, kv2.ObjectReaderModeKeyRange) {
+			it.db.perfStatus.Sync(PerfAPIReadKeyRange, 0, 1, tsd.ValueAttrSum)
+		} else if kv2.AttrAllow(or.Mode, kv2.ObjectReaderModeLogRange) {
+			it.db.perfStatus.Sync(PerfAPIReadLogRange, 0, 1, tsd.ValueAttrSum)
+		}
+		if siz := resultDataSize(rs); siz > 0 {
+			it.db.perfStatus.Sync(PerfAPIReadBytes, 0, siz, tsd.ValueAttrSum)
+		}
+	}
+
+	return rs, nil
 }
 
 func (it *PublicServiceImpl) Commit(ctx context.Context,
@@ -94,41 +111,58 @@ func (it *PublicServiceImpl) Commit(ctx context.Context,
 		}
 	}
 
+	var rs *kv2.ObjectResult
+
 	if len(it.db.opts.Cluster.MainNodes) == 0 {
-		return it.db.Commit(rr), nil
+		rs = it.db.Commit(rr)
+	} else {
+		rs = it.groupCommit(ctx, rr)
 	}
 
+	if it.db.perfStatus != nil {
+		it.db.perfStatus.Sync(PerfAPIWriteKey, 0, 1, tsd.ValueAttrSum)
+		if rr.Data != nil && len(rr.Data.Value) > 0 {
+			it.db.perfStatus.Sync(PerfAPIWriteBytes, 0, int64(len(rr.Data.Value)), tsd.ValueAttrSum)
+		}
+	}
+
+	return rs, nil
+}
+
+func (it *PublicServiceImpl) groupCommit(ctx context.Context,
+	rr *kv2.ObjectWriter) *kv2.ObjectResult {
+
 	if err := rr.CommitValid(); err != nil {
-		return kv2.NewObjectResultClientError(err), nil
+		return kv2.NewObjectResultClientError(err)
 	}
 
 	meta, err := it.db.objectMetaGet(rr)
 	if meta == nil && err != nil {
-		return kv2.NewObjectResultServerError(err), nil
+		return kv2.NewObjectResultServerError(err)
 	}
 
 	if meta == nil {
 
 		if kv2.AttrAllow(rr.Mode, kv2.ObjectWriterModeDelete) {
-			return kv2.NewObjectResultOK(), nil
+			return kv2.NewObjectResultOK()
 		}
 
 	} else {
 
 		if rr.PrevVersion > 0 && rr.PrevVersion != meta.Version {
-			return kv2.NewObjectResultClientError(errors.New("invalid prev_version")), nil
+			return kv2.NewObjectResultClientError(errors.New("invalid prev_version"))
 		}
 
 		if rr.PrevDataCheck > 0 && rr.PrevDataCheck != meta.DataCheck {
-			return kv2.NewObjectResultClientError(errors.New("invalid prev_data_check")), nil
+			return kv2.NewObjectResultClientError(errors.New("invalid prev_data_check"))
 		}
 
 		if rr.PrevAttrs > 0 && !kv2.AttrAllow(meta.Attrs, rr.PrevAttrs) {
-			return kv2.NewObjectResultClientError(errors.New("invalid prev_attrs")), nil
+			return kv2.NewObjectResultClientError(errors.New("invalid prev_attrs"))
 		}
 
 		if rr.PrevIncrId > 0 && rr.PrevIncrId != meta.IncrId {
-			return kv2.NewObjectResultClientError(errors.New("invalid prev_incr_id")), nil
+			return kv2.NewObjectResultClientError(errors.New("invalid prev_incr_id"))
 		}
 
 		if kv2.AttrAllow(rr.Mode, kv2.ObjectWriterModeCreate) ||
@@ -145,7 +179,7 @@ func (it *PublicServiceImpl) Commit(ctx context.Context,
 				Created: meta.Created,
 				Updated: meta.Updated,
 			}
-			return rs, nil
+			return rs
 		}
 
 		if rr.Meta.IncrId == 0 && meta.IncrId > 0 {
@@ -232,7 +266,7 @@ func (it *PublicServiceImpl) Commit(ctx context.Context,
 	}
 
 	if (pNum * 2) <= nCap {
-		return nil, fmt.Errorf("p1 fail %d/%d", pNum, nCap)
+		return kv2.NewObjectResultServerError(fmt.Errorf("p1 fail %d/%d", pNum, nCap))
 	}
 
 	pNum = 0
@@ -289,7 +323,7 @@ func (it *PublicServiceImpl) Commit(ctx context.Context,
 	}
 
 	if (pNum * 2) <= nCap {
-		return nil, fmt.Errorf("p2 fail %d/%d", pNum, nCap)
+		return kv2.NewObjectResultServerError(fmt.Errorf("p2 fail %d/%d", pNum, nCap))
 	}
 
 	rs := kv2.NewObjectResultOK()
@@ -299,7 +333,7 @@ func (it *PublicServiceImpl) Commit(ctx context.Context,
 		Updated: rr.Meta.Updated,
 	}
 
-	return rs, nil
+	return rs
 }
 
 func (it *PublicServiceImpl) BatchCommit(ctx context.Context,
@@ -343,13 +377,37 @@ func (it *PublicServiceImpl) BatchCommit(ctx context.Context,
 		}
 	}
 
+	var rs *kv2.BatchResult
+
 	if len(rr.Items) == 0 {
-		return rr.NewResult(kv2.ResultOK, ""), nil
+		rs = rr.NewResult(kv2.ResultOK, "")
+	} else if len(it.db.opts.Cluster.MainNodes) == 0 {
+		rs = it.db.BatchCommit(rr)
+	} else {
+		rs = it.groupBatchCommit(ctx, rr)
 	}
 
-	if len(it.db.opts.Cluster.MainNodes) == 0 {
-		return it.db.BatchCommit(rr), nil
+	if it.db.perfStatus != nil {
+		it.db.perfStatus.Sync(PerfAPIWriteKey, 0, 1, tsd.ValueAttrSum)
+		if siz := batchResultDataSize(rs); siz > 0 {
+			it.db.perfStatus.Sync(PerfAPIReadBytes, 0, siz, tsd.ValueAttrSum)
+		}
+		wsiz := 0
+		for _, b := range rr.Items {
+			if b.Writer != nil && b.Writer.Data != nil {
+				wsiz += len(b.Writer.Data.Value)
+			}
+		}
+		if wsiz > 0 {
+			it.db.perfStatus.Sync(PerfAPIWriteBytes, 0, int64(wsiz), tsd.ValueAttrSum)
+		}
 	}
+
+	return rs, nil
+}
+
+func (it *PublicServiceImpl) groupBatchCommit(ctx context.Context,
+	rr *kv2.BatchRequest) *kv2.BatchResult {
 
 	var (
 		rs = rr.NewResult(0, "")
@@ -401,7 +459,7 @@ func (it *PublicServiceImpl) BatchCommit(ctx context.Context,
 		rs.Status = kv2.ResultOK
 	}
 
-	return rs, nil
+	return rs
 }
 
 func (it *PublicServiceImpl) SysCmd(ctx context.Context, req *kv2.SysCmdRequest) (*kv2.ObjectResult, error) {

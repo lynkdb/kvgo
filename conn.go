@@ -32,6 +32,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/filter"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/syndtr/goleveldb/leveldb/util"
+	"github.com/valuedig/apis/go/tsd/v1"
 
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
@@ -59,24 +60,28 @@ type dbTable struct {
 	logAsyncMu   sync.Mutex
 	logAsyncSets map[string]bool
 	logLockSets  map[uint64]uint64
+	perfStatus   *tsd.CycleFeed
 }
 
 type Conn struct {
-	mu                   sync.RWMutex
-	dbmu                 sync.Mutex
-	dbSys                *leveldb.DB
-	tables               map[string]*dbTable
-	opts                 *Config
-	clients              int
-	client               *kv2.PublicClient
-	public               *PublicServiceImpl
-	internal             *InternalServiceImpl
-	keyMgr               *hauth.AccessKeyManager
-	close                bool
-	workmu               sync.Mutex
-	workerLocalRunning   bool
-	uptime               int64
-	workerTableRefreshed int64
+	mu                    sync.RWMutex
+	dbmu                  sync.Mutex
+	dbSys                 *leveldb.DB
+	tables                map[string]*dbTable
+	opts                  *Config
+	clients               int
+	client                *kv2.PublicClient
+	public                *PublicServiceImpl
+	internal              *InternalServiceImpl
+	keyMgr                *hauth.AccessKeyManager
+	close                 bool
+	workmu                sync.Mutex
+	workerLocalRunning    bool
+	uptime                int64
+	workerTableRefreshed  int64
+	workerStatusRefreshed int64
+	sysStatus             *kv2.SysNodeStatus
+	perfStatus            *tsd.CycleFeed
 }
 
 func Open(args ...interface{}) (*Conn, error) {
@@ -90,11 +95,12 @@ func Open(args ...interface{}) (*Conn, error) {
 
 	var (
 		cn = &Conn{
-			clients: 1,
-			keyMgr:  hauth.NewAccessKeyManager(),
-			tables:  map[string]*dbTable{},
-			opts:    &Config{},
-			uptime:  time.Now().Unix(),
+			clients:   1,
+			keyMgr:    hauth.NewAccessKeyManager(),
+			tables:    map[string]*dbTable{},
+			opts:      &Config{},
+			uptime:    time.Now().Unix(),
+			sysStatus: &kv2.SysNodeStatus{},
 		}
 	)
 
@@ -172,6 +178,8 @@ func Open(args ...interface{}) (*Conn, error) {
 		cn.closeForce()
 		return nil, err
 	}
+
+	cn.sysStatus.Id = cn.opts.Server.ID
 
 	go cn.workerLocal()
 
@@ -267,6 +275,7 @@ func (cn *Conn) dbSetup(dir string, opts *opt.Options) (*dbTable, error) {
 		incrSets:     map[string]*dbTableIncrSet{},
 		logAsyncSets: map[string]bool{},
 		logLockSets:  map[uint64]uint64{},
+		perfStatus:   cn.perfStatus,
 	}
 
 	bs, err := dt.db.Get(keySysInstanceId, nil)
@@ -312,6 +321,7 @@ func (cn *Conn) dbSysSetup() error {
 		incrSets:     map[string]*dbTableIncrSet{},
 		logAsyncSets: map[string]bool{},
 		logLockSets:  map[uint64]uint64{},
+		perfStatus:   cn.perfStatus,
 	}
 
 	if cn.opts.Server.Bind != "" {
@@ -456,6 +466,7 @@ func (cn *Conn) dbTableListSetup() error {
 			incrSets:     map[string]*dbTableIncrSet{},
 			logAsyncSets: map[string]bool{},
 			logLockSets:  map[uint64]uint64{},
+			perfStatus:   cn.perfStatus,
 		}
 	}
 
@@ -510,6 +521,7 @@ func (cn *Conn) dbTableSetup(tableName string, tableId uint32) error {
 		logAsyncSets: map[string]bool{},
 		logLockSets:  map[uint64]uint64{},
 		db:           dt.db,
+		perfStatus:   cn.perfStatus,
 	}
 
 	return nil

@@ -46,6 +46,24 @@ const (
 	workerLogRangeWaitSleep    = int64(200)
 	workerReplicaLogAsyncSleep = 1e9
 	workerTableRefreshTime     = int64(600)
+	workerStatusRefreshTime    = int64(3)
+)
+
+const (
+	PerfStorReadKey      = "srk"
+	PerfStorReadKeyRange = "srkr"
+	PerfStorReadLogRange = "srlr"
+	PerfStorWriteKey     = "swk"
+	PerfStorReadBytes    = "srb"
+	PerfStorWriteBytes   = "swb"
+	PerfAPIReadKey       = "ark"
+	PerfAPIReadKeyRange  = "arkr"
+	PerfAPIReadLogRange  = "arlr"
+	PerfAPIWriteKey      = "awk"
+	PerfAPIReadBytes     = "arb"
+	PerfAPIWriteBytes    = "awb"
+	PerfAPIReadLatency   = "arl"
+	PerfAPIWriteLatency  = "awl"
 )
 
 var (
@@ -83,6 +101,10 @@ func nsSysAuthRole(name string) []byte {
 
 func nsSysAccessKey(id string) []byte {
 	return []byte("sys:ak:" + id)
+}
+
+func nsSysApiStatus(name string) []byte {
+	return []byte("sys:astatus:" + name)
 }
 
 var (

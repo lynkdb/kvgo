@@ -21,6 +21,7 @@ import (
 
 	hauth "github.com/hooto/hauth/go/hauth/v1"
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
+	"github.com/valuedig/apis/go/tsd/v1"
 )
 
 func (cn *Conn) SysCmd(rr *kv2.SysCmdRequest) *kv2.ObjectResult {
@@ -41,11 +42,67 @@ func (cn *Conn) SysCmd(rr *kv2.SysCmdRequest) *kv2.ObjectResult {
 	return cn.sysCmdLocal(nil, rr)
 }
 
+func (cn *Conn) sysCmdSysStatus(av *hauth.AppValidator, rr *kv2.SysCmdRequest) *kv2.ObjectResult {
+
+	rs := kv2.NewObjectResultOK()
+
+	var rs0 kv2.SysStatus
+
+	rr2 := kv2.NewObjectReader(nil).
+		TableNameSet(sysTableName).
+		KeyRangeSet(nsSysTableStatus(""), append(nsSysTableStatus(""), 0xff)).
+		LimitNumSet(1000)
+
+	if rs2 := cn.Query(rr2); rs2.OK() {
+		for _, v := range rs2.Items {
+			var item kv2.TableStatus
+			if err := v.DataValue().Decode(&item, nil); err == nil {
+				rs0.Tables = append(rs0.Tables, &item)
+			}
+		}
+	}
+
+	//
+	rs0.Nodes = append(rs0.Nodes, cn.sysStatus)
+
+	rs.Items = append(rs.Items, kv2.NewObjectItem(nil).DataValueSet(rs0, nil))
+
+	return rs
+}
+func (cn *Conn) sysCmdSysMetrics(av *hauth.AppValidator, rr *kv2.SysCmdRequest) *kv2.ObjectResult {
+
+	if cn.perfStatus == nil {
+		return kv2.NewObjectResultClientError(errors.New("system status not ready"))
+	}
+
+	var req tsd.CycleExportOptions
+	if err := kv2.StdProto.Decode(rr.Body, &req); err != nil {
+		return kv2.NewObjectResultClientError(err)
+	}
+
+	var (
+		rep = cn.perfStatus.Export(&req)
+		rs  = kv2.NewObjectResultOK()
+	)
+
+	rs.Items = append(rs.Items, kv2.NewObjectItem(nil).DataValueSet(rep, nil))
+
+	return rs
+}
+
 func (cn *Conn) sysCmdLocal(av *hauth.AppValidator, rr *kv2.SysCmdRequest) *kv2.ObjectResult {
 
 	var rs *kv2.ObjectResult
 
 	switch rr.Method {
+
+	case "SysStatus":
+
+		rs = cn.sysCmdSysStatus(av, rr)
+
+	case "SysMetrics":
+
+		rs = cn.sysCmdSysMetrics(av, rr)
 
 	case "TableSet":
 

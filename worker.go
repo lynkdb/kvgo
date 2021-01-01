@@ -19,12 +19,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
+	"runtime"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/hooto/hlog4g/hlog"
+	ps_disk "github.com/shirou/gopsutil/disk"
+	ps_mem "github.com/shirou/gopsutil/mem"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/util"
+	"github.com/valuedig/apis/go/tsd/v1"
 
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
@@ -48,6 +55,10 @@ func (cn *Conn) workerLocal() {
 
 		if err := cn.workerLocalTableRefresh(); err != nil {
 			hlog.Printf("warn", "local table refresh err %s", err.Error())
+		}
+
+		if err := cn.workerLocalSysStatusRefresh(); err != nil {
+			hlog.Printf("warn", "local sys-status refresh err %s", err.Error())
 		}
 
 		time.Sleep(workerLocalExpireSleep)
@@ -534,6 +545,84 @@ func (cn *Conn) workerLocalLogCleanTable(tdb *dbTable) error {
 	}
 
 	iter.Release()
+
+	return nil
+}
+
+func (cn *Conn) workerLocalSysStatusRefresh() error {
+
+	tn := time.Now().Unix()
+	if (cn.workerStatusRefreshed + workerStatusRefreshTime) > tn {
+		return nil
+	}
+	cn.workerStatusRefreshed = tn
+
+	if cn.perfStatus == nil {
+
+		if bs, err := cn.dbSys.Get(nsSysApiStatus("node"), nil); err == nil {
+			var perfStatus tsd.CycleFeed
+			if kv2.StdProto.Decode(bs, &perfStatus) == nil && perfStatus.Unit == 10 {
+				cn.perfStatus = &perfStatus
+			}
+		}
+
+		if cn.perfStatus == nil {
+			cn.perfStatus = tsd.NewCycleFeed(10)
+		}
+
+		for _, v := range []string{
+			// API QPS
+			PerfAPIReadKey, PerfAPIReadKeyRange, PerfAPIReadLogRange, PerfAPIWriteKey,
+			// API BPS
+			PerfAPIReadBytes, PerfAPIWriteBytes,
+			// Storage QPS
+			PerfStorReadKey, PerfStorReadKeyRange, PerfStorReadLogRange, PerfStorWriteKey,
+			// Storage BPS
+			PerfStorReadBytes, PerfStorWriteBytes,
+		} {
+			cn.perfStatus.Sync(v, 0, 0, tsd.ValueAttrSum)
+		}
+
+		sort.Slice(cn.perfStatus.Items, func(i, j int) bool {
+			return strings.Compare(cn.perfStatus.Items[i].Name, cn.perfStatus.Items[j].Name) < 0
+		})
+	}
+
+	if cn.sysStatus.Updated == 0 {
+		cn.sysStatus.Caps = map[string]*kv2.SysCapacity{
+			"cpu": &kv2.SysCapacity{
+				Use: int64(runtime.NumCPU()),
+			},
+		}
+		cn.sysStatus.Addr = cn.opts.Server.Bind
+		cn.sysStatus.Version = Version
+		cn.sysStatus.Uptime = tn
+	}
+
+	cn.sysStatus.Updated = tn
+
+	{
+		vm, _ := ps_mem.VirtualMemory()
+		cn.sysStatus.Caps["mem"] = &kv2.SysCapacity{
+			Use: int64(vm.Used),
+			Max: int64(vm.Total),
+		}
+	}
+
+	if rand.Intn(10) == 0 {
+		if st, err := ps_disk.Usage(cn.opts.Storage.DataDirectory); err == nil {
+			cn.sysStatus.Caps["disk"] = &kv2.SysCapacity{
+				Use: int64(st.Used),
+				Max: int64(st.Total),
+			}
+		}
+	}
+
+	if bs, err := kv2.StdProto.Encode(cn.perfStatus); err == nil && len(bs) > 20 {
+		cn.dbSys.Put(nsSysApiStatus("node"), bs, nil)
+	}
+
+	// debugPrint(cn.sysStatus)
 
 	return nil
 }

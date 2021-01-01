@@ -24,6 +24,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/iterator"
 	"github.com/syndtr/goleveldb/leveldb/util"
+	"github.com/valuedig/apis/go/tsd/v1"
 
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
@@ -65,9 +66,14 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 		return kv2.NewObjectResultClientError(errors.New("table not found"))
 	}
 
+	if cn.perfStatus != nil {
+		cn.perfStatus.Sync(PerfStorWriteKey, 0, 1, tsd.ValueAttrSum)
+	}
+
 	if meta == nil {
 
 		if kv2.AttrAllow(rr.Mode, kv2.ObjectWriterModeDelete) {
+
 			return kv2.NewObjectResultOK()
 		}
 
@@ -163,6 +169,10 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 
 	if kv2.AttrAllow(rr.Mode, kv2.ObjectWriterModeDelete) {
 
+		if cn.perfStatus != nil {
+			cn.perfStatus.Sync(PerfStorWriteKey, 0, 1, tsd.ValueAttrSum)
+		}
+
 		rr.Meta.Attrs = kv2.ObjectMetaAttrDelete
 
 		if bsMeta, err := rr.MetaEncode(); err == nil {
@@ -201,6 +211,10 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 					batch.Put(keyEncode(nsKeyMeta, rr.Meta.Key), bsMeta)
 				}
 				batch.Put(keyEncode(nsKeyData, rr.Meta.Key), bsData)
+			}
+
+			if cn.perfStatus != nil {
+				cn.perfStatus.Sync(PerfStorWriteBytes, 0, int64(len(bsMeta)+len(bsData)), tsd.ValueAttrSum)
 			}
 
 			if cLogOn && !cn.opts.Feature.WriteLogDisable {
@@ -297,6 +311,10 @@ func (cn *Conn) objectLocalQuery(rr *kv2.ObjectReader) *kv2.ObjectResult {
 
 	if kv2.AttrAllow(rr.Mode, kv2.ObjectReaderModeKey) {
 
+		if cn.perfStatus != nil {
+			cn.perfStatus.Sync(PerfStorReadKey, 0, 1, tsd.ValueAttrSum)
+		}
+
 		for _, k := range rr.Keys {
 
 			var (
@@ -308,6 +326,10 @@ func (cn *Conn) objectLocalQuery(rr *kv2.ObjectReader) *kv2.ObjectResult {
 				bs, err = tdb.db.Get(keyEncode(nsKeyMeta, k), nil)
 			} else {
 				bs, err = tdb.db.Get(keyEncode(nsKeyData, k), nil)
+			}
+
+			if cn.perfStatus != nil {
+				cn.perfStatus.Sync(PerfStorReadBytes, 0, int64(len(bs)), tsd.ValueAttrSum)
 			}
 
 			if err == nil {
@@ -389,6 +411,10 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 	tdb := cn.tabledb(rr.TableName)
 	if tdb == nil {
 		return errors.New("table not found")
+	}
+
+	if cn.perfStatus != nil {
+		cn.perfStatus.Sync(PerfStorReadKeyRange, 0, 1, tsd.ValueAttrSum)
 	}
 
 	nsKey := nsKeyData
@@ -509,6 +535,10 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 		rs.Next = true
 	}
 
+	if cn.perfStatus != nil {
+		cn.perfStatus.Sync(PerfStorReadBytes, 0, limitSize, tsd.ValueAttrSum)
+	}
+
 	return nil
 }
 
@@ -517,6 +547,10 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 	tdb := cn.tabledb(rr.TableName)
 	if tdb == nil {
 		return errors.New("table not found")
+	}
+
+	if cn.perfStatus != nil {
+		cn.perfStatus.Sync(PerfStorReadLogRange, 0, 1, tsd.ValueAttrSum)
 	}
 
 	var (
@@ -654,6 +688,10 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 
 	if limitNum < 1 || limitSize < 1 {
 		rs.Next = true
+	}
+
+	if cn.perfStatus != nil {
+		cn.perfStatus.Sync(PerfStorReadBytes, 0, limitSize, tsd.ValueAttrSum)
 	}
 
 	return nil

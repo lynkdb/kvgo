@@ -27,6 +27,8 @@ import (
 	"math/big"
 	mrand "math/rand"
 	"time"
+
+	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
 
 func debugPrint(args ...interface{}) {
@@ -142,4 +144,22 @@ func pemEncode(name string, bs []byte) string {
 	pem.Encode(&buf, block)
 
 	return string(buf.Bytes())
+}
+
+func resultDataSize(rs *kv2.ObjectResult) int64 {
+	siz := 0
+	for _, item := range rs.Items {
+		if item.Data != nil {
+			siz += len(item.Data.Value)
+		}
+	}
+	return int64(siz)
+}
+
+func batchResultDataSize(rs *kv2.BatchResult) int64 {
+	siz := int64(0)
+	for _, item := range rs.Items {
+		siz += resultDataSize(item)
+	}
+	return siz
 }

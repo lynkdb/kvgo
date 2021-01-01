@@ -60,6 +60,7 @@ type ConfigTLSCertificate struct {
 }
 
 type ConfigServer struct {
+	ID          string                `toml:"id" json:"id"`
 	Bind        string                `toml:"bind" json:"bind"`
 	AccessKey   *hauth.AccessKey      `toml:"access_key" json:"access_key"`
 	AuthTLSCert *ConfigTLSCertificate `toml:"auth_tls_cert" json:"auth_tls_cert"`
@@ -172,8 +173,13 @@ func (it *Config) Reset() *Config {
 		it.Feature.TableCompressName = "snappy"
 	}
 
-	if it.Server.Bind != "" && it.Server.AccessKey == nil {
-		it.Server.AccessKey = NewSystemAccessKey()
+	if it.Server.Bind != "" {
+		if it.Server.AccessKey == nil {
+			it.Server.AccessKey = NewSystemAccessKey()
+		}
+		if it.Server.ID == "" {
+			it.Server.ID = randHexString(16)
+		}
 	}
 
 	if it.Server.AuthTLSCert != nil {
