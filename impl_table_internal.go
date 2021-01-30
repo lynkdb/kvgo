@@ -15,11 +15,88 @@
 package kvgo
 
 import (
+	"bytes"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/hooto/hlog4g/hlog"
+	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
+	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/util"
+	"github.com/valuedig/apis/go/tsd/v1"
 )
+
+type dbTableIncrSet struct {
+	offset uint64
+	cutset uint64
+}
+
+type dbTable struct {
+	instId         string
+	tableId        uint32
+	tableName      string
+	db             *leveldb.DB
+	incrMu         sync.RWMutex
+	incrSets       map[string]*dbTableIncrSet
+	logMu          sync.RWMutex
+	logOffset      uint64
+	logCutset      uint64
+	logAsyncMu     sync.Mutex
+	logAsyncSets   map[string]bool
+	logLockSets    map[uint64]uint64
+	perfStatus     *tsd.CycleFeed
+	logSyncBuffer  *logSyncBufferTable
+	logSyncOffsets map[string]uint64
+	closed         bool
+}
+
+func (tdb *dbTable) setup() error {
+
+	hlog.Printf("info", "db-table setup name %s, id %d", tdb.tableName, tdb.tableId)
+
+	tdb.logMu.Lock()
+	defer tdb.logMu.Unlock()
+
+	var (
+		offset = keyEncode(nsKeyLog, []byte{0x00})
+		cutset = keyEncode(nsKeyLog, []byte{0xff})
+		iter   = tdb.db.NewIterator(&util.Range{
+			Start: offset,
+			Limit: cutset,
+		}, nil)
+		num = 10
+	)
+
+	for ok := iter.Last(); ok && num > 0; ok = iter.Prev() {
+		num--
+	}
+
+	for ok := iter.Next(); ok; ok = iter.Next() {
+
+		if bytes.Compare(iter.Key(), cutset) >= 0 {
+			continue
+		}
+
+		if len(iter.Value()) < 2 {
+			continue
+		}
+
+		meta, err := kv2.ObjectMetaDecode(iter.Value())
+		if err == nil && meta != nil {
+			tdb.logSyncBuffer.put(meta.Version, meta.Attrs, meta.Key, true)
+			// hlog.Printf("info", "meta.Version %d, meta.Key %s", meta.Version, string(meta.Key))
+		}
+	}
+
+	// if tdb.logSyncBuffer.queue == nil {
+	// 	tdb.logSyncBuffer.put(99, 0, []byte{}, true)
+	// }
+
+	iter.Release()
+
+	return nil
+}
 
 func (tdb *dbTable) objectLogVersionSet(incr, set, updated uint64) (uint64, error) {
 
@@ -175,4 +252,78 @@ func (tdb *dbTable) objectIncrSet(ns string, incr, set uint64) (uint64, error) {
 	}
 
 	return incrSet.offset, nil
+}
+
+func (tdb *dbTable) logAsyncOffset(hostAddr, tableFrom string, offset uint64) uint64 {
+
+	lkey := hostAddr + "/" + tableFrom
+
+	tdb.logAsyncMu.Lock()
+	defer tdb.logAsyncMu.Unlock()
+
+	prevOffset, ok := tdb.logSyncOffsets[lkey]
+	if !ok || prevOffset < 1 {
+		if bs, err := tdb.db.Get(keySysLogAsync(hostAddr, tableFrom), nil); err != nil {
+			if err.Error() != ldbNotFound {
+				return offset
+			}
+		} else {
+			if prevOffset, err = strconv.ParseUint(string(bs), 10, 64); err == nil {
+				tdb.logSyncOffsets[lkey] = prevOffset
+			}
+		}
+	}
+
+	if offset <= prevOffset {
+		return prevOffset
+	}
+
+	tdb.logSyncOffsets[lkey] = offset
+	tdb.db.Put(keySysLogAsync(hostAddr, tableFrom),
+		[]byte(strconv.FormatUint(offset, 10)), nil)
+
+	return offset
+}
+
+func (it *dbTable) Close() error {
+
+	if it.closed || it.db == nil {
+		return nil
+	}
+
+	for ns, incrSet := range it.incrSets {
+
+		if incrSet.cutset > incrSet.offset {
+
+			incrSet.cutset = incrSet.offset
+
+			if err := it.db.Put(keySysIncrCutset(ns),
+				[]byte(strconv.FormatUint(incrSet.cutset, 10)), nil); err != nil {
+				hlog.Printf("info", "db error %s", err.Error())
+			} else {
+				hlog.Printf("info", "kvgo table %s, flush incr ns:%s offset %d",
+					it.tableName, ns, incrSet.offset)
+			}
+		}
+	}
+
+	it.logMu.Lock()
+	defer it.logMu.Unlock()
+	if it.logCutset > it.logOffset {
+
+		it.logCutset = it.logOffset
+
+		if err := it.db.Put(keySysLogCutset,
+			[]byte(strconv.FormatUint(it.logCutset, 10)), nil); err != nil {
+			hlog.Printf("info", "db error %s", err.Error())
+		} else {
+			hlog.Printf("info", "kvgo table %s, flush log-id offset %d", it.tableName, it.logCutset)
+		}
+	}
+
+	it.db.Close()
+
+	it.closed = true
+
+	return nil
 }

@@ -126,7 +126,7 @@ func (cn *Conn) workerLocalExpiredRefreshTable(dt *dbTable) error {
 			}
 
 			batch.Delete(keyExpireEncode(nsKeyTtl, meta.Expired, meta.Key))
-			num += 1
+			num++
 
 			if num >= workerLocalExpireLimit {
 				break
@@ -359,72 +359,62 @@ func (cn *Conn) workerLocalReplicaOfLogAsync() error {
 
 func (cn *Conn) workerLocalReplicaOfLogAsyncTable(hp *ClientConfig, tm *ConfigReplicaTableMap) error {
 
-	dt := cn.tabledb(tm.To)
-	if dt == nil {
+	if tm.From != "main" {
+		return nil
+	}
+
+	tdb := cn.tabledb(tm.To)
+	if tdb == nil {
 		return errors.New("no table found in local server")
 	}
 
 	lkey := hp.Addr + "/" + tm.From
 
-	dt.logAsyncMu.Lock()
-	if _, ok := dt.logAsyncSets[lkey]; ok {
-		dt.logAsyncMu.Unlock()
+	tdb.logAsyncMu.Lock()
+	if _, ok := tdb.logAsyncSets[lkey]; ok {
+		tdb.logAsyncMu.Unlock()
 		return nil
 	}
-	dt.logAsyncSets[lkey] = true
-	dt.logAsyncMu.Unlock()
+	tdb.logAsyncSets[lkey] = true
+	tdb.logAsyncMu.Unlock()
 
 	defer func() {
-		dt.logAsyncMu.Lock()
-		delete(dt.logAsyncSets, lkey)
-		dt.logAsyncMu.Unlock()
+		tdb.logAsyncMu.Lock()
+		delete(tdb.logAsyncSets, lkey)
+		tdb.logAsyncMu.Unlock()
 	}()
 
 	var (
-		offset = uint64(0)
+		offset = tdb.logAsyncOffset(hp.Addr, tm.From, 0)
 		num    = 0
 		retry  = 0
 	)
-
-	if bs, err := dt.db.Get(keySysLogAsync(hp.Addr, tm.From), nil); err != nil {
-		if err.Error() != ldbNotFound {
-			return err
-		}
-	} else {
-		if offset, err = strconv.ParseUint(string(bs), 10, 64); err != nil {
-			return err
-		}
-	}
 
 	conn, err := clientConn(hp.Addr, hp.AccessKey, hp.AuthTLSCert, false)
 	if err != nil {
 		return err
 	}
 
-	rr := kv2.NewObjectReader().
-		TableNameSet(tm.From).
-		LogOffsetSet(offset).LimitNumSet(100)
-	rr.LimitSize = kv2.ObjectReaderLimitSizeMax
-	rr.WaitTime = 10000
+	req := &kv2.LogSyncRequest{
+		Addr:      cn.opts.Server.Bind,
+		TableName: tm.From,
+		LogOffset: offset,
+	}
 
 	// hlog.Printf("info", "pull from %s/%s at %d", hp.Addr, tm.From, offset)
 
-	for !cn.close {
+	for !cn.close && num < 1000000 {
 
-		ctx, fc := context.WithTimeout(context.Background(), time.Second*1000)
-		rs, err := kv2.NewPublicClient(conn).Query(ctx, rr)
+		ctx, fc := context.WithTimeout(context.Background(), time.Second*100)
+		rep, err := kv2.NewInternalClient(conn).LogSync(ctx, req)
 		fc()
-
-		if cn.close {
-			break
-		}
 
 		if err != nil {
 
-			hlog.Printf("warn", "kvgo log async from %s/%s, err %s",
-				hp.Addr, dt.tableName, err.Error())
+			hlog.SlotPrint(600, "warn", "kvgo log async from %s/%s, err %s",
+				hp.Addr, tdb.tableName, err.Error())
 
-			retry += 1
+			retry++
 			if retry >= 3 {
 				break
 			}
@@ -435,43 +425,90 @@ func (cn *Conn) workerLocalReplicaOfLogAsyncTable(hp *ClientConfig, tm *ConfigRe
 		}
 		retry = 0
 
-		for _, item := range rs.Items {
-
-			ow := &kv2.ObjectWriter{
-				Meta: item.Meta,
-				Data: item.Data,
-			}
-
-			if kv2.AttrAllow(item.Meta.Attrs, kv2.ObjectMetaAttrDelete) {
-				ow.ModeDeleteSet(true)
-			}
-
-			ow.TableNameSet(tm.To)
-
-			if rs2 := cn.commitLocal(ow, item.Meta.Version); rs2.OK() {
-				rr.LogOffset = item.Meta.Version
-				num += 1
-			} else {
-				hlog.Printf("info", "kvgo log async from %s/%s to local/%s, err %s",
-					hp.Addr, tm.From, tm.To, rs2.Message)
-				rs.Next = false
-				break
-			}
-		}
-
-		if rr.LogOffset > offset {
-			dt.db.Put(keySysLogAsync(hp.Addr, tm.From),
-				[]byte(strconv.FormatUint(rr.LogOffset, 10)), nil)
-		}
-
-		if !rs.Next {
+		if cn.close {
 			break
 		}
+
+		if len(rep.Logs) > 0 {
+
+			req2 := &kv2.LogSyncRequest{}
+
+			for _, v := range rep.Logs {
+
+				bs, err := tdb.db.Get(keyEncode(nsKeyMeta, v.Key), nil)
+				if err == nil {
+					meta, err := kv2.ObjectMetaDecode(bs)
+					if err == nil && meta.Version >= v.Version {
+						if v.Version > offset {
+							offset = v.Version
+						}
+						num++
+						continue
+					}
+				}
+
+				req2.Keys = append(req2.Keys, bytesClone(v.Key))
+			}
+
+			// hlog.Printf("debug", "log sync from %s/%s to %s, save logs %d ~ %d",
+			// 	hp.Addr, tm.From, tm.To, rep.LogOffset, rep.LogCutset)
+
+			for len(req2.Keys) > 0 {
+
+				ctx, fc := context.WithTimeout(context.Background(), time.Second*100)
+				rep2, err := kv2.NewInternalClient(conn).LogSync(ctx, req2)
+				fc()
+
+				if err != nil {
+					return err
+				}
+
+				for _, item := range rep2.Items {
+
+					ow := &kv2.ObjectWriter{
+						Meta: item.Meta,
+						Data: item.Data,
+					}
+
+					if kv2.AttrAllow(item.Meta.Attrs, kv2.ObjectMetaAttrDelete) {
+						ow.ModeDeleteSet(true)
+					}
+
+					ow.TableNameSet(tm.To)
+
+					rs2 := cn.commitLocal(ow, item.Meta.Version)
+					if !rs2.OK() {
+						break
+					}
+
+					num++
+					if item.Meta.Version > offset {
+						offset = item.Meta.Version
+					}
+				}
+
+				// hlog.Printf("debug", "log sync from %s/%s to %s, save keys %d, next keys %d",
+				// 	hp.Addr, tm.From, tm.To, len(rep2.Items), len(rep2.NextKeys))
+
+				req2.Keys = rep2.NextKeys
+			}
+
+		} else if rep.Action == 0 {
+			time.Sleep(1e9)
+		}
+
+		if offset > req.LogOffset {
+			req.LogOffset = offset
+			tdb.logAsyncOffset(hp.Addr, tm.From, offset)
+			hlog.SlotPrint(600, "info", "log sync from %s/%s to local/%s, num %d, log offset %d",
+				hp.Addr, tm.From, tm.To, num, offset)
+		}
+		// fmt.Printf("log async %d, offset %d, rep %v\n", num, req.LogOffset, rep)
 	}
 
 	if num > 0 {
-		hlog.Printf("debug", "kvgo log async from %s/%s to local/%s, num %d, offset %d",
-			hp.Addr, tm.From, tm.To, num, rr.LogOffset)
+		hlog.Printf("info", "kvgo log async from %s/%s to local/%s, num %d, offset %d",
+			hp.Addr, tm.From, tm.To, num, req.LogOffset)
 	}
 
 	return nil
@@ -494,7 +531,7 @@ func (cn *Conn) workerLocalLogCleanTable(tdb *dbTable) error {
 		batch = new(leveldb.Batch)
 	)
 
-	for ok := iter.Last(); ok; ok = iter.Prev() {
+	for ok := iter.Last(); ok && !cn.close; ok = iter.Prev() {
 
 		if bytes.Compare(iter.Key(), cutset) >= 0 {
 			continue
@@ -517,7 +554,7 @@ func (cn *Conn) workerLocalLogCleanTable(tdb *dbTable) error {
 						meta, err := kv2.ObjectMetaDecode(bs)
 						if err == nil && meta.Version > 0 && meta.Version != logMeta.Version {
 							batch.Delete(iter.Key())
-							ndel += 1
+							ndel++
 							continue
 						}
 					}
@@ -529,7 +566,7 @@ func (cn *Conn) workerLocalLogCleanTable(tdb *dbTable) error {
 		}
 
 		batch.Delete(iter.Key())
-		ndel += 1
+		ndel++
 
 		if ndel >= 1000 {
 			tdb.db.Write(batch, nil)

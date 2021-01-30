@@ -441,6 +441,7 @@ func Test_Object_LogAsync(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Can Not Open Database %s", err.Error())
 	}
+	time.Sleep(1e9)
 
 	var (
 		key   = "log-async-key"
@@ -462,8 +463,6 @@ func Test_Object_LogAsync(t *testing.T) {
 			t.Logf("Commit OK cLog %d", attrs[i][1])
 		}
 	}
-
-	time.Sleep(1e9)
 
 	ctx, fc := context.WithTimeout(context.Background(), time.Second*1)
 	defer fc()
@@ -488,9 +487,10 @@ func Test_Object_LogAsync(t *testing.T) {
 				}
 
 				if !rs.OK() || len(rs.Items) == 0 {
-					t.Fatal("Object AsyncLog ER")
+					t.Fatalf("Object AsyncLog ER, ok %v, msg %s, len %d, node %s",
+						rs.OK(), rs.Message, len(rs.Items), hp.Addr)
 				} else {
-					t.Log("Object AsyncLog OK")
+					t.Logf("Object AsyncLog OK, node %s", hp.Addr)
 				}
 
 				if rs.Items[0].Meta.Version != va[1] {

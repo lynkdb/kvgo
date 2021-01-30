@@ -191,6 +191,7 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 
 			if cLogOn && !cn.opts.Feature.WriteLogDisable {
 				batch.Put(keyEncode(nsKeyLog, uint64ToBytes(cLog)), bsMeta)
+				tdb.logSyncBuffer.put(cLog, rr.Meta.Attrs, rr.Meta.Key, true)
 			}
 
 			err = tdb.db.Write(batch, nil)
@@ -237,6 +238,7 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 			err = tdb.db.Write(batch, nil)
 
 			if err == nil && cLogOn {
+				tdb.logSyncBuffer.put(cLog, rr.Meta.Attrs, rr.Meta.Key, true)
 				tdb.objectLogFree(cLog)
 			}
 		}

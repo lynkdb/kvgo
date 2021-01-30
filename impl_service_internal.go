@@ -15,13 +15,17 @@
 package kvgo
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net"
 	"sync"
 	"time"
 
+	"github.com/hooto/hlog4g/hlog"
 	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/util"
+	"github.com/valuedig/apis/go/tsd/v1"
 	"google.golang.org/grpc"
 
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
@@ -82,6 +86,8 @@ func (it *InternalServiceImpl) Prepare(ctx context.Context,
 			return nil, err
 		}
 	}
+
+	tdb.logSyncBuffer.put(pLog, or.Meta.Attrs, or.Meta.Key, false)
 
 	or.ProposalExpired = tn + objAcceptTTL
 
@@ -218,10 +224,155 @@ func (it *InternalServiceImpl) Accept(ctx context.Context,
 
 	delete(it.prepares, string(rr2.Meta.Key))
 
+	tdb.logSyncBuffer.hit(cLog)
+
 	rs := kv2.NewObjectResultOK()
 	rs.Meta = &kv2.ObjectMeta{
 		Version: cLog,
 		IncrId:  cInc,
+	}
+
+	return rs, nil
+}
+
+func (it *InternalServiceImpl) LogSync(ctx context.Context,
+	req *kv2.LogSyncRequest) (*kv2.LogSyncReply, error) {
+
+	if err := appAuthValid(ctx, it.db.keyMgr); err != nil {
+		return nil, err
+	}
+
+	tdb := it.db.tabledb(req.TableName)
+	if tdb == nil {
+		return nil, errors.New("table not found")
+	}
+
+	if tdb.logSyncBuffer == nil {
+		return nil, errors.New("logSyncBuffer not setup")
+	}
+
+	if len(req.Keys) > 0 {
+
+		var (
+			siz = 4 * 1024 * 1024
+			i   = 0
+			rs  = &kv2.LogSyncReply{}
+		)
+
+		for ; i < len(req.Keys); i++ {
+
+			bs, err := tdb.db.Get(keyEncode(nsKeyData, req.Keys[i]), nil)
+			if err != nil &&
+				err.Error() == ldbNotFound {
+				bs, err = tdb.db.Get(keyEncode(nsKeyMeta, req.Keys[i]), nil)
+			}
+
+			if err != nil &&
+				err.Error() != ldbNotFound {
+				return nil, err
+			}
+
+			if err == nil {
+
+				siz -= len(bs)
+				if siz < 0 {
+					break
+				}
+
+				if it.db.perfStatus != nil {
+					it.db.perfStatus.Sync(PerfStorReadBytes, 0, int64(len(bs)), tsd.ValueAttrSum)
+				}
+
+				if item, err := kv2.ObjectItemDecode(bs); err == nil {
+					rs.Items = append(rs.Items, item)
+				}
+			}
+		}
+
+		if len(rs.Items) > 0 && it.db.perfStatus != nil {
+			it.db.perfStatus.Sync(PerfStorReadKey, 0, int64(len(rs.Items)), tsd.ValueAttrSum)
+		}
+
+		if i < len(req.Keys) {
+			rs.NextKeys = req.Keys[i+1:]
+		}
+
+		if p := tdb.logSyncBuffer.status(req.Addr, 0, len(rs.Items)); p != nil {
+			hlog.SlotPrint(600, "info", "log sync reply cold keys %d, next keys %d",
+				p.keyNum, len(rs.NextKeys))
+		}
+
+		return rs, nil
+	}
+
+	rs := tdb.logSyncBuffer.query(req)
+	if rs.Action == 1 {
+		if it.db.close {
+			return nil, errors.New("db closed")
+		}
+
+		if it.db.perfStatus != nil {
+			it.db.perfStatus.Sync(PerfStorReadLogRange, 0, 1, tsd.ValueAttrSum)
+		}
+
+		var (
+			offset = keyEncode(nsKeyLog, uint64ToBytes(rs.LogOffset))
+			cutset = keyEncode(nsKeyLog, uint64ToBytes(rs.LogCutset))
+			num    = 1000
+			siz    = 2 * 1024 * 1024
+			dbsiz  = 0
+			iter   = tdb.db.NewIterator(&util.Range{
+				Start: offset,
+				Limit: cutset,
+			}, nil)
+		)
+
+		for ; iter.Next() && num > 0 && siz > 0; num-- {
+
+			if bytes.Compare(iter.Key(), offset) <= 0 {
+				continue
+			}
+
+			if bytes.Compare(iter.Key(), cutset) > 0 {
+				break
+			}
+
+			if len(iter.Value()) < 2 {
+				continue
+			}
+
+			dbsiz += len(iter.Value())
+			meta, err := kv2.ObjectMetaDecode(iter.Value())
+			if err != nil || meta == nil {
+				if err != nil {
+					hlog.Printf("info", "db-log-range err %s", err.Error())
+				}
+				break
+			}
+
+			rs.Logs = append(rs.Logs, &kv2.ObjectMeta{
+				Version: meta.Version,
+				Key:     bytesClone(meta.Key),
+				Attrs:   meta.Attrs,
+			})
+			rs.LogCutset = meta.Version
+			siz -= (len(meta.Key) + 20)
+		}
+
+		iter.Release()
+
+		if iter.Error() != nil {
+			return nil, iter.Error()
+		}
+
+		if dbsiz > 0 && it.db.perfStatus != nil {
+			it.db.perfStatus.Sync(PerfStorReadBytes, 0, int64(dbsiz), tsd.ValueAttrSum)
+		}
+	}
+
+	if p := tdb.logSyncBuffer.status(req.Addr, len(rs.Logs), 0); p != nil {
+		hlog.SlotPrint(600, "info", "log sync reply cold logs %d, range %d ~ %d",
+			p.logNum, rs.LogOffset, rs.LogCutset)
 	}
 
 	return rs, nil
