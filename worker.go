@@ -272,7 +272,7 @@ func (cn *Conn) workerLocalTableRefresh() error {
 			TableNameSet(sysTableName)
 		rs := cn.commitLocal(rr, 0)
 		if !rs.OK() {
-			hlog.Printf("warn", "refresh table (%s) status error %s", t.tableName, err.Error())
+			hlog.Printf("warn", "refresh table (%s) status error %s", t.tableName, rs.Message)
 		}
 
 		if cn.close {
