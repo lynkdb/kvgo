@@ -53,8 +53,6 @@ type dbTable struct {
 
 func (tdb *dbTable) setup() error {
 
-	hlog.Printf("info", "db-table setup name %s, id %d", tdb.tableName, tdb.tableId)
-
 	tdb.logMu.Lock()
 	defer tdb.logMu.Unlock()
 
@@ -88,10 +86,6 @@ func (tdb *dbTable) setup() error {
 			// hlog.Printf("info", "meta.Version %d, meta.Key %s", meta.Version, string(meta.Key))
 		}
 	}
-
-	// if tdb.logSyncBuffer.queue == nil {
-	// 	tdb.logSyncBuffer.put(99, 0, []byte{}, true)
-	// }
 
 	iter.Release()
 
