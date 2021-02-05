@@ -22,8 +22,6 @@ import (
 
 	"github.com/hooto/hlog4g/hlog"
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/util"
 	"github.com/valuedig/apis/go/tsd/v1"
 )
 
@@ -36,7 +34,7 @@ type dbTable struct {
 	instId         string
 	tableId        uint32
 	tableName      string
-	db             *leveldb.DB
+	db             kv2.StorageEngine
 	incrMu         sync.RWMutex
 	incrSets       map[string]*dbTableIncrSet
 	logMu          sync.RWMutex
@@ -59,10 +57,10 @@ func (tdb *dbTable) setup() error {
 	var (
 		offset = keyEncode(nsKeyLog, []byte{0x00})
 		cutset = keyEncode(nsKeyLog, []byte{0xff})
-		iter   = tdb.db.NewIterator(&util.Range{
+		iter   = tdb.db.NewIterator(&kv2.StorageIteratorRange{
 			Start: offset,
 			Limit: cutset,
-		}, nil)
+		})
 		num = 10
 	)
 
@@ -101,14 +99,16 @@ func (tdb *dbTable) objectLogVersionSet(incr, set, updated uint64) (uint64, erro
 		return tdb.logOffset, nil
 	}
 
+	var err error
+
 	if tdb.logCutset <= 100 {
 
-		if bs, err := tdb.db.Get(keySysLogCutset, nil); err != nil {
-			if err.Error() != ldbNotFound {
-				return 0, err
+		if ss := tdb.db.Get(keySysLogCutset, nil); !ss.OK() {
+			if !ss.NotFound() {
+				return 0, ss.Error()
 			}
 		} else {
-			if tdb.logCutset, err = strconv.ParseUint(string(bs), 10, 64); err != nil {
+			if tdb.logCutset, err = strconv.ParseUint(ss.String(), 10, 64); err != nil {
 				return 0, err
 			}
 			if tdb.logOffset < tdb.logCutset {
@@ -135,9 +135,9 @@ func (tdb *dbTable) objectLogVersionSet(incr, set, updated uint64) (uint64, erro
 				cutset += n
 			}
 
-			if err := tdb.db.Put(keySysLogCutset,
-				[]byte(strconv.FormatUint(cutset, 10)), nil); err != nil {
-				return 0, err
+			if ss := tdb.db.Put(keySysLogCutset,
+				[]byte(strconv.FormatUint(cutset, 10)), nil); !ss.OK() {
+				return 0, ss.Error()
 			}
 
 			hlog.Printf("debug", "table %s, reset log-version to %d~%d",
@@ -204,14 +204,16 @@ func (tdb *dbTable) objectIncrSet(ns string, incr, set uint64) (uint64, error) {
 		return incrSet.offset, nil
 	}
 
+	var err error
+
 	if incrSet.cutset <= 100 {
 
-		if bs, err := tdb.db.Get(keySysIncrCutset(ns), nil); err != nil {
-			if err.Error() != ldbNotFound {
-				return 0, err
+		if ss := tdb.db.Get(keySysIncrCutset(ns), nil); !ss.OK() {
+			if !ss.NotFound() {
+				return 0, ss.Error()
 			}
 		} else {
-			if incrSet.cutset, err = strconv.ParseUint(string(bs), 10, 64); err != nil {
+			if incrSet.cutset, err = strconv.ParseUint(ss.String(), 10, 64); err != nil {
 				return 0, err
 			}
 			if incrSet.offset < incrSet.cutset {
@@ -234,9 +236,9 @@ func (tdb *dbTable) objectIncrSet(ns string, incr, set uint64) (uint64, error) {
 
 			cutset := incrSet.offset + incr + 100
 
-			if err := tdb.db.Put(keySysIncrCutset(ns),
-				[]byte(strconv.FormatUint(cutset, 10)), nil); err != nil {
-				return 0, err
+			if ss := tdb.db.Put(keySysIncrCutset(ns),
+				[]byte(strconv.FormatUint(cutset, 10)), nil); !ss.OK() {
+				return 0, ss.Error()
 			}
 
 			incrSet.cutset = cutset
@@ -255,14 +257,17 @@ func (tdb *dbTable) logAsyncOffset(hostAddr, tableFrom string, offset uint64) ui
 	tdb.logAsyncMu.Lock()
 	defer tdb.logAsyncMu.Unlock()
 
-	prevOffset, ok := tdb.logSyncOffsets[lkey]
+	var (
+		prevOffset, ok = tdb.logSyncOffsets[lkey]
+		err            error
+	)
 	if !ok || prevOffset < 1 {
-		if bs, err := tdb.db.Get(keySysLogAsync(hostAddr, tableFrom), nil); err != nil {
-			if err.Error() != ldbNotFound {
+		if ss := tdb.db.Get(keySysLogAsync(hostAddr, tableFrom), nil); !ss.OK() {
+			if !ss.NotFound() {
 				return offset
 			}
 		} else {
-			if prevOffset, err = strconv.ParseUint(string(bs), 10, 64); err == nil {
+			if prevOffset, err = strconv.ParseUint(ss.String(), 10, 64); err == nil {
 				tdb.logSyncOffsets[lkey] = prevOffset
 			}
 		}
@@ -291,9 +296,9 @@ func (it *dbTable) Close() error {
 
 			incrSet.cutset = incrSet.offset
 
-			if err := it.db.Put(keySysIncrCutset(ns),
-				[]byte(strconv.FormatUint(incrSet.cutset, 10)), nil); err != nil {
-				hlog.Printf("info", "db error %s", err.Error())
+			if ss := it.db.Put(keySysIncrCutset(ns),
+				[]byte(strconv.FormatUint(incrSet.cutset, 10)), nil); !ss.OK() {
+				hlog.Printf("info", "db error %s", ss.ErrorMessage())
 			} else {
 				hlog.Printf("info", "kvgo table %s, flush incr ns:%s offset %d",
 					it.tableName, ns, incrSet.offset)
@@ -307,9 +312,9 @@ func (it *dbTable) Close() error {
 
 		it.logCutset = it.logOffset
 
-		if err := it.db.Put(keySysLogCutset,
-			[]byte(strconv.FormatUint(it.logCutset, 10)), nil); err != nil {
-			hlog.Printf("info", "db error %s", err.Error())
+		if ss := it.db.Put(keySysLogCutset,
+			[]byte(strconv.FormatUint(it.logCutset, 10)), nil); !ss.OK() {
+			hlog.Printf("info", "db error %s", ss.ErrorMessage())
 		} else {
 			hlog.Printf("info", "kvgo table %s, flush log-id offset %d", it.tableName, it.logCutset)
 		}

@@ -23,8 +23,6 @@ import (
 	"time"
 
 	"github.com/hooto/hlog4g/hlog"
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/util"
 	"github.com/valuedig/apis/go/tsd/v1"
 	"google.golang.org/grpc"
 
@@ -168,7 +166,7 @@ func (it *InternalServiceImpl) Accept(ctx context.Context,
 
 		if bsMeta, err := rr.MetaEncode(); err == nil {
 
-			batch := new(leveldb.Batch)
+			batch := tdb.db.NewBatch()
 
 			if meta != nil {
 				batch.Delete(keyEncode(nsKeyMeta, rr.Meta.Key))
@@ -178,14 +176,14 @@ func (it *InternalServiceImpl) Accept(ctx context.Context,
 
 			batch.Put(keyEncode(nsKeyLog, uint64ToBytes(cLog)), bsMeta)
 
-			err = tdb.db.Write(batch, nil)
+			err = batch.Commit()
 		}
 
 	} else {
 
 		if bsMeta, bsData, err := rr.PutEncode(); err == nil {
 
-			batch := new(leveldb.Batch)
+			batch := tdb.db.NewBatch()
 
 			if kv2.AttrAllow(rr.Meta.Attrs, kv2.ObjectMetaAttrDataOff) {
 				batch.Put(keyEncode(nsKeyMeta, rr.Meta.Key), bsData)
@@ -211,8 +209,7 @@ func (it *InternalServiceImpl) Accept(ctx context.Context,
 				}
 			}
 
-			err = tdb.db.Write(batch, nil)
-			if err == nil {
+			if err = batch.Commit(); err == nil {
 				tdb.objectLogFree(cLog)
 			}
 		}
@@ -261,29 +258,27 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 
 		for ; i < len(req.Keys); i++ {
 
-			bs, err := tdb.db.Get(keyEncode(nsKeyData, req.Keys[i]), nil)
-			if err != nil &&
-				err.Error() == ldbNotFound {
-				bs, err = tdb.db.Get(keyEncode(nsKeyMeta, req.Keys[i]), nil)
+			ss := tdb.db.Get(keyEncode(nsKeyData, req.Keys[i]), nil)
+			if !ss.OK() && ss.NotFound() {
+				ss = tdb.db.Get(keyEncode(nsKeyMeta, req.Keys[i]), nil)
 			}
 
-			if err != nil &&
-				err.Error() != ldbNotFound {
-				return nil, err
+			if !ss.OK() && ss.NotFound() {
+				return nil, ss.Error()
 			}
 
-			if err == nil {
+			if ss.OK() {
 
-				siz -= len(bs)
+				siz -= ss.Len()
 				if siz < 0 {
 					break
 				}
 
 				if it.db.perfStatus != nil {
-					it.db.perfStatus.Sync(PerfStorReadBytes, 0, int64(len(bs)), tsd.ValueAttrSum)
+					it.db.perfStatus.Sync(PerfStorReadBytes, 0, int64(ss.Len()), tsd.ValueAttrSum)
 				}
 
-				if item, err := kv2.ObjectItemDecode(bs); err == nil {
+				if item, err := kv2.ObjectItemDecode(ss.Bytes()); err == nil {
 					rs.Items = append(rs.Items, item)
 				}
 			}
@@ -321,10 +316,10 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 			num    = 1000
 			siz    = 2 * 1024 * 1024
 			dbsiz  = 0
-			iter   = tdb.db.NewIterator(&util.Range{
+			iter   = tdb.db.NewIterator(&kv2.StorageIteratorRange{
 				Start: offset,
 				Limit: cutset,
-			}, nil)
+			})
 		)
 
 		for ; iter.Next() && num > 0 && siz > 0; num-- {

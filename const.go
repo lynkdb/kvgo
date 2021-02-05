@@ -38,7 +38,6 @@ const (
 )
 
 const (
-	ldbNotFound                = "leveldb: not found"
 	objAcceptTTL               = uint64(3000)
 	workerLocalExpireSleep     = 200e6
 	workerLocalExpireLimit     = 200

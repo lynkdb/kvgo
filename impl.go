@@ -21,9 +21,6 @@ import (
 	"time"
 
 	"github.com/hooto/hlog4g/hlog"
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/iterator"
-	"github.com/syndtr/goleveldb/leveldb/util"
 	"github.com/valuedig/apis/go/tsd/v1"
 
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
@@ -177,7 +174,7 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 
 		if bsMeta, err := rr.MetaEncode(); err == nil {
 
-			batch := new(leveldb.Batch)
+			batch := tdb.db.NewBatch()
 
 			if meta != nil {
 				if !cn.opts.Feature.WriteMetaDisable {
@@ -194,14 +191,14 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 				tdb.logSyncBuffer.put(cLog, rr.Meta.Attrs, rr.Meta.Key, true)
 			}
 
-			err = tdb.db.Write(batch, nil)
+			err = batch.Commit()
 		}
 
 	} else {
 
 		if bsMeta, bsData, err := rr.PutEncode(); err == nil {
 
-			batch := new(leveldb.Batch)
+			batch := tdb.db.NewBatch()
 
 			if kv2.AttrAllow(rr.Meta.Attrs, kv2.ObjectMetaAttrDataOff) {
 				batch.Put(keyEncode(nsKeyMeta, rr.Meta.Key), bsData)
@@ -235,7 +232,7 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 				}
 			}
 
-			err = tdb.db.Write(batch, nil)
+			err = batch.Commit()
 
 			if err == nil && cLogOn {
 				tdb.logSyncBuffer.put(cLog, rr.Meta.Attrs, rr.Meta.Key, true)
@@ -320,23 +317,22 @@ func (cn *Conn) objectLocalQuery(rr *kv2.ObjectReader) *kv2.ObjectResult {
 		for _, k := range rr.Keys {
 
 			var (
-				bs  []byte
-				err error
+				rs2 kv2.StorageResult
 			)
 
 			if kv2.AttrAllow(rr.Attrs, kv2.ObjectMetaAttrDataOff) {
-				bs, err = tdb.db.Get(keyEncode(nsKeyMeta, k), nil)
+				rs2 = tdb.db.Get(keyEncode(nsKeyMeta, k), nil)
 			} else {
-				bs, err = tdb.db.Get(keyEncode(nsKeyData, k), nil)
+				rs2 = tdb.db.Get(keyEncode(nsKeyData, k), nil)
 			}
 
 			if cn.perfStatus != nil {
-				cn.perfStatus.Sync(PerfStorReadBytes, 0, int64(len(bs)), tsd.ValueAttrSum)
+				cn.perfStatus.Sync(PerfStorReadBytes, 0, int64(rs2.Len()), tsd.ValueAttrSum)
 			}
 
-			if err == nil {
+			if rs2.OK() {
 
-				item, err := kv2.ObjectItemDecode(bs)
+				item, err := kv2.ObjectItemDecode(rs2.Bytes())
 				if err == nil {
 					rs.Items = append(rs.Items, item)
 				} else {
@@ -345,8 +341,8 @@ func (cn *Conn) objectLocalQuery(rr *kv2.ObjectReader) *kv2.ObjectResult {
 
 			} else {
 
-				if err.Error() != ldbNotFound {
-					rs.StatusMessage(kv2.ResultServerError, err.Error())
+				if !rs2.NotFound() {
+					rs.StatusMessage(kv2.ResultServerError, rs2.ErrorMessage())
 					break
 				}
 
@@ -444,7 +440,7 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 	}
 
 	var (
-		iter   iterator.Iterator
+		iter   kv2.StorageIterator
 		values = [][]byte{}
 	)
 
@@ -452,10 +448,10 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 
 		// offset = append(offset, 0xff)
 
-		iter = tdb.db.NewIterator(&util.Range{
+		iter = tdb.db.NewIterator(&kv2.StorageIteratorRange{
 			Start: cutset,
 			Limit: offset,
-		}, nil)
+		})
 
 		for ok := iter.Last(); ok; ok = iter.Prev() {
 
@@ -488,10 +484,10 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 
 		cutset = append(cutset, 0xff)
 
-		iter = tdb.db.NewIterator(&util.Range{
+		iter = tdb.db.NewIterator(&kv2.StorageIteratorRange{
 			Start: offset,
 			Limit: cutset,
-		}, nil)
+		})
 
 		for iter.Next() {
 
@@ -589,10 +585,10 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 
 		var (
 			tto  = tdb.objectLogDelay() // uint64(time.Now().UnixNano()/1e6) - 3000
-			iter = tdb.db.NewIterator(&util.Range{
+			iter = tdb.db.NewIterator(&kv2.StorageIteratorRange{
 				Start: offset,
 				Limit: cutset,
-			}, nil)
+			})
 		)
 
 		for iter.Next() {
@@ -633,23 +629,23 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 					nsKey = nsKeyMeta
 				}
 
-				bs, err := tdb.db.Get(keyEncode(nsKey, meta.Key), nil)
+				ss := tdb.db.Get(keyEncode(nsKey, meta.Key), nil)
 
-				if err != nil && err.Error() == ldbNotFound {
+				if ss.NotFound() {
 					if nsKey == nsKeyData {
 						nsKey = nsKeyMeta
 					} else {
 						nsKey = nsKeyData
 					}
-					bs, err = tdb.db.Get(keyEncode(nsKey, meta.Key), nil)
+					ss = tdb.db.Get(keyEncode(nsKey, meta.Key), nil)
 				}
 
-				if err != nil {
-					hlog.Printf("info", "db-log-range err %s", err.Error())
+				if !ss.OK() {
+					hlog.Printf("info", "db-log-range err %s", ss.ErrorMessage())
 					continue
 				}
 
-				item, err := kv2.ObjectItemDecode(bs)
+				item, err := kv2.ObjectItemDecode(ss.Bytes())
 				if err != nil {
 					continue
 				}
@@ -662,7 +658,7 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 					break
 				}
 
-				limitSize -= int64(len(bs))
+				limitSize -= int64(ss.Len())
 				if limitSize < 1 {
 					break
 				}
@@ -719,26 +715,27 @@ func (cn *Conn) objectMetaGet(rr *kv2.ObjectWriter) (*kv2.ObjectMeta, error) {
 		cn.opts.Feature.WriteMetaDisable {
 		nsKey = nsKeyData
 	}
-	data, err := tdb.db.Get(keyEncode(nsKey, rr.Meta.Key), nil)
 
-	if err != nil && err.Error() == ldbNotFound {
+	ss := tdb.db.Get(keyEncode(nsKey, rr.Meta.Key), nil)
+
+	if ss.NotFound() {
 		if nsKey == nsKeyData {
 			nsKey = nsKeyMeta
 		} else {
 			nsKey = nsKeyData
 		}
-		data, err = tdb.db.Get(keyEncode(nsKey, rr.Meta.Key), nil)
+		ss = tdb.db.Get(keyEncode(nsKey, rr.Meta.Key), nil)
 	}
 
-	if err == nil {
-		return kv2.ObjectMetaDecode(data)
-	} else {
-		if err.Error() == ldbNotFound {
-			err = nil
-		}
+	if ss.OK() {
+		return kv2.ObjectMetaDecode(ss.Bytes())
 	}
 
-	return nil, err
+	if ss.NotFound() {
+		return nil, nil
+	}
+
+	return nil, ss.Error()
 }
 
 func (it *Conn) Connector() kv2.ClientConnector {

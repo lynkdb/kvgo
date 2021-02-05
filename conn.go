@@ -27,10 +27,6 @@ import (
 	"github.com/hooto/hauth/go/hauth/v1"
 	"github.com/hooto/hflag4g/hflag"
 	"github.com/hooto/hlog4g/hlog"
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/filter"
-	"github.com/syndtr/goleveldb/leveldb/opt"
-	"github.com/syndtr/goleveldb/leveldb/util"
 	"github.com/valuedig/apis/go/tsd/v1"
 
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
@@ -44,7 +40,7 @@ var (
 type Conn struct {
 	mu                    sync.RWMutex
 	dbmu                  sync.Mutex
-	dbSys                 *leveldb.DB
+	dbSys                 kv2.StorageEngine
 	tables                map[string]*dbTable
 	opts                  *Config
 	clients               int
@@ -185,19 +181,19 @@ func (cn *Conn) tabledb(name string) *dbTable {
 	return nil
 }
 
-func (cn *Conn) dbSetup(dir string, opts *opt.Options) (*dbTable, error) {
+func (cn *Conn) dbSetup(dir string, opts *kv2.StorageOptions) (*dbTable, error) {
 
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return nil, err
 	}
 
-	if false {
-		opts.CompactionL0Trigger = 8
-		opts.WriteL0PauseTrigger = 24
-		opts.WriteL0SlowdownTrigger = 16
-	}
+	// if false {
+	// 	opts.CompactionL0Trigger = 8
+	// 	opts.WriteL0PauseTrigger = 24
+	// 	opts.WriteL0SlowdownTrigger = 16
+	// }
 
-	db, err := leveldb.OpenFile(dir, opts)
+	db, err := StorageEngineOpen(dir, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -216,10 +212,10 @@ func (cn *Conn) dbSetup(dir string, opts *opt.Options) (*dbTable, error) {
 				continue
 			}
 
-			iter := db.NewIterator(&util.Range{
+			iter := db.NewIterator(&kv2.StorageIteratorRange{
 				Start: []byte{v},
 				Limit: []byte{v, 0xff},
-			}, nil)
+			})
 			defer iter.Release()
 
 			num := 0
@@ -258,15 +254,15 @@ func (cn *Conn) dbSetup(dir string, opts *opt.Options) (*dbTable, error) {
 		logSyncOffsets: make(map[string]uint64),
 	}
 
-	bs, err := dt.db.Get(keySysInstanceId, nil)
-	if err == nil {
-		dt.instId = string(bs)
-	} else if err.Error() == ldbNotFound {
+	rs := dt.db.Get(keySysInstanceId, nil)
+	if rs.Error() == nil {
+		dt.instId = rs.String()
+	} else if rs.NotFound() {
 		dt.instId = randHexString(16)
-		err = dt.db.Put(keySysInstanceId, []byte(dt.instId), nil)
+		rs = dt.db.Put(keySysInstanceId, []byte(dt.instId), nil)
 	}
 
-	if err != nil {
+	if rs.Error() != nil {
 		dt.Close()
 		dt = nil
 	}
@@ -278,13 +274,11 @@ func (cn *Conn) dbSysSetup() error {
 
 	var (
 		dir  = filepath.Clean(fmt.Sprintf("%s/%s", cn.opts.Storage.DataDirectory, sysTableName))
-		opts = &opt.Options{
-			WriteBuffer:            2 * opt.MiB,
-			BlockCacheCapacity:     2 * opt.MiB,
-			CompactionTableSize:    2 * opt.MiB,
-			OpenFilesCacheCapacity: 10,
-			Filter:                 filter.NewBloomFilter(10),
-			Compression:            opt.NoCompression,
+		opts = &kv2.StorageOptions{
+			WriteBufferSize: 2,
+			BlockCacheSize:  2,
+			MaxTableSize:    2,
+			MaxOpenFiles:    10,
 		}
 	)
 
@@ -369,9 +363,9 @@ func (cn *Conn) dbTableListSetup() error {
 
 		k := nsSysTable(t.tableName)
 
-		if _, err := cn.dbSys.Get(keyEncode(nsKeyData, k), nil); err != nil {
+		if rs := cn.dbSys.Get(keyEncode(nsKeyData, k), nil); !rs.OK() {
 
-			if err.Error() == ldbNotFound {
+			if rs.NotFound() {
 
 				obj := kv2.NewObjectWriter(k, &kv2.TableItem{
 					Name: t.tableName,
@@ -387,8 +381,8 @@ func (cn *Conn) dbTableListSetup() error {
 
 				hlog.Printf("info", "init db %s table ok", sysTableName)
 
-			} else if err.Error() != ldbNotFound {
-				return err
+			} else {
+				return rs.Error()
 			}
 		}
 	}
@@ -400,10 +394,10 @@ func (cn *Conn) dbTableListSetup() error {
 	)
 	cutset = append(cutset, 0xff)
 
-	iter := cn.dbSys.NewIterator(&util.Range{
+	iter := cn.dbSys.NewIterator(&kv2.StorageIteratorRange{
 		Start: offset,
 		Limit: cutset,
-	}, nil)
+	})
 	defer iter.Release()
 
 	for iter.Next() {
@@ -481,21 +475,15 @@ func (cn *Conn) dbTableSetup(tableName string, tableId uint32) error {
 	dir := filepath.Clean(fmt.Sprintf("%s/%d_%d_%d", cn.opts.Storage.DataDirectory,
 		tableId, 0, 0))
 
-	ldbOpts := &opt.Options{
-		WriteBuffer:            cn.opts.Performance.WriteBufferSize * opt.MiB,
-		BlockCacheCapacity:     cn.opts.Performance.BlockCacheSize * opt.MiB,
-		CompactionTableSize:    cn.opts.Performance.MaxTableSize * opt.MiB,
-		OpenFilesCacheCapacity: cn.opts.Performance.MaxOpenFiles,
-		Filter:                 filter.NewBloomFilter(10),
+	opts := &kv2.StorageOptions{
+		WriteBufferSize:   cn.opts.Performance.WriteBufferSize,
+		BlockCacheSize:    cn.opts.Performance.BlockCacheSize,
+		MaxTableSize:      cn.opts.Performance.MaxTableSize,
+		MaxOpenFiles:      cn.opts.Performance.MaxOpenFiles,
+		TableCompressName: cn.opts.Feature.TableCompressName,
 	}
 
-	if cn.opts.Feature.TableCompressName == "snappy" {
-		ldbOpts.Compression = opt.SnappyCompression
-	} else {
-		ldbOpts.Compression = opt.NoCompression
-	}
-
-	dt, err := cn.dbSetup(dir, ldbOpts)
+	dt, err := cn.dbSetup(dir, opts)
 	if err != nil {
 		return err
 	}

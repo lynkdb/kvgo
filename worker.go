@@ -29,8 +29,6 @@ import (
 	"github.com/hooto/hlog4g/hlog"
 	ps_disk "github.com/shirou/gopsutil/disk"
 	ps_mem "github.com/shirou/gopsutil/mem"
-	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/util"
 	"github.com/valuedig/apis/go/tsd/v1"
 
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
@@ -91,17 +89,17 @@ func (cn *Conn) workerLocalExpiredRefresh() error {
 
 func (cn *Conn) workerLocalExpiredRefreshTable(dt *dbTable) error {
 
-	iter := dt.db.NewIterator(&util.Range{
+	iter := dt.db.NewIterator(&kv2.StorageIteratorRange{
 		Start: keyEncode(nsKeyTtl, uint64ToBytes(0)),
 		Limit: keyEncode(nsKeyTtl, uint64ToBytes(uint64(time.Now().UnixNano()/1e6))),
-	}, nil)
+	})
 	defer iter.Release()
 
 	for !cn.close {
 
 		var (
 			num   = 0
-			batch = new(leveldb.Batch)
+			batch = dt.db.NewBatch()
 		)
 
 		for iter.Next() {
@@ -111,18 +109,18 @@ func (cn *Conn) workerLocalExpiredRefreshTable(dt *dbTable) error {
 				return err
 			}
 
-			data, err := dt.db.Get(keyEncode(nsKeyMeta, meta.Key), nil)
-			if err == nil {
+			ss := dt.db.Get(keyEncode(nsKeyMeta, meta.Key), nil)
+			if ss.OK() {
 
-				cmeta, err := kv2.ObjectMetaDecode(data)
+				cmeta, err := kv2.ObjectMetaDecode(ss.Bytes())
 				if err == nil && cmeta.Version == meta.Version {
 					batch.Delete(keyEncode(nsKeyMeta, meta.Key))
 					batch.Delete(keyEncode(nsKeyData, meta.Key))
 					batch.Delete(keyEncode(nsKeyLog, uint64ToBytes(meta.Version)))
 				}
 
-			} else if err.Error() != ldbNotFound {
-				return err
+			} else if !ss.NotFound() {
+				return ss.Error()
 			}
 
 			batch.Delete(keyExpireEncode(nsKeyTtl, meta.Expired, meta.Key))
@@ -138,7 +136,7 @@ func (cn *Conn) workerLocalExpiredRefreshTable(dt *dbTable) error {
 		}
 
 		if num > 0 {
-			dt.db.Write(batch, nil)
+			batch.Commit()
 		}
 
 		if num < workerLocalExpireLimit {
@@ -157,21 +155,21 @@ func (cn *Conn) workerLocalTableRefresh() error {
 		return nil
 	}
 
-	rgS := []util.Range{
+	rgS := []*kv2.StorageIteratorRange{
 		{
 			Start: []byte{},
 			Limit: []byte{0xff},
 		},
 	}
-	rgK := &util.Range{
+	rgK := &kv2.StorageIteratorRange{
 		Start: keyEncode(nsKeyMeta, []byte{}),
 		Limit: keyEncode(nsKeyMeta, []byte{0xff}),
 	}
-	rgIncr := &util.Range{
+	rgIncr := &kv2.StorageIteratorRange{
 		Start: keySysIncrCutset(""),
 		Limit: append(keySysIncrCutset(""), []byte{0xff}...),
 	}
-	rgAsync := &util.Range{
+	rgAsync := &kv2.StorageIteratorRange{
 		Start: keySysLogAsync("", ""),
 		Limit: append(keySysLogAsync("", ""), []byte{0xff}...),
 	}
@@ -200,7 +198,7 @@ func (cn *Conn) workerLocalTableRefresh() error {
 
 		// db keys
 		kn := uint64(0)
-		iter := t.db.NewIterator(rgK, nil)
+		iter := t.db.NewIterator(rgK)
 		for ; iter.Next(); kn++ {
 		}
 		iter.Release()
@@ -213,14 +211,14 @@ func (cn *Conn) workerLocalTableRefresh() error {
 		}
 
 		// log-id
-		if bs, err := t.db.Get(keySysLogCutset, nil); err == nil {
-			if logid, err := strconv.ParseInt(string(bs), 10, 64); err == nil {
+		if ss := t.db.Get(keySysLogCutset, nil); ss.OK() {
+			if logid, err := strconv.ParseInt(ss.String(), 10, 64); err == nil {
 				tableStatus.Options["log_id"] = logid
 			}
 		}
 
 		// incr
-		iterIncr := t.db.NewIterator(rgIncr, nil)
+		iterIncr := t.db.NewIterator(rgIncr)
 		for iterIncr.Next() {
 
 			if bytes.Compare(iterIncr.Key(), rgIncr.Start) <= 0 {
@@ -244,7 +242,7 @@ func (cn *Conn) workerLocalTableRefresh() error {
 		iterIncr.Release()
 
 		// async
-		iterAsync := t.db.NewIterator(rgAsync, nil)
+		iterAsync := t.db.NewIterator(rgAsync)
 		for iterAsync.Next() {
 
 			if bytes.Compare(iterAsync.Key(), rgAsync.Start) <= 0 {
@@ -435,9 +433,9 @@ func (cn *Conn) workerLocalReplicaOfLogAsyncTable(hp *ClientConfig, tm *ConfigRe
 
 			for _, v := range rep.Logs {
 
-				bs, err := tdb.db.Get(keyEncode(nsKeyMeta, v.Key), nil)
-				if err == nil {
-					meta, err := kv2.ObjectMetaDecode(bs)
+				ss := tdb.db.Get(keyEncode(nsKeyMeta, v.Key), nil)
+				if ss.OK() {
+					meta, err := kv2.ObjectMetaDecode(ss.Bytes())
 					if err == nil && meta.Version >= v.Version {
 						if v.Version > offset {
 							offset = v.Version
@@ -522,13 +520,13 @@ func (cn *Conn) workerLocalLogCleanTable(tdb *dbTable) error {
 	)
 
 	var (
-		iter = tdb.db.NewIterator(&util.Range{
+		iter = tdb.db.NewIterator(&kv2.StorageIteratorRange{
 			Start: offset,
 			Limit: cutset,
-		}, nil)
+		})
 		sets  = map[string]uint64{}
 		ndel  = 0
-		batch = new(leveldb.Batch)
+		batch = tdb.db.NewBatch()
 	)
 
 	for ok := iter.Last(); ok && !cn.close; ok = iter.Prev() {
@@ -550,8 +548,8 @@ func (cn *Conn) workerLocalLogCleanTable(tdb *dbTable) error {
 
 				if _, ok := sets[string(logMeta.Key)]; !ok {
 
-					if bs, err := tdb.db.Get(keyEncode(nsKeyMeta, logMeta.Key), nil); err == nil {
-						meta, err := kv2.ObjectMetaDecode(bs)
+					if ss := tdb.db.Get(keyEncode(nsKeyMeta, logMeta.Key), nil); ss.OK() {
+						meta, err := kv2.ObjectMetaDecode(ss.Bytes())
 						if err == nil && meta.Version > 0 && meta.Version != logMeta.Version {
 							batch.Delete(iter.Key())
 							ndel++
@@ -569,15 +567,15 @@ func (cn *Conn) workerLocalLogCleanTable(tdb *dbTable) error {
 		ndel++
 
 		if ndel >= 1000 {
-			tdb.db.Write(batch, nil)
-			batch = new(leveldb.Batch)
+			batch.Commit()
+			batch = tdb.db.NewBatch()
 			ndel = 0
 			hlog.Printf("info", "table %s, log clean %d/%d", tdb.tableName, ndel, len(sets))
 		}
 	}
 
 	if ndel > 0 {
-		tdb.db.Write(batch, nil)
+		batch.Commit()
 		hlog.Printf("info", "table %s, log clean %d/%d", tdb.tableName, ndel, len(sets))
 	}
 
@@ -596,9 +594,9 @@ func (cn *Conn) workerLocalSysStatusRefresh() error {
 
 	if cn.perfStatus == nil {
 
-		if bs, err := cn.dbSys.Get(nsSysApiStatus("node"), nil); err == nil {
+		if ss := cn.dbSys.Get(nsSysApiStatus("node"), nil); ss.OK() {
 			var perfStatus tsd.CycleFeed
-			if kv2.StdProto.Decode(bs, &perfStatus) == nil && perfStatus.Unit == 10 {
+			if kv2.StdProto.Decode(ss.Bytes(), &perfStatus) == nil && perfStatus.Unit == 10 {
 				cn.perfStatus = &perfStatus
 			}
 		}
@@ -627,7 +625,7 @@ func (cn *Conn) workerLocalSysStatusRefresh() error {
 
 	if cn.sysStatus.Updated == 0 {
 		cn.sysStatus.Caps = map[string]*kv2.SysCapacity{
-			"cpu": &kv2.SysCapacity{
+			"cpu": {
 				Use: int64(runtime.NumCPU()),
 			},
 		}
