@@ -22,7 +22,6 @@ import (
 	"strings"
 
 	"github.com/hooto/hauth/go/hauth/v1"
-	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
 
 type Config struct {
@@ -44,9 +43,6 @@ type Config struct {
 
 	// Client Settings
 	ClientConnectEnable bool `toml:"-" json:"-"`
-
-	// StorageEngine
-	StorageEngine kv2.StorageOptions `toml:"storage_engine" json:"storage_engine" desc:"Storage Engine Settings"`
 
 	// Client Keys
 	// ClientAccessKeys []*hauth.AccessKey `toml:"client_access_keys" json:"client_access_keys`

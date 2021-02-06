@@ -476,7 +476,7 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 				break
 			}
 
-			limitNum -= 1
+			limitNum--
 			values = append(values, bytesClone(iter.Value()))
 		}
 
@@ -489,7 +489,7 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 			Limit: cutset,
 		})
 
-		for iter.Next() {
+		for iter.First(); iter.Valid(); iter.Next() {
 
 			if limitNum < 1 {
 				break
@@ -512,7 +512,7 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 				break
 			}
 
-			limitNum -= 1
+			limitNum--
 			values = append(values, bytesClone(iter.Value()))
 		}
 	}
@@ -591,7 +591,7 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 			})
 		)
 
-		for iter.Next() {
+		for iter.First(); iter.Valid(); iter.Next() {
 
 			if limitNum < 1 {
 				break
@@ -666,7 +666,7 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 				rs.Items = append(rs.Items, item)
 			}
 
-			limitNum -= 1
+			limitNum--
 		}
 
 		iter.Release()

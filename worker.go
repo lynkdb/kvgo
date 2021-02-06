@@ -102,7 +102,7 @@ func (cn *Conn) workerLocalExpiredRefreshTable(dt *dbTable) error {
 			batch = dt.db.NewBatch()
 		)
 
-		for iter.Next() {
+		for iter.First(); iter.Valid(); iter.Next() {
 
 			meta, err := kv2.ObjectMetaDecode(bytesClone(iter.Value()))
 			if err != nil {
@@ -199,7 +199,8 @@ func (cn *Conn) workerLocalTableRefresh() error {
 		// db keys
 		kn := uint64(0)
 		iter := t.db.NewIterator(rgK)
-		for ; iter.Next(); kn++ {
+		for iter.First(); iter.Valid(); iter.Next() {
+			kn++
 		}
 		iter.Release()
 
@@ -219,7 +220,7 @@ func (cn *Conn) workerLocalTableRefresh() error {
 
 		// incr
 		iterIncr := t.db.NewIterator(rgIncr)
-		for iterIncr.Next() {
+		for iterIncr.First(); iterIncr.Valid(); iterIncr.Next() {
 
 			if bytes.Compare(iterIncr.Key(), rgIncr.Start) <= 0 {
 				continue
@@ -243,7 +244,7 @@ func (cn *Conn) workerLocalTableRefresh() error {
 
 		// async
 		iterAsync := t.db.NewIterator(rgAsync)
-		for iterAsync.Next() {
+		for iterAsync.First(); iterAsync.Valid(); iterAsync.Next() {
 
 			if bytes.Compare(iterAsync.Key(), rgAsync.Start) <= 0 {
 				continue

@@ -16,8 +16,12 @@ package kvgo
 
 import (
 	"context"
+	crand "crypto/rand"
+	"errors"
 	"fmt"
 	"math/rand"
+	mrand "math/rand"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -79,19 +83,19 @@ func dbOpen(ports []int, clientEnable bool) ([]*Conn, error) {
 
 	for _, port := range ports {
 
-		test_dir := fmt.Sprintf("/dev/shm/kvgo/%d", port)
+		testDir := fmt.Sprintf("/dev/shm/kvgo/%d", port)
 
-		if db, ok := dbTestCaches[test_dir]; ok {
+		if db, ok := dbTestCaches[testDir]; ok {
 			dbs = append(dbs, db)
 			continue
 		}
 
-		if _, err := exec.Command("rm", "-rf", test_dir).Output(); err != nil {
+		if _, err := exec.Command("rm", "-rf", testDir).Output(); err != nil {
 			return nil, err
 		}
 
 		//
-		cfg := NewConfig(test_dir)
+		cfg := NewConfig(testDir)
 
 		if port > 0 {
 			cfg.Server.Bind = fmt.Sprintf("127.0.0.1:%d", port)
@@ -114,10 +118,77 @@ func dbOpen(ports []int, clientEnable bool) ([]*Conn, error) {
 
 		dbs = append(dbs, db)
 
-		dbTestCaches[test_dir] = db
+		dbTestCaches[testDir] = db
 	}
 
 	return dbs, nil
+}
+
+var (
+	dbTestSample *Conn
+	dbTestSMu    sync.Mutex
+	dataSamples  [][]byte
+)
+
+func init() {
+	if strings.Contains(strings.Join(os.Args, ","), "test.bench") {
+
+		dataSamples = make([][]byte, 10000)
+		for i := 0; i < 10000; i++ {
+			dataSamples[i] = randBytes(1000)
+		}
+
+		fmt.Println("samples", len(dataSamples))
+
+		dbSample()
+	}
+}
+
+func randBytes(size int) []byte {
+
+	if size < 1 {
+		size = 1
+	} else if size > 2000000 {
+		size = 2000000
+	}
+
+	bs := make([]byte, size)
+
+	if _, err := crand.Read(bs); err != nil {
+		for i := range bs {
+			bs[i] = uint8(mrand.Intn(256))
+		}
+	}
+
+	return bs
+}
+
+func dataSample() []byte {
+	return dataSamples[mrand.Intn(len(dataSamples))]
+}
+
+func dbSample() (*Conn, error) {
+	dbTestSMu.Lock()
+	defer dbTestSMu.Unlock()
+
+	if dbTestSample != nil {
+		return dbTestSample, nil
+	}
+
+	dbs, err := dbOpen([]int{-10}, false)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := 0; i < 10000; i++ {
+		bs := randBytes(500 + mrand.Intn(500))
+		if rs := dbs[0].NewWriter([]byte(fmt.Sprintf("%032d", i)), bs).Commit(); !rs.OK() {
+			return nil, errors.New(rs.Message)
+		}
+	}
+
+	dbTestSample = dbs[0]
+	return dbTestSample, nil
 }
 
 func Test_Object_Common(t *testing.T) {
@@ -146,7 +217,7 @@ func Test_Object_Common(t *testing.T) {
 
 		for _, db := range dbt {
 
-			round += 1
+			round++
 			t.Logf("ROUND #%d", round)
 
 			// Commit
@@ -189,13 +260,13 @@ func Test_Object_Common(t *testing.T) {
 				if rs := db.NewWriter(key, 123).Commit(); !rs.OK() {
 					t.Fatal("Object LogId ER!")
 				}
-				logId := uint64(0)
+				logID := uint64(0)
 				if rs := db.NewReader(key).Query(); !rs.OK() {
 					t.Fatal("Object LogId ER!")
 				} else if rs.Meta.Version < 1 {
 					t.Fatal("Object LogId ER!")
 				} else {
-					logId = rs.Meta.Version
+					logID = rs.Meta.Version
 				}
 
 				if rs := db.NewWriter(key, 123).Commit(); !rs.OK() {
@@ -203,7 +274,7 @@ func Test_Object_Common(t *testing.T) {
 				}
 				if rs := db.NewReader(key).Query(); !rs.OK() {
 					t.Fatal("Object LogId ER!")
-				} else if rs.Meta.Version != logId {
+				} else if rs.Meta.Version != logID {
 					t.Fatal("Object LogId ER!")
 				}
 
@@ -212,10 +283,10 @@ func Test_Object_Common(t *testing.T) {
 				}
 				if rs := db.NewReader(key).Query(); !rs.OK() {
 					t.Fatal("Object LogId ER!")
-				} else if rs.Meta.Version <= logId {
+				} else if rs.Meta.Version <= logID {
 					t.Fatal("Object LogId ER!")
 				} else {
-					t.Logf("Object LogId OK from %d to %d", logId, rs.Meta.Version)
+					t.Logf("Object LogId OK from %d to %d", logID, rs.Meta.Version)
 				}
 			}
 
@@ -274,13 +345,12 @@ func Test_Object_Common(t *testing.T) {
 					ExpireSet(500).Commit(); !rs.OK() {
 					t.Fatal("Commit ER! Expired")
 				}
-
 				if rs := db.NewReader([]byte("0001")).Query(); !rs.OK() {
 					t.Fatal("Query Key ER! Expired")
 				}
 				time.Sleep(1e9)
 				if rs := db.NewReader([]byte("0001")).Query(); !rs.NotFound() {
-					t.Fatal("Query Key ER! Expired")
+					t.Fatalf("Query Key ER! Expired")
 				} else {
 					t.Logf("Commit Expirted OK")
 				}
@@ -464,6 +534,8 @@ func Test_Object_LogAsync(t *testing.T) {
 		}
 	}
 
+	// time.Sleep(1e9)
+
 	ctx, fc := context.WithTimeout(context.Background(), time.Second*1)
 	defer fc()
 
@@ -565,8 +637,8 @@ func Benchmark_Commit_Seq(b *testing.B) {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
 
-	bs := []byte(strings.Repeat("a", 1000))
 	for i := 0; i < b.N; i++ {
+		bs := dataSample()
 		if rs := dbs[0].NewWriter([]byte(fmt.Sprintf("%032d", i)), bs).Commit(); !rs.OK() {
 			b.Fatalf("Commit ER!, Err %s", rs.Message)
 		}
@@ -580,8 +652,8 @@ func Benchmark_Commit_Seq_MetaLogDisable(b *testing.B) {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
 
-	bs := []byte(strings.Repeat("a", 1000))
 	for i := 0; i < b.N; i++ {
+		bs := dataSample()
 		if rs := dbs[0].NewWriter([]byte(fmt.Sprintf("%032d", i)), bs).Commit(); !rs.OK() {
 			b.Fatalf("Commit ER!, Err %s", rs.Message)
 		}
@@ -595,10 +667,10 @@ func Benchmark_Commit_Rand(b *testing.B) {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
 
-	bs := []byte(strings.Repeat("a", 1000))
 	for i := 0; i < b.N; i++ {
+		bs := dataSample()
 		if rs := dbs[0].NewWriter(
-			[]byte(fmt.Sprintf("%032d", rand.Int31())), bs).Commit(); !rs.OK() {
+			[]byte(fmt.Sprintf("%032d", mrand.Int31())), bs).Commit(); !rs.OK() {
 			b.Fatalf("Commit ER!, Err %s", rs.Message)
 		}
 	}
@@ -611,44 +683,45 @@ func Benchmark_Commit_Rand_MetaLogDisable(b *testing.B) {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
 
-	bs := []byte(strings.Repeat("a", 1000))
 	for i := 0; i < b.N; i++ {
+		bs := dataSample()
 		if rs := dbs[0].NewWriter(
-			[]byte(fmt.Sprintf("%032d", rand.Int31())), bs).Commit(); !rs.OK() {
+			[]byte(fmt.Sprintf("%032d", mrand.Int31())), bs).Commit(); !rs.OK() {
 			b.Fatalf("Commit ER!, Err %s", rs.Message)
 		}
 	}
 }
 
-func Benchmark_Commit_Rand_Cluster_x3_1k(b *testing.B) {
+func Benchmark_Commit_Rand_Cluster_x3_1000(b *testing.B) {
 
 	dbs, err := dbOpen([]int{10001, 10002, 10003}, false)
 	if err != nil {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
 
-	bs := []byte(strings.Repeat("a", 1000))
 	for i := 0; i < b.N; i++ {
+		bs := randBytes(mrand.Intn(2000))
 		ow := kv2.NewObjectWriter(
-			[]byte(fmt.Sprintf("%032d", rand.Int31())), bs)
+			[]byte(fmt.Sprintf("%032d", mrand.Int31())), bs)
 		if rs := dbs[rand.Intn(len(dbs))].Commit(ow); !rs.OK() {
 			b.Fatalf("Commit ER!, Err %s", rs.Message)
 		}
 	}
 }
 
-func Benchmark_Commit_Rand_Cluster_x3_100b(b *testing.B) {
+func Benchmark_Commit_Rand_Cluster_x3_100(b *testing.B) {
 
-	dbs, err := dbOpen([]int{11001, 11002, 11003}, false)
+	dbs, err := dbOpen([]int{10001, 10002, 10003}, false)
+
 	if err != nil {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
 
-	bs := []byte(strings.Repeat("a", 100))
 	for i := 0; i < b.N; i++ {
+		bs := randBytes(mrand.Intn(200))
 		ow := kv2.NewObjectWriter(
-			[]byte(fmt.Sprintf("%032d", rand.Int31())), bs)
-		if rs := dbs[rand.Intn(len(dbs))].Commit(ow); !rs.OK() {
+			[]byte(fmt.Sprintf("%032d", mrand.Int31())), bs)
+		if rs := dbs[mrand.Intn(len(dbs))].Commit(ow); !rs.OK() {
 			b.Fatalf("Commit ER!, Err %s", rs.Message)
 		}
 	}
@@ -656,20 +729,13 @@ func Benchmark_Commit_Rand_Cluster_x3_100b(b *testing.B) {
 
 func Benchmark_Query_Key(b *testing.B) {
 
-	dbs, err := dbOpen(nil, false)
+	db, err := dbSample()
 	if err != nil {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
 
-	bs := []byte(strings.Repeat("a", 1000))
-	for i := 0; i < 10000; i++ {
-		if rs := dbs[0].NewWriter([]byte(fmt.Sprintf("%032d", i)), bs).Commit(); !rs.OK() {
-			b.Fatalf("Commit ER!, %d Err %s", i, rs.Message)
-		}
-	}
-
 	for i := 0; i < b.N; i++ {
-		if rs := dbs[0].NewReader([]byte(fmt.Sprintf("%032d", rand.Intn(1000)))).Query(); !rs.OK() {
+		if rs := db.NewReader([]byte(fmt.Sprintf("%032d", mrand.Intn(10000)))).Query(); !rs.OK() {
 			b.Fatalf("Query ER!, Err %s", rs.Message)
 		}
 	}
@@ -677,21 +743,14 @@ func Benchmark_Query_Key(b *testing.B) {
 
 func Benchmark_Query_KeyRange(b *testing.B) {
 
-	dbs, err := dbOpen(nil, false)
+	db, err := dbSample()
 	if err != nil {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
 
-	bs := []byte(strings.Repeat("a", 1000))
-	for i := 0; i < 10000; i++ {
-		if rs := dbs[0].NewWriter([]byte(fmt.Sprintf("%032d", i)), bs).Commit(); !rs.OK() {
-			b.Fatalf("Commit Key ER! Err %s", rs.Message)
-		}
-	}
-
 	for i := 0; i < b.N; i++ {
-		offset := rand.Intn(10000 - 10)
-		if rs := dbs[0].NewReader(nil).KeyRangeSet(
+		offset := mrand.Intn(10000 - 10)
+		if rs := db.NewReader(nil).KeyRangeSet(
 			[]byte(fmt.Sprintf("%032d", offset)),
 			[]byte(fmt.Sprintf("%032d", offset+10))).
 			LimitNumSet(10).Query(); !rs.OK() {

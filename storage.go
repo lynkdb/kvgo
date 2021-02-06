@@ -183,7 +183,6 @@ func (it *leveldbStorageBatch) Commit() error {
 
 type leveldbStorageIterator struct {
 	iterator.Iterator
-	// db *leveldb.DB
 }
 
 func newLeveldbStorageIterator(db *leveldb.DB,
@@ -193,7 +192,6 @@ func newLeveldbStorageIterator(db *leveldb.DB,
 			Start: opts.Start,
 			Limit: opts.Limit,
 		}, nil),
-		// db: db,
 	}
 }
 

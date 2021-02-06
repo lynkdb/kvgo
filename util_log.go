@@ -92,6 +92,7 @@ func (it *logSyncBufferTable) status(addr string, logs, keys int) *logSyncBuffer
 }
 
 func (it *logSyncBufferTable) put(id, attrs uint64, key []byte, hit bool) {
+
 	it.mu.Lock()
 	defer it.mu.Unlock()
 

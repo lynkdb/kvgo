@@ -220,8 +220,8 @@ func (cn *Conn) dbSetup(dir string, opts *kv2.StorageOptions) (*dbTable, error) 
 
 			num := 0
 
-			for iter.Next() {
-				num += 1
+			for ok := iter.First(); ok; ok = iter.Next() {
+				num++
 			}
 
 			if num == 0 {
@@ -400,7 +400,7 @@ func (cn *Conn) dbTableListSetup() error {
 	})
 	defer iter.Release()
 
-	for iter.Next() {
+	for ok := iter.First(); ok; ok = iter.Next() {
 
 		if bytes.Compare(iter.Key(), offset) <= 0 {
 			continue

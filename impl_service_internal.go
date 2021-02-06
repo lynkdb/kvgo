@@ -322,7 +322,8 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 			})
 		)
 
-		for ; iter.Next() && num > 0 && siz > 0; num-- {
+		for ok := iter.First(); ok && num > 0 && siz > 0; ok = iter.Next() {
+			num--
 
 			if bytes.Compare(iter.Key(), offset) <= 0 {
 				continue
