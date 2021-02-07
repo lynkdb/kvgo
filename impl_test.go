@@ -23,6 +23,8 @@ import (
 	mrand "math/rand"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -37,7 +39,7 @@ var (
 	dbTestAccessKey = NewSystemAccessKey()
 )
 
-func dbOpen(ports []int, clientEnable bool) ([]*Conn, error) {
+func dbTestOpen(ports []int, clientEnable bool) ([]*Conn, error) {
 
 	dbTestMu.Lock()
 	defer dbTestMu.Unlock()
@@ -83,7 +85,11 @@ func dbOpen(ports []int, clientEnable bool) ([]*Conn, error) {
 
 	for _, port := range ports {
 
-		testDir := fmt.Sprintf("/dev/shm/kvgo/%d", port)
+		testDir := "/dev/shm"
+		if runtime.GOOS == "darwin" {
+			testDir, _ = os.UserHomeDir()
+		}
+		testDir = filepath.Clean(fmt.Sprintf("%s/kvgo/%d", testDir, port))
 
 		if db, ok := dbTestCaches[testDir]; ok {
 			dbs = append(dbs, db)
@@ -175,7 +181,7 @@ func dbSample() (*Conn, error) {
 		return dbTestSample, nil
 	}
 
-	dbs, err := dbOpen([]int{-10}, false)
+	dbs, err := dbTestOpen([]int{-10}, false)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +206,7 @@ func Test_Object_Common(t *testing.T) {
 		{10001, 10002, 10003}, // cluster
 	} {
 
-		dbs, err := dbOpen(ports, false)
+		dbs, err := dbTestOpen(ports, false)
 		if err != nil {
 			t.Fatalf("Can Not Open Database %s", err.Error())
 		}
@@ -208,7 +214,7 @@ func Test_Object_Common(t *testing.T) {
 		dbt := []*Conn{dbs[0]}
 
 		if len(ports) > 1 {
-			if dbs2, err := dbOpen(ports, true); err != nil {
+			if dbs2, err := dbTestOpen(ports, true); err != nil {
 				t.Fatalf("Can Not Open Database %s", err.Error())
 			} else {
 				dbt = append(dbt, dbs2[0])
@@ -507,7 +513,7 @@ func Test_Object_Common(t *testing.T) {
 
 func Test_Object_LogAsync(t *testing.T) {
 
-	dbs, err := dbOpen([]int{20001, 20002, 20003}, false)
+	dbs, err := dbTestOpen([]int{20001, 20002, 20003}, false)
 	if err != nil {
 		t.Fatalf("Can Not Open Database %s", err.Error())
 	}
@@ -534,7 +540,7 @@ func Test_Object_LogAsync(t *testing.T) {
 		}
 	}
 
-	// time.Sleep(1e9)
+	time.Sleep(10e6)
 
 	ctx, fc := context.WithTimeout(context.Background(), time.Second*1)
 	defer fc()
@@ -580,7 +586,7 @@ func Test_Object_LogAsync(t *testing.T) {
 
 func Test_Table(t *testing.T) {
 
-	dbs, err := dbOpen([]int{}, false)
+	dbs, err := dbTestOpen([]int{}, false)
 	if err != nil {
 		t.Fatalf("Can Not Open Database %s", err.Error())
 	}
@@ -632,7 +638,7 @@ func Test_Table(t *testing.T) {
 
 func Benchmark_Commit_Seq(b *testing.B) {
 
-	dbs, err := dbOpen(nil, false)
+	dbs, err := dbTestOpen(nil, false)
 	if err != nil {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
@@ -647,7 +653,7 @@ func Benchmark_Commit_Seq(b *testing.B) {
 
 func Benchmark_Commit_Seq_MetaLogDisable(b *testing.B) {
 
-	dbs, err := dbOpen([]int{-1}, false)
+	dbs, err := dbTestOpen([]int{-1}, false)
 	if err != nil {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
@@ -662,7 +668,7 @@ func Benchmark_Commit_Seq_MetaLogDisable(b *testing.B) {
 
 func Benchmark_Commit_Rand(b *testing.B) {
 
-	dbs, err := dbOpen(nil, false)
+	dbs, err := dbTestOpen(nil, false)
 	if err != nil {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
@@ -678,7 +684,7 @@ func Benchmark_Commit_Rand(b *testing.B) {
 
 func Benchmark_Commit_Rand_MetaLogDisable(b *testing.B) {
 
-	dbs, err := dbOpen([]int{-2}, false)
+	dbs, err := dbTestOpen([]int{-2}, false)
 	if err != nil {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
@@ -694,7 +700,7 @@ func Benchmark_Commit_Rand_MetaLogDisable(b *testing.B) {
 
 func Benchmark_Commit_Rand_Cluster_x3_1000(b *testing.B) {
 
-	dbs, err := dbOpen([]int{10001, 10002, 10003}, false)
+	dbs, err := dbTestOpen([]int{10001, 10002, 10003}, false)
 	if err != nil {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
@@ -711,7 +717,7 @@ func Benchmark_Commit_Rand_Cluster_x3_1000(b *testing.B) {
 
 func Benchmark_Commit_Rand_Cluster_x3_100(b *testing.B) {
 
-	dbs, err := dbOpen([]int{10001, 10002, 10003}, false)
+	dbs, err := dbTestOpen([]int{10001, 10002, 10003}, false)
 
 	if err != nil {
 		b.Fatalf("Can Not Open Database %s", err.Error())
