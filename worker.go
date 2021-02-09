@@ -89,10 +89,14 @@ func (cn *Conn) workerLocalExpiredRefresh() error {
 
 func (cn *Conn) workerLocalExpiredRefreshTable(dt *dbTable) error {
 
-	iter := dt.db.NewIterator(&kv2.StorageIteratorRange{
-		Start: keyEncode(nsKeyTtl, uint64ToBytes(0)),
-		Limit: keyEncode(nsKeyTtl, uint64ToBytes(uint64(time.Now().UnixNano()/1e6))),
-	})
+	var (
+		offset = keyEncode(nsKeyTtl, uint64ToBytes(0))
+		cutset = keyEncode(nsKeyTtl, uint64ToBytes(uint64(time.Now().UnixNano()/1e6)))
+		iter   = dt.db.NewIterator(&kv2.StorageIteratorRange{
+			Start: offset,
+			Limit: cutset,
+		})
+	)
 	defer iter.Release()
 
 	for !cn.close {
@@ -102,7 +106,15 @@ func (cn *Conn) workerLocalExpiredRefreshTable(dt *dbTable) error {
 			batch = dt.db.NewBatch()
 		)
 
-		for iter.First(); iter.Valid(); iter.Next() {
+		for ok := iter.First(); ok; ok = iter.Next() {
+
+			if bytes.Compare(iter.Key(), offset) <= 0 {
+				continue
+			}
+
+			if bytes.Compare(iter.Key(), cutset) > 0 {
+				break
+			}
 
 			meta, err := kv2.ObjectMetaDecode(bytesClone(iter.Value()))
 			if err != nil {
@@ -199,7 +211,7 @@ func (cn *Conn) workerLocalTableRefresh() error {
 		// db keys
 		kn := uint64(0)
 		iter := t.db.NewIterator(rgK)
-		for iter.First(); iter.Valid(); iter.Next() {
+		for ok := iter.First(); ok; ok = iter.Next() {
 			kn++
 		}
 		iter.Release()
@@ -220,7 +232,7 @@ func (cn *Conn) workerLocalTableRefresh() error {
 
 		// incr
 		iterIncr := t.db.NewIterator(rgIncr)
-		for iterIncr.First(); iterIncr.Valid(); iterIncr.Next() {
+		for ok := iterIncr.First(); ok; ok = iterIncr.Next() {
 
 			if bytes.Compare(iterIncr.Key(), rgIncr.Start) <= 0 {
 				continue
@@ -244,7 +256,7 @@ func (cn *Conn) workerLocalTableRefresh() error {
 
 		// async
 		iterAsync := t.db.NewIterator(rgAsync)
-		for iterAsync.First(); iterAsync.Valid(); iterAsync.Next() {
+		for ok := iterAsync.First(); ok; ok = iterAsync.Next() {
 
 			if bytes.Compare(iterAsync.Key(), rgAsync.Start) <= 0 {
 				continue

@@ -489,7 +489,7 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 			Limit: cutset,
 		})
 
-		for iter.First(); iter.Valid(); iter.Next() {
+		for ok := iter.First(); ok; ok = iter.Next() {
 
 			if limitNum < 1 {
 				break
@@ -591,7 +591,7 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 			})
 		)
 
-		for iter.First(); iter.Valid(); iter.Next() {
+		for ok := iter.First(); ok; ok = iter.Next() {
 
 			if limitNum < 1 {
 				break
