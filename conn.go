@@ -275,10 +275,11 @@ func (cn *Conn) dbSysSetup() error {
 	var (
 		dir  = filepath.Clean(fmt.Sprintf("%s/%s", cn.opts.Storage.DataDirectory, sysTableName))
 		opts = &kv2.StorageOptions{
-			WriteBufferSize: 2,
-			BlockCacheSize:  2,
-			MaxTableSize:    2,
-			MaxOpenFiles:    10,
+			WriteBufferSize:   2,
+			BlockCacheSize:    2,
+			MaxTableSize:      2,
+			MaxOpenFiles:      10,
+			TableCompressName: "none",
 		}
 	)
 

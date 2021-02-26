@@ -47,6 +47,8 @@ type dbTable struct {
 	logSyncBuffer  *logSyncBufferTable
 	logSyncOffsets map[string]uint64
 	closed         bool
+	expiredNext    int64
+	expiredMu      sync.RWMutex
 }
 
 func (tdb *dbTable) setup() error {
@@ -282,6 +284,20 @@ func (tdb *dbTable) logAsyncOffset(hostAddr, tableFrom string, offset uint64) ui
 		[]byte(strconv.FormatUint(offset, 10)), nil)
 
 	return offset
+}
+
+func (it *dbTable) expiredSync(t int64) int64 {
+
+	it.expiredMu.Lock()
+	defer it.expiredMu.Unlock()
+
+	if t == -1 {
+		it.expiredNext = workerLocalExpireMax
+	} else if t > 0 && t < it.expiredNext {
+		it.expiredNext = t
+	}
+
+	return it.expiredNext
 }
 
 func (it *dbTable) Close() error {

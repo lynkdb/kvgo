@@ -106,8 +106,6 @@ func (cn *Conn) serviceStart() error {
 
 		server := grpc.NewServer(serverOptions...)
 
-		go server.Serve(lis)
-
 		cn.public = &PublicServiceImpl{
 			sock:     lis,
 			server:   server,
@@ -124,6 +122,8 @@ func (cn *Conn) serviceStart() error {
 
 		kv2.RegisterPublicServer(server, cn.public)
 		kv2.RegisterInternalServer(server, cn.internal)
+
+		go server.Serve(lis)
 
 	} else {
 		cn.public = &PublicServiceImpl{

@@ -89,24 +89,28 @@ func (cn *Conn) workerLocalExpiredRefresh() error {
 
 func (cn *Conn) workerLocalExpiredRefreshTable(dt *dbTable) error {
 
+	tn := time.Now().UnixNano() / 1e6
+
+	if tn < dt.expiredSync(0) {
+		return nil
+	}
+
 	var (
 		offset = keyEncode(nsKeyTtl, uint64ToBytes(0))
-		cutset = keyEncode(nsKeyTtl, uint64ToBytes(uint64(time.Now().UnixNano()/1e6)))
+		cutset = keyEncode(nsKeyTtl, uint64ToBytes(uint64(tn)))
 		iter   = dt.db.NewIterator(&kv2.StorageIteratorRange{
 			Start: offset,
 			Limit: cutset,
 		})
+		ok bool
 	)
 	defer iter.Release()
 
 	for !cn.close {
 
-		var (
-			num   = 0
-			batch = dt.db.NewBatch()
-		)
+		batch := dt.db.NewBatch()
 
-		for ok := iter.First(); ok; ok = iter.Next() {
+		for ok = iter.First(); ok && !cn.close; ok = iter.Next() {
 
 			if bytes.Compare(iter.Key(), offset) <= 0 {
 				continue
@@ -118,7 +122,8 @@ func (cn *Conn) workerLocalExpiredRefreshTable(dt *dbTable) error {
 
 			meta, err := kv2.ObjectMetaDecode(bytesClone(iter.Value()))
 			if err != nil {
-				return err
+				hlog.Printf("warn", "db err %s", err.Error())
+				break
 			}
 
 			ss := dt.db.Get(keyEncode(nsKeyMeta, meta.Key), nil)
@@ -132,26 +137,24 @@ func (cn *Conn) workerLocalExpiredRefreshTable(dt *dbTable) error {
 				}
 
 			} else if !ss.NotFound() {
-				return ss.Error()
+				hlog.Printf("warn", "db err %s", ss.ErrorMessage())
+				break
 			}
 
 			batch.Delete(keyExpireEncode(nsKeyTtl, meta.Expired, meta.Key))
-			num++
 
-			if num >= workerLocalExpireLimit {
-				break
-			}
-
-			if cn.close {
+			if batch.Len() >= workerLocalExpireLimit {
 				break
 			}
 		}
 
-		if num > 0 {
+		if batch.Len() > 0 {
 			batch.Commit()
+		} else if !ok {
+			dt.expiredSync(-1)
 		}
 
-		if num < workerLocalExpireLimit {
+		if batch.Len() < workerLocalExpireLimit {
 			break
 		}
 	}
@@ -603,7 +606,6 @@ func (cn *Conn) workerLocalSysStatusRefresh() error {
 	if (cn.workerStatusRefreshed + workerStatusRefreshTime) > tn {
 		return nil
 	}
-	cn.workerStatusRefreshed = tn
 
 	if cn.perfStatus == nil {
 
@@ -657,7 +659,7 @@ func (cn *Conn) workerLocalSysStatusRefresh() error {
 		}
 	}
 
-	if rand.Intn(10) == 0 {
+	if cn.workerStatusRefreshed == 0 || rand.Intn(10) == 0 {
 		if st, err := ps_disk.Usage(cn.opts.Storage.DataDirectory); err == nil {
 			cn.sysStatus.Caps["disk"] = &kv2.SysCapacity{
 				Use: int64(st.Used),
@@ -669,6 +671,8 @@ func (cn *Conn) workerLocalSysStatusRefresh() error {
 	if bs, err := kv2.StdProto.Encode(cn.perfStatus); err == nil && len(bs) > 20 {
 		cn.dbSys.Put(nsSysApiStatus("node"), bs, nil)
 	}
+
+	cn.workerStatusRefreshed = tn
 
 	// debugPrint(cn.sysStatus)
 

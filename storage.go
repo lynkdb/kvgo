@@ -15,9 +15,11 @@
 package kvgo
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 
+	"github.com/hooto/hlog4g/hlog"
 	"github.com/syndtr/goleveldb/leveldb"
 	lerrors "github.com/syndtr/goleveldb/leveldb/errors"
 	"github.com/syndtr/goleveldb/leveldb/filter"
@@ -59,6 +61,10 @@ func leveldbStorageOpen(path string, opts *kv2.StorageOptions) (kv2.StorageEngin
 	db, err := leveldb.OpenFile(dir, ldbOpts)
 	if err != nil {
 		return nil, err
+	}
+
+	if jbs, err := json.Marshal(opts); err == nil {
+		hlog.Printf("info", "db %s, opts %s", path, string(jbs))
 	}
 
 	return &leveldbStorageEngine{

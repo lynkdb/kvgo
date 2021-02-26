@@ -238,6 +238,9 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 				tdb.logSyncBuffer.put(cLog, rr.Meta.Attrs, rr.Meta.Key, true)
 				tdb.objectLogFree(cLog)
 			}
+			if rr.Meta.Expired > 0 {
+				tdb.expiredSync(int64(rr.Meta.Expired))
+			}
 		}
 	}
 

@@ -41,11 +41,12 @@ const (
 	objAcceptTTL               = uint64(3000)
 	workerLocalExpireSleep     = 200e6
 	workerLocalExpireLimit     = 200
+	workerLocalExpireMax       = int64(1 << 62)
 	workerLogRangeWaitTimeMax  = int64(10e3)
 	workerLogRangeWaitSleep    = int64(200)
 	workerReplicaLogAsyncSleep = 1e9
 	workerTableRefreshTime     = int64(600)
-	workerStatusRefreshTime    = int64(3)
+	workerStatusRefreshTime    = int64(10)
 )
 
 const (

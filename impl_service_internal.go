@@ -212,6 +212,9 @@ func (it *InternalServiceImpl) Accept(ctx context.Context,
 			if err = batch.Commit(); err == nil {
 				tdb.objectLogFree(cLog)
 			}
+			if rr.Meta.Expired > 0 {
+				tdb.expiredSync(int64(rr.Meta.Expired))
+			}
 		}
 	}
 

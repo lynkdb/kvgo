@@ -103,6 +103,10 @@ func dbTestOpen(ports []int, clientEnable bool) ([]*Conn, error) {
 		//
 		cfg := NewConfig(testDir)
 
+		cfg.Performance.WriteBufferSize = 8 // MiB
+		cfg.Performance.BlockCacheSize = 8  // MiB
+		cfg.Performance.MaxTableSize = 8    // MiB
+
 		if port > 0 {
 			cfg.Server.Bind = fmt.Sprintf("127.0.0.1:%d", port)
 			cfg.Server.AccessKey = dbTestAccessKey

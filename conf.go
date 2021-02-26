@@ -145,20 +145,20 @@ func NewConfig(dir string) *Config {
 
 func (it *Config) Reset() *Config {
 
-	if it.Performance.WriteBufferSize < 4 {
-		it.Performance.WriteBufferSize = 4
-	} else if it.Performance.WriteBufferSize > 128 {
-		it.Performance.WriteBufferSize = 128
+	if it.Performance.WriteBufferSize < 2 {
+		it.Performance.WriteBufferSize = 2
+	} else if it.Performance.WriteBufferSize > 256 {
+		it.Performance.WriteBufferSize = 256
 	}
 
-	if it.Performance.BlockCacheSize < 8 {
-		it.Performance.BlockCacheSize = 8
-	} else if it.Performance.BlockCacheSize > 4096 {
-		it.Performance.BlockCacheSize = 4096
+	if it.Performance.BlockCacheSize < 4 {
+		it.Performance.BlockCacheSize = 4
+	} else if it.Performance.BlockCacheSize > 64 {
+		it.Performance.BlockCacheSize = 64
 	}
 
-	if it.Performance.MaxTableSize < 8 {
-		it.Performance.MaxTableSize = 8
+	if it.Performance.MaxTableSize < 2 {
+		it.Performance.MaxTableSize = 2
 	} else if it.Performance.MaxTableSize > 64 {
 		it.Performance.MaxTableSize = 64
 	}
