@@ -24,7 +24,9 @@ import (
 )
 
 const (
-	logSyncBufferTableQueueMax        = 1000000
+	logSyncBufferTableQueueMin        = 1000
+	logSyncBufferTableQueueMax        = 100000
+	logSyncBufferTableQueueTTL        = int64(60000) // ms
 	logSyncBufferQueueMax             = 1000
 	logSyncBufferActionAccept  uint64 = 1 << 1
 	logSyncBufferActionFree    uint64 = 1 << 2
@@ -96,15 +98,14 @@ func (it *logSyncBufferTable) put(id, attrs uint64, key []byte, hit bool) {
 	it.mu.Lock()
 	defer it.mu.Unlock()
 
-	tn := timems()
-	// defer func() {
-	// 	hlog.Printf("warn", "sync log put %d, key %s, hit %v, qlen %d",
-	// 		id, string(key), hit, len(it.keys))
-	// }()
+	var (
+		tn  = timems()
+		ttl = (tn - logSyncBufferTableQueueTTL)
+	)
 
-	if len(it.keys) > logSyncBufferTableQueueMax {
-		ndel := 0
-		for ; it.queue != nil && ndel < logSyncBufferTableQueueMax/100; ndel++ {
+	if it.queue != nil && ttl > it.queue.created &&
+		len(it.keys) > logSyncBufferTableQueueMin {
+		for it.queue != nil && it.queue.next != nil && ttl > it.queue.created {
 			q := it.queue
 
 			it.queue = it.queue.next
@@ -117,7 +118,24 @@ func (it *logSyncBufferTable) put(id, attrs uint64, key []byte, hit bool) {
 			q.next = nil
 			delete(it.keys, q.id)
 		}
-		hlog.Printf("warn", "clean log queue %d, hit %v", ndel, hit)
+		hlog.SlotPrint(600, "info", "clean ttl log queue, active %d", len(it.keys))
+	}
+
+	if len(it.keys) > logSyncBufferTableQueueMax {
+		for ndel := 0; it.queue != nil && ndel < logSyncBufferTableQueueMax/100; ndel++ {
+			q := it.queue
+
+			it.queue = it.queue.next
+			if it.queue != nil {
+				it.queue.prev = nil
+			} else {
+				it.last = nil
+			}
+
+			q.next = nil
+			delete(it.keys, q.id)
+		}
+		hlog.Printf("info", "clean log queue, active %d", len(it.keys))
 	}
 
 	item := &logSyncBufferItem{
