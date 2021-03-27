@@ -92,10 +92,12 @@ func (it *leveldbStorageEngine) Delete(key []byte,
 }
 
 func (it *leveldbStorageEngine) NewBatch() kv2.StorageBatch {
-	return &leveldbStorageBatch{
+	b := &leveldbStorageBatch{
 		batch: new(leveldb.Batch),
 		db:    it.db,
 	}
+	b.batch.Reset()
+	return b
 }
 
 func (it *leveldbStorageEngine) NewIterator(opts *kv2.StorageIteratorRange) kv2.StorageIterator {
@@ -181,6 +183,10 @@ func (it *leveldbStorageBatch) Delete(key []byte) {
 
 func (it *leveldbStorageBatch) Len() int {
 	return it.batch.Len()
+}
+
+func (it *leveldbStorageBatch) Reset() {
+	it.batch.Reset()
 }
 
 func (it *leveldbStorageBatch) Commit() error {

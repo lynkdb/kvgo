@@ -89,7 +89,7 @@ func (cn *Conn) workerLocalExpiredRefresh() error {
 
 func (cn *Conn) workerLocalExpiredRefreshTable(dt *dbTable) error {
 
-	tn := time.Now().UnixNano() / 1e6
+	tn := timems()
 
 	if tn < dt.expiredSync(0) {
 		return nil
@@ -148,10 +148,11 @@ func (cn *Conn) workerLocalExpiredRefreshTable(dt *dbTable) error {
 			}
 		}
 
-		if batch.Len() > 0 {
+		if bn := batch.Len(); bn > 0 {
 			batch.Commit()
-		} else if !ok {
-			dt.expiredSync(-1)
+			hlog.Printf("debug", "table %s, ttl clean %d", dt.tableName, bn)
+		} else {
+			dt.expiredSync(tn + 1000)
 		}
 
 		if batch.Len() < workerLocalExpireLimit {
