@@ -118,7 +118,7 @@ func (it *logSyncBufferTable) put(id, attrs uint64, key []byte, hit bool) {
 			q.next = nil
 			delete(it.keys, q.id)
 		}
-		hlog.SlotPrint(600, "info", "clean ttl log queue, active %d", len(it.keys))
+		hlog.SlotPrint(600, "debug", "clean ttl log queue, active %d", len(it.keys))
 	}
 
 	if len(it.keys) > logSyncBufferTableQueueMax {
@@ -135,7 +135,7 @@ func (it *logSyncBufferTable) put(id, attrs uint64, key []byte, hit bool) {
 			q.next = nil
 			delete(it.keys, q.id)
 		}
-		hlog.Printf("info", "clean log queue, active %d", len(it.keys))
+		hlog.Printf("debug", "clean log queue, active %d", len(it.keys))
 	}
 
 	item := &logSyncBufferItem{
