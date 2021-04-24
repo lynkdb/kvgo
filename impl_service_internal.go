@@ -194,14 +194,16 @@ func (it *InternalServiceImpl) Accept(ctx context.Context,
 				batch.Put(keyEncode(nsKeyData, rr.Meta.Key), bsData)
 			}
 
-			batch.Put(keyEncode(nsKeyLog, uint64ToBytes(cLog)), bsMeta)
+			if !it.db.opts.Feature.WriteLogDisable {
+				batch.Put(keyEncode(nsKeyLog, uint64ToBytes(cLog)), bsMeta)
+			}
 
 			if rr.Meta.Expired > 0 {
 				batch.Put(keyExpireEncode(nsKeyTtl, rr.Meta.Expired, rr.Meta.Key), bsMeta)
 			}
 
 			if meta != nil {
-				if meta.Version < cLog {
+				if meta.Version < cLog && !it.db.opts.Feature.WriteLogDisable {
 					batch.Delete(keyEncode(nsKeyLog, uint64ToBytes(meta.Version)))
 				}
 				if meta.Expired > 0 && meta.Expired != rr.Meta.Expired {

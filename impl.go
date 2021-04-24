@@ -170,20 +170,16 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 			cn.perfStatus.Sync(PerfStorWriteKey, 0, 1, tsd.ValueAttrSum)
 		}
 
-		rr.Meta.Attrs = kv2.ObjectMetaAttrDelete
+		rr.Meta.Attrs |= kv2.ObjectMetaAttrDelete
 
 		if bsMeta, err := rr.MetaEncode(); err == nil {
 
 			batch := tdb.db.NewBatch()
 
 			if meta != nil {
-				if !cn.opts.Feature.WriteMetaDisable {
-					batch.Delete(keyEncode(nsKeyMeta, rr.Meta.Key))
-				}
+				batch.Delete(keyEncode(nsKeyMeta, rr.Meta.Key))
 				batch.Delete(keyEncode(nsKeyData, rr.Meta.Key))
-				if !cn.opts.Feature.WriteLogDisable {
-					batch.Delete(keyEncode(nsKeyLog, uint64ToBytes(meta.Version)))
-				}
+				batch.Delete(keyEncode(nsKeyLog, uint64ToBytes(meta.Version)))
 			}
 
 			if cLogOn && !cn.opts.Feature.WriteLogDisable {
@@ -205,9 +201,7 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 			} else if kv2.AttrAllow(rr.Meta.Attrs, kv2.ObjectMetaAttrMetaOff) {
 				batch.Put(keyEncode(nsKeyData, rr.Meta.Key), bsData)
 			} else {
-				if !cn.opts.Feature.WriteMetaDisable {
-					batch.Put(keyEncode(nsKeyMeta, rr.Meta.Key), bsMeta)
-				}
+				batch.Put(keyEncode(nsKeyMeta, rr.Meta.Key), bsMeta)
 				batch.Put(keyEncode(nsKeyData, rr.Meta.Key), bsData)
 			}
 
