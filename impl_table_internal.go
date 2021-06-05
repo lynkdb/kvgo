@@ -40,12 +40,12 @@ type dbTable struct {
 	logMu          sync.RWMutex
 	logOffset      uint64
 	logCutset      uint64
-	logAsyncMu     sync.Mutex
-	logAsyncSets   map[string]bool
+	logPullMu      sync.Mutex
+	logPullPending map[string]bool
+	logPullOffsets map[string]uint64
 	logLockSets    map[uint64]uint64
 	perfStatus     *tsd.CycleFeed
 	logSyncBuffer  *logSyncBufferTable
-	logSyncOffsets map[string]uint64
 	closed         bool
 	expiredNext    int64
 	expiredMu      sync.RWMutex
@@ -252,25 +252,25 @@ func (tdb *dbTable) objectIncrSet(ns string, incr, set uint64) (uint64, error) {
 	return incrSet.offset, nil
 }
 
-func (tdb *dbTable) logAsyncOffset(hostAddr, tableFrom string, offset uint64) uint64 {
+func (tdb *dbTable) logPullOffsetFlush(hostAddr, tableFrom string, offset uint64) uint64 {
 
 	lkey := hostAddr + "/" + tableFrom
 
-	tdb.logAsyncMu.Lock()
-	defer tdb.logAsyncMu.Unlock()
+	tdb.logPullMu.Lock()
+	defer tdb.logPullMu.Unlock()
 
 	var (
-		prevOffset, ok = tdb.logSyncOffsets[lkey]
+		prevOffset, ok = tdb.logPullOffsets[lkey]
 		err            error
 	)
 	if !ok || prevOffset < 1 {
-		if ss := tdb.db.Get(keySysLogAsync(hostAddr, tableFrom), nil); !ss.OK() {
+		if ss := tdb.db.Get(keySysLogPull(hostAddr, tableFrom), nil); !ss.OK() {
 			if !ss.NotFound() {
 				return offset
 			}
 		} else {
 			if prevOffset, err = strconv.ParseUint(ss.String(), 10, 64); err == nil {
-				tdb.logSyncOffsets[lkey] = prevOffset
+				tdb.logPullOffsets[lkey] = prevOffset
 			}
 		}
 	}
@@ -279,8 +279,8 @@ func (tdb *dbTable) logAsyncOffset(hostAddr, tableFrom string, offset uint64) ui
 		return prevOffset
 	}
 
-	tdb.logSyncOffsets[lkey] = offset
-	tdb.db.Put(keySysLogAsync(hostAddr, tableFrom),
+	tdb.logPullOffsets[lkey] = offset
+	tdb.db.Put(keySysLogPull(hostAddr, tableFrom),
 		[]byte(strconv.FormatUint(offset, 10)), nil)
 
 	return offset

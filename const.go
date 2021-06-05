@@ -38,15 +38,15 @@ const (
 )
 
 const (
-	objAcceptTTL               = uint64(3000)
-	workerLocalExpireSleep     = 200e6
-	workerLocalExpireLimit     = 200
-	workerLocalExpireMax       = int64(1 << 62)
-	workerLogRangeWaitTimeMax  = int64(10e3)
-	workerLogRangeWaitSleep    = int64(200)
-	workerReplicaLogAsyncSleep = 1e9
-	workerTableRefreshTime     = int64(600)
-	workerStatusRefreshTime    = int64(10)
+	objAcceptTTL              = uint64(3000)
+	workerLocalExpireSleep    = 200e6
+	workerLocalExpireLimit    = 200
+	workerLocalExpireMax      = int64(1 << 62)
+	workerLogRangeWaitTimeMax = int64(10e3)
+	workerLogRangeWaitSleep   = int64(200)
+	workerReplicaLogPullSleep = 1e9
+	workerTableRefreshTime    = int64(600)
+	workerStatusRefreshTime   = int64(10)
 )
 
 const (
@@ -71,11 +71,11 @@ var (
 	keySysLogCutset  = append([]byte{nsKeySys}, []byte("log:cutset")...)
 )
 
-func keySysLogAsync(hostAddr, tableName string) []byte {
+func keySysLogPull(hostAddr, tableName string) []byte {
 	if hostAddr == "" {
-		return append([]byte{nsKeySys}, []byte("log:async:")...)
+		return append([]byte{nsKeySys}, []byte("log:sync:pull:")...)
 	}
-	return append([]byte{nsKeySys}, []byte("log:async:"+hostAddr+":"+tableName)...)
+	return append([]byte{nsKeySys}, []byte("log:sync:pull:"+hostAddr+":"+tableName)...)
 }
 
 func keySysIncrCutset(ns string) []byte {
@@ -86,6 +86,10 @@ const (
 	sysTableName   = "sys"
 	sysTableIncrNS = "sys_table_id"
 )
+
+func nsSysServerId() []byte {
+	return []byte("sys:server:id")
+}
 
 func nsSysTable(name string) []byte {
 	return []byte("sys:table:" + name)

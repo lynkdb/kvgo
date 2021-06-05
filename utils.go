@@ -26,9 +26,14 @@ import (
 	"fmt"
 	"math/big"
 	mrand "math/rand"
+	"regexp"
 	"time"
 
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
+)
+
+var (
+	hex16 = regexp.MustCompile("^[a-f0-9]{16}$")
 )
 
 func debugPrint(args ...interface{}) {

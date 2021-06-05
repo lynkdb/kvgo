@@ -247,11 +247,11 @@ func (cn *Conn) dbSetup(dir string, opts *kv2.StorageOptions) (*dbTable, error) 
 	dt := &dbTable{
 		db:             db,
 		incrSets:       map[string]*dbTableIncrSet{},
-		logAsyncSets:   map[string]bool{},
+		logPullPending: map[string]bool{},
+		logPullOffsets: map[string]uint64{},
 		logLockSets:    map[uint64]uint64{},
 		perfStatus:     cn.perfStatus,
 		logSyncBuffer:  newLogSyncBufferTable(),
-		logSyncOffsets: make(map[string]uint64),
 	}
 
 	rs := dt.db.Get(keySysInstanceId, nil)
@@ -294,11 +294,11 @@ func (cn *Conn) dbSysSetup() error {
 		tableName:      sysTableName,
 		db:             dt.db,
 		incrSets:       map[string]*dbTableIncrSet{},
-		logAsyncSets:   map[string]bool{},
+		logPullPending: map[string]bool{},
+		logPullOffsets: map[string]uint64{},
 		logLockSets:    map[uint64]uint64{},
 		perfStatus:     cn.perfStatus,
 		logSyncBuffer:  newLogSyncBufferTable(),
-		logSyncOffsets: make(map[string]uint64),
 	}
 
 	if cn.opts.Server.Bind != "" {
@@ -316,6 +316,26 @@ func (cn *Conn) dbSysSetup() error {
 				}
 			}
 			hlog.Printf("info", "server load access keys %d", len(rs.Items))
+		}
+
+		{
+			if !hex16.MatchString(cn.opts.Server.ID) {
+				if rs2 := cn.objectLocalQuery(kv2.NewObjectReader(nsSysServerId()).
+					TableNameSet(sysTableName)); rs2.OK() {
+					cn.opts.Server.ID = rs2.DataValue().String()
+				}
+
+				if !hex16.MatchString(cn.opts.Server.ID) {
+					cn.opts.Server.ID = randHexString(16)
+				}
+			}
+
+			if rs2 := cn.commitLocal(kv2.NewObjectWriter(nsSysServerId(), []byte(cn.opts.Server.ID)).
+				TableNameSet(sysTableName), 0); !rs2.OK() {
+				return rs2.Error()
+			}
+
+			hlog.Printf("info", "server id %s", cn.opts.Server.ID)
 		}
 
 		if cn.opts.Server.AccessKey != nil &&
@@ -353,10 +373,10 @@ func (cn *Conn) dbTableListSetup() error {
 			tableId:        10,
 			tableName:      "main",
 			incrSets:       map[string]*dbTableIncrSet{},
-			logAsyncSets:   map[string]bool{},
+			logPullPending: map[string]bool{},
+			logPullOffsets: map[string]uint64{},
 			logLockSets:    map[uint64]uint64{},
 			logSyncBuffer:  newLogSyncBufferTable(),
-			logSyncOffsets: make(map[string]uint64),
 		},
 	}
 
@@ -443,11 +463,11 @@ func (cn *Conn) dbTableListSetup() error {
 			tableId:        uint32(item.Meta.IncrId),
 			tableName:      tb.Name,
 			incrSets:       map[string]*dbTableIncrSet{},
-			logAsyncSets:   map[string]bool{},
+			logPullPending: map[string]bool{},
+			logPullOffsets: map[string]uint64{},
 			logLockSets:    map[uint64]uint64{},
 			perfStatus:     cn.perfStatus,
 			logSyncBuffer:  newLogSyncBufferTable(),
-			logSyncOffsets: make(map[string]uint64),
 		}
 	}
 

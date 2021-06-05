@@ -244,6 +244,10 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 		return nil, err
 	}
 
+	if !hex16.MatchString(req.ServerId) {
+		return nil, errors.New("server id not found")
+	}
+
 	tdb := it.db.tabledb(req.TableName)
 	if tdb == nil {
 		return nil, errors.New("table not found")
@@ -268,7 +272,7 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 				ss = tdb.db.Get(keyEncode(nsKeyMeta, req.Keys[i]), nil)
 			}
 
-			if !ss.OK() && ss.NotFound() {
+			if !ss.OK() && !ss.NotFound() {
 				return nil, ss.Error()
 			}
 
@@ -297,9 +301,9 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 			rs.NextKeys = req.Keys[i+1:]
 		}
 
-		if p := tdb.logSyncBuffer.status(req.Addr, 0, len(rs.Items)); p != nil {
-			hlog.SlotPrint(600, "info", "log sync reply cold keys %d, next keys %d",
-				p.keyNum, len(rs.NextKeys))
+		if p := tdb.logSyncBuffer.status(req.ServerId, 0, len(rs.Items)); p != nil && p.keyNum > 0 {
+			hlog.SlotPrint(600, "info", "log sync reply to %s/%s cold keys %d, next keys %d",
+				req.ServerId, req.TableName, p.keyNum, len(rs.NextKeys))
 		}
 
 		return rs, nil
@@ -355,6 +359,7 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 				Version: meta.Version,
 				Key:     bytesClone(meta.Key),
 				Attrs:   meta.Attrs,
+				Updated: meta.Updated,
 			})
 			rs.LogCutset = meta.Version
 			siz -= (len(meta.Key) + 20)
@@ -371,9 +376,9 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 		}
 	}
 
-	if p := tdb.logSyncBuffer.status(req.Addr, len(rs.Logs), 0); p != nil {
-		hlog.SlotPrint(600, "info", "log sync reply cold logs %d, range %d ~ %d",
-			p.logNum, rs.LogOffset, rs.LogCutset)
+	if p := tdb.logSyncBuffer.status(req.ServerId, len(rs.Logs), 0); p != nil && p.logNum > 0 {
+		hlog.SlotPrint(600, "info", "log sync reply to %s/%s cold logs %d, range %d ~ %d",
+			req.ServerId, req.TableName, p.logNum, rs.LogOffset, rs.LogCutset)
 	}
 
 	return rs, nil

@@ -178,9 +178,6 @@ func (it *Config) Reset() *Config {
 		if it.Server.AccessKey == nil {
 			it.Server.AccessKey = NewSystemAccessKey()
 		}
-		if it.Server.ID == "" {
-			it.Server.ID = randHexString(16)
-		}
 	}
 
 	if it.Server.AuthTLSCert != nil {

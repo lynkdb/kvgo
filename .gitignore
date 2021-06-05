@@ -4,3 +4,4 @@ tests/*
 batch-*
 bench/*
 storage_*
+.DS_Store
