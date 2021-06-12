@@ -187,7 +187,9 @@ func (it *InternalServiceImpl) Accept(ctx context.Context,
 
 			if kv2.AttrAllow(rr.Meta.Attrs, kv2.ObjectMetaAttrDataOff) {
 				batch.Put(keyEncode(nsKeyMeta, rr.Meta.Key), bsData)
+				batch.Delete(keyEncode(nsKeyData, rr.Meta.Key))
 			} else if kv2.AttrAllow(rr.Meta.Attrs, kv2.ObjectMetaAttrMetaOff) {
+				batch.Delete(keyEncode(nsKeyMeta, rr.Meta.Key))
 				batch.Put(keyEncode(nsKeyData, rr.Meta.Key), bsData)
 			} else {
 				batch.Put(keyEncode(nsKeyMeta, rr.Meta.Key), bsMeta)
@@ -257,6 +259,86 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 		return nil, errors.New("logSyncBuffer not setup")
 	}
 
+	if len(req.KeyOffset) > 0 {
+
+		if it.db.close {
+			return nil, errors.New("db closed")
+		}
+
+		nsKey := uint8(0)
+		if kv2.AttrAllow(req.Attrs, kv2.ObjectMetaAttrDataOff) {
+			nsKey = nsKeyMeta
+		} else if kv2.AttrAllow(req.Attrs, kv2.ObjectMetaAttrMetaOff) {
+			nsKey = nsKeyData
+		} else {
+			return nil, errors.New("bad request (attrs)")
+		}
+
+		if it.db.perfStatus != nil {
+			it.db.perfStatus.Sync(PerfStorReadKeyRange, 0, 1, tsd.ValueAttrSum)
+		}
+
+		var (
+			offset = keyEncode(nsKey, req.KeyOffset)
+			cutset = keyEncode(nsKey, bytes.Repeat([]byte{0xff}, 32))
+			num    = 1000
+			siz    = 2 * 1024 * 1024
+			dbsiz  = 0
+			iter   = tdb.db.NewIterator(&kv2.StorageIteratorRange{
+				Start: offset,
+				Limit: cutset,
+			})
+			rs = &kv2.LogSyncReply{}
+		)
+
+		for ok := iter.First(); ok && num > 0 && siz > 0; ok = iter.Next() {
+			num--
+
+			if bytes.Compare(iter.Key(), offset) <= 0 {
+				continue
+			}
+
+			if bytes.Compare(iter.Key(), cutset) > 0 {
+				break
+			}
+
+			if len(iter.Value()) < 2 {
+				continue
+			}
+
+			dbsiz += len(iter.Value())
+			meta, err := kv2.ObjectMetaDecode(iter.Value())
+			if err != nil || meta == nil {
+				if err != nil {
+					hlog.Printf("info", "db-log-range err %s", err.Error())
+				}
+				break
+			}
+
+			rs.Logs = append(rs.Logs, &kv2.ObjectMeta{
+				Version: meta.Version,
+				Key:     bytesClone(meta.Key),
+				Attrs:   meta.Attrs,
+				Updated: meta.Updated,
+			})
+			siz -= (len(meta.Key) + 27)
+		}
+
+		rs.LogCutset, _ = tdb.objectLogVersionSet(0, 0, 0)
+
+		iter.Release()
+
+		if iter.Error() != nil {
+			return nil, iter.Error()
+		}
+
+		if dbsiz > 0 && it.db.perfStatus != nil {
+			it.db.perfStatus.Sync(PerfStorReadBytes, 0, int64(dbsiz), tsd.ValueAttrSum)
+		}
+
+		return rs, nil
+	}
+
 	if len(req.Keys) > 0 {
 
 		var (
@@ -267,9 +349,18 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 
 		for ; i < len(req.Keys); i++ {
 
-			ss := tdb.db.Get(keyEncode(nsKeyData, req.Keys[i]), nil)
-			if !ss.OK() && ss.NotFound() {
-				ss = tdb.db.Get(keyEncode(nsKeyMeta, req.Keys[i]), nil)
+			k := req.Keys[i]
+
+			nsKey := uint8(0)
+			if kv2.AttrAllow(k.Attrs, kv2.ObjectMetaAttrDataOff) {
+				nsKey = nsKeyMeta
+			} else {
+				nsKey = nsKeyData
+			}
+
+			ss := tdb.db.Get(keyEncode(nsKey, k.Key), nil)
+			if ss.NotFound() && nsKey != nsKeyMeta {
+				ss = tdb.db.Get(keyEncode(nsKeyMeta, k.Key), nil)
 			}
 
 			if !ss.OK() && !ss.NotFound() {
@@ -362,7 +453,7 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 				Updated: meta.Updated,
 			})
 			rs.LogCutset = meta.Version
-			siz -= (len(meta.Key) + 20)
+			siz -= (len(meta.Key) + 27)
 		}
 
 		iter.Release()

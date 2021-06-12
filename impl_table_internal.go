@@ -30,6 +30,15 @@ type dbTableIncrSet struct {
 	cutset uint64
 }
 
+type dbTableLogPullOffset struct {
+	Version       uint8  `json:"version"`
+	LogOffset     uint64 `json:"log_offset"`
+	MetaKeyOffset []byte `json:"meta_key_offset"`
+	MetaKeyCutset []byte `json:"meta_key_cutset"`
+	DataKeyOffset []byte `json:"data_key_offset"`
+	DataKeyCutset []byte `json:"data_key_cutset"`
+}
+
 type dbTable struct {
 	instId         string
 	tableId        uint32
@@ -42,7 +51,7 @@ type dbTable struct {
 	logCutset      uint64
 	logPullMu      sync.Mutex
 	logPullPending map[string]bool
-	logPullOffsets map[string]uint64
+	logPullOffsets map[string]*dbTableLogPullOffset
 	logLockSets    map[uint64]uint64
 	perfStatus     *tsd.CycleFeed
 	logSyncBuffer  *logSyncBufferTable
@@ -252,7 +261,8 @@ func (tdb *dbTable) objectIncrSet(ns string, incr, set uint64) (uint64, error) {
 	return incrSet.offset, nil
 }
 
-func (tdb *dbTable) logPullOffsetFlush(hostAddr, tableFrom string, offset uint64) uint64 {
+func (tdb *dbTable) logPullOffsetFlush(hostAddr, tableFrom string,
+	offset *dbTableLogPullOffset, chg bool) *dbTableLogPullOffset {
 
 	lkey := hostAddr + "/" + tableFrom
 
@@ -261,29 +271,45 @@ func (tdb *dbTable) logPullOffsetFlush(hostAddr, tableFrom string, offset uint64
 
 	var (
 		prevOffset, ok = tdb.logPullOffsets[lkey]
-		err            error
 	)
-	if !ok || prevOffset < 1 {
+
+	if !ok || prevOffset == nil {
 		if ss := tdb.db.Get(keySysLogPull(hostAddr, tableFrom), nil); !ss.OK() {
 			if !ss.NotFound() {
-				return offset
+				return nil
 			}
 		} else {
-			if prevOffset, err = strconv.ParseUint(ss.String(), 10, 64); err == nil {
+			var set dbTableLogPullOffset
+			if err := jsonDecode(ss.Bytes(), &set); err == nil {
+				prevOffset = &set
 				tdb.logPullOffsets[lkey] = prevOffset
+				hlog.Printf("info", "table %s load offset %s", tdb.tableName, ss.String())
 			}
+		}
+
+		if prevOffset == nil {
+			prevOffset, chg = &dbTableLogPullOffset{}, true
+			tdb.logPullOffsets[lkey] = prevOffset
 		}
 	}
 
-	if offset <= prevOffset {
-		return prevOffset
+	if offset != nil && offset != prevOffset {
+		if offset.LogOffset > prevOffset.LogOffset {
+			prevOffset.LogOffset, chg = offset.LogOffset, true
+		}
+		if bytes.Compare(offset.DataKeyOffset, prevOffset.DataKeyOffset) > 0 {
+			prevOffset.DataKeyOffset, chg = offset.DataKeyOffset, true
+		}
+		if bytes.Compare(offset.MetaKeyOffset, prevOffset.MetaKeyOffset) > 0 {
+			prevOffset.MetaKeyOffset, chg = offset.MetaKeyOffset, true
+		}
 	}
 
-	tdb.logPullOffsets[lkey] = offset
-	tdb.db.Put(keySysLogPull(hostAddr, tableFrom),
-		[]byte(strconv.FormatUint(offset, 10)), nil)
+	if chg {
+		tdb.db.Put(keySysLogPull(hostAddr, tableFrom), jsonEncode(prevOffset), nil)
+	}
 
-	return offset
+	return prevOffset
 }
 
 func (it *dbTable) expiredSync(t int64) int64 {

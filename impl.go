@@ -196,7 +196,9 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 
 			if kv2.AttrAllow(rr.Meta.Attrs, kv2.ObjectMetaAttrDataOff) {
 				batch.Put(keyEncode(nsKeyMeta, rr.Meta.Key), bsData)
+				batch.Delete(keyEncode(nsKeyData, rr.Meta.Key))
 			} else if kv2.AttrAllow(rr.Meta.Attrs, kv2.ObjectMetaAttrMetaOff) {
+				batch.Delete(keyEncode(nsKeyMeta, rr.Meta.Key))
 				batch.Put(keyEncode(nsKeyData, rr.Meta.Key), bsData)
 			} else {
 				batch.Put(keyEncode(nsKeyMeta, rr.Meta.Key), bsMeta)
@@ -626,6 +628,7 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 
 				ss := tdb.db.Get(keyEncode(nsKey, meta.Key), nil)
 
+				/**
 				if ss.NotFound() {
 					if nsKey == nsKeyData {
 						nsKey = nsKeyMeta
@@ -634,9 +637,13 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 					}
 					ss = tdb.db.Get(keyEncode(nsKey, meta.Key), nil)
 				}
+				*/
 
 				if !ss.OK() {
-					hlog.Printf("info", "db-log-range err %s", ss.ErrorMessage())
+					if !ss.NotFound() {
+						hlog.Printf("errro", "db-log-range err %s", ss.ErrorMessage())
+						break
+					}
 					continue
 				}
 

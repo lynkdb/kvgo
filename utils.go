@@ -22,6 +22,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -171,4 +172,13 @@ func batchResultDataSize(rs *kv2.BatchResult) int64 {
 
 func timems() int64 {
 	return (time.Now().UnixNano() / 1e6)
+}
+
+func jsonEncode(obj interface{}) []byte {
+	bs, _ := json.Marshal(obj)
+	return bs
+}
+
+func jsonDecode(bs []byte, obj interface{}) error {
+	return json.Unmarshal(bs, obj)
 }

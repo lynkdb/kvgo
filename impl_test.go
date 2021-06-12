@@ -565,7 +565,7 @@ func Test_Object_LogAsync(t *testing.T) {
 
 				rs, err := kv2.NewPublicClient(conn).Query(ctx, rr)
 				if err != nil {
-					t.Fatal("Object AsyncLog ER")
+					t.Fatalf("Object AsyncLog ER %s", err.Error())
 				}
 
 				if !rs.OK() || len(rs.Items) == 0 {
@@ -577,6 +577,26 @@ func Test_Object_LogAsync(t *testing.T) {
 
 				if rs.Items[0].Meta.Version != va[1] {
 					t.Fatalf("Object AsyncLog ER %d/%d", rs.Items[0].Meta.Version, va[1])
+				}
+
+				if kv2.AttrAllow(va[0], kv2.ObjectMetaAttrDataOff) {
+
+					rr2 := kv2.NewObjectReader([]byte(fmt.Sprintf("%s-%d", key, va[0])))
+					rr2.Attrs |= kv2.ObjectMetaAttrMetaOff
+
+					if rs, err := kv2.NewPublicClient(conn).Query(ctx, rr2); err == nil && rs.OK() {
+						t.Fatalf("Object AsyncLog ER %d/%d", rs.Items[0].Meta.Version, va[1])
+					}
+				}
+
+				if kv2.AttrAllow(va[0], kv2.ObjectMetaAttrMetaOff) {
+
+					rr2 := kv2.NewObjectReader([]byte(fmt.Sprintf("%s-%d", key, va[0])))
+					rr2.Attrs |= kv2.ObjectMetaAttrDataOff
+
+					if rs, err := kv2.NewPublicClient(conn).Query(ctx, rr2); err == nil && rs.OK() {
+						t.Fatalf("Object AsyncLog ER %d/%d", rs.Items[0].Meta.Version, va[1])
+					}
 				}
 			}
 

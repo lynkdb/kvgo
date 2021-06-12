@@ -402,59 +402,76 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 		tdb.logPullMu.Unlock()
 	}()
 
-	hlog.Printf("info", "log sync %s ...", lkey)
-	defer hlog.Printf("info", "log sync %s done", lkey)
-
 	var (
-		offset = tdb.logPullOffsetFlush(hp.Addr, tm.From, 0)
-		num    = 0
+		offset = tdb.logPullOffsetFlush(hp.Addr, tm.From, nil, false)
 		retry  = 0
-		tn     = time.Now().Unix()
-		ttl    = tn + int64(1800)
 		mttl   = uint64(3600) * 1000
 	)
+
+	if offset == nil {
+		return errors.New("db error")
+	}
 
 	conn, err := clientConn(hp.Addr, hp.AccessKey, hp.AuthTLSCert, false)
 	if err != nil {
 		return err
 	}
 
-	req := &kv2.LogSyncRequest{
-		ServerId:  cn.opts.Server.ID,
-		Addr:      cn.opts.Server.Bind,
-		TableName: tm.From,
-		LogOffset: offset,
+	if len(offset.DataKeyCutset) == 0 {
+		offset.DataKeyCutset = bytes.Repeat([]byte{0xff}, 32)
 	}
 
-	// hlog.Printf("info", "pull from %s/%s at %d", hp.Addr, tm.From, offset)
+	if len(offset.MetaKeyCutset) == 0 {
+		offset.MetaKeyCutset = bytes.Repeat([]byte{0xff}, 32)
+	}
 
-	for !cn.close && (num < 1000000 && time.Now().Unix() < ttl) {
+	if bytes.Compare(offset.DataKeyOffset, offset.DataKeyCutset) < 0 {
 
-		ctx, fc := context.WithTimeout(context.Background(), time.Second*100)
-		rep, err := kv2.NewInternalClient(conn).LogSync(ctx, req)
-		fc()
+		var (
+			statsScan = 0
+			statsSync = 0
+			req       = &kv2.LogSyncRequest{
+				ServerId:  cn.opts.Server.ID,
+				Addr:      cn.opts.Server.Bind,
+				TableName: tm.From,
+				Attrs:     kv2.ObjectMetaAttrMetaOff,
+			}
+		)
 
-		if err != nil {
+		for !cn.close {
 
-			hlog.SlotPrint(600, "warn", "log sync pull from %s/%s, err %s",
-				hp.Addr, tdb.tableName, err.Error())
+			req.KeyOffset = offset.DataKeyOffset
 
-			retry++
-			if retry >= 3 {
+			ctx, fc := context.WithTimeout(context.Background(), time.Second*100)
+			rep, err := kv2.NewInternalClient(conn).LogSync(ctx, req)
+			fc()
+
+			if err != nil {
+				retry++
+
+				hlog.SlotPrint(600, "warn", "log sync pull from %s/%s, err %s, retry(%d) ...",
+					hp.Addr, tdb.tableName, err.Error(), retry)
+
+				time.Sleep(1e9)
+				conn, err = clientConn(hp.Addr, hp.AccessKey, hp.AuthTLSCert, true)
+				continue
+			}
+			retry = 0
+
+			if cn.close {
 				break
 			}
 
-			time.Sleep(1e9)
-			conn, err = clientConn(hp.Addr, hp.AccessKey, hp.AuthTLSCert, true)
-			continue
-		}
-		retry = 0
+			if offset.LogOffset == 0 {
+				offset.LogOffset = rep.LogCutset
+			}
 
-		if cn.close {
-			break
-		}
+			if len(rep.Logs) == 0 && offset.LogOffset > 0 {
+				offset.DataKeyCutset = offset.DataKeyOffset
+				break
+			}
 
-		if len(rep.Logs) > 0 {
+			statsScan += len(rep.Logs)
 
 			req2 := &kv2.LogSyncRequest{
 				ServerId:  cn.opts.Server.ID,
@@ -464,29 +481,23 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 
 			for _, v := range rep.Logs {
 
-				ss := tdb.db.Get(keyEncode(nsKeyMeta, v.Key), nil)
+				nsKey := uint8(0)
+				if kv2.AttrAllow(v.Attrs, kv2.ObjectMetaAttrMetaOff) {
+					nsKey = nsKeyData
+				} else {
+					nsKey = nsKeyMeta
+				}
+
+				ss := tdb.db.Get(keyEncode(nsKey, v.Key), nil)
 				if ss.OK() {
 					meta, err := kv2.ObjectMetaDecode(ss.Bytes())
 					if err == nil && (meta.Version >= v.Version && (meta.Updated+mttl) >= v.Updated) {
-						num++
 						continue
-					}
-				} else {
-					ss = tdb.db.Get(keyEncode(nsKeyData, v.Key), nil)
-					if ss.OK() {
-						meta, err := kv2.ObjectMetaDecode(ss.Bytes())
-						if err == nil && (meta.Version >= v.Version && (meta.Updated+mttl) >= v.Updated) {
-							num++
-							continue
-						}
 					}
 				}
 
-				req2.Keys = append(req2.Keys, bytesClone(v.Key))
+				req2.Keys = append(req2.Keys, v)
 			}
-
-			// hlog.Printf("debug", "log sync from %s/%s to %s, save logs %d ~ %d",
-			// 	hp.Addr, tm.From, tm.To, rep.LogOffset, rep.LogCutset)
 
 			for len(req2.Keys) > 0 {
 
@@ -515,34 +526,259 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 					if !rs2.OK() {
 						return rs2.Error()
 					}
-
-					num++
 				}
 
-				// hlog.Printf("debug", "log sync from %s/%s to %s, save keys %d, next keys %d",
-				// 	hp.Addr, tm.From, tm.To, len(rep2.Items), len(rep2.NextKeys))
+				statsSync += len(rep2.Items)
+				req2.Keys = rep2.NextKeys
 
+				hlog.SlotPrint(600, "info", "log sync pull from %s/%s to local/%s, data keys sync/scan %d/%d, log offset %d, key offset %v",
+					hp.Addr, tm.From, tm.To, statsSync, statsScan, offset.LogOffset, string(offset.DataKeyOffset))
+			}
+
+			if len(rep.Logs) > 0 {
+				offset.DataKeyOffset = bytesClone(rep.Logs[len(rep.Logs)-1].Key)
+			}
+
+			tdb.logPullOffsetFlush(hp.Addr, tm.From, offset, true)
+			hlog.SlotPrint(600, "info", "log sync pull from %s/%s to local/%s, data keys sync/scan %d/%d, log offset %d, key offset %v",
+				hp.Addr, tm.From, tm.To, statsSync, statsScan, offset.LogOffset, string(offset.DataKeyOffset))
+		}
+	}
+
+	if bytes.Compare(offset.MetaKeyOffset, offset.MetaKeyCutset) < 0 {
+
+		var (
+			statsScan = 0
+			statsSync = 0
+			req       = &kv2.LogSyncRequest{
+				ServerId:  cn.opts.Server.ID,
+				Addr:      cn.opts.Server.Bind,
+				TableName: tm.From,
+				Attrs:     kv2.ObjectMetaAttrDataOff,
+			}
+		)
+
+		for !cn.close {
+
+			req.KeyOffset = offset.MetaKeyOffset
+
+			ctx, fc := context.WithTimeout(context.Background(), time.Second*100)
+			rep, err := kv2.NewInternalClient(conn).LogSync(ctx, req)
+			fc()
+
+			if err != nil {
+				retry++
+
+				hlog.SlotPrint(600, "warn", "log sync pull from %s/%s, err %s, retry(%d) ...",
+					hp.Addr, tdb.tableName, err.Error(), retry)
+
+				time.Sleep(1e9)
+				conn, err = clientConn(hp.Addr, hp.AccessKey, hp.AuthTLSCert, true)
+				continue
+			}
+			retry = 0
+
+			if cn.close {
+				break
+			}
+
+			if offset.LogOffset == 0 {
+				offset.LogOffset = rep.LogCutset
+			}
+
+			if len(rep.Logs) == 0 && offset.LogOffset > 0 {
+				offset.MetaKeyCutset = offset.MetaKeyOffset
+				break
+			}
+
+			statsScan += len(rep.Logs)
+
+			req2 := &kv2.LogSyncRequest{
+				ServerId:  cn.opts.Server.ID,
+				Addr:      cn.opts.Server.Bind,
+				TableName: tm.From,
+			}
+
+			for _, v := range rep.Logs {
+
+				nsKey := uint8(0)
+				if kv2.AttrAllow(v.Attrs, kv2.ObjectMetaAttrMetaOff) {
+					nsKey = nsKeyData
+				} else {
+					nsKey = nsKeyMeta
+				}
+
+				ss := tdb.db.Get(keyEncode(nsKey, v.Key), nil)
+				if ss.OK() {
+					meta, err := kv2.ObjectMetaDecode(ss.Bytes())
+					if err == nil && (meta.Version >= v.Version && (meta.Updated+mttl) >= v.Updated) {
+						continue
+					}
+				}
+
+				req2.Keys = append(req2.Keys, v)
+			}
+
+			for len(req2.Keys) > 0 {
+
+				ctx, fc := context.WithTimeout(context.Background(), time.Second*100)
+				rep2, err := kv2.NewInternalClient(conn).LogSync(ctx, req2)
+				fc()
+
+				if err != nil {
+					return err
+				}
+
+				for _, item := range rep2.Items {
+
+					ow := &kv2.ObjectWriter{
+						Meta: item.Meta,
+						Data: item.Data,
+					}
+
+					if kv2.AttrAllow(item.Meta.Attrs, kv2.ObjectMetaAttrDelete) {
+						ow.ModeDeleteSet(true)
+					}
+
+					ow.TableNameSet(tm.To)
+
+					rs2 := cn.commitLocal(ow, item.Meta.Version)
+					if !rs2.OK() {
+						return rs2.Error()
+					}
+				}
+
+				statsSync += len(rep2.Items)
+				req2.Keys = rep2.NextKeys
+
+				hlog.SlotPrint(600, "info", "log sync pull from %s/%s to local/%s, meta keys sync/scan %d/%d, log offset %d, key offset %v",
+					hp.Addr, tm.From, tm.To, statsSync, statsScan, offset.LogOffset, string(offset.MetaKeyOffset))
+			}
+
+			if len(rep.Logs) > 0 {
+				offset.MetaKeyOffset = bytesClone(rep.Logs[len(rep.Logs)-1].Key)
+			}
+
+			tdb.logPullOffsetFlush(hp.Addr, tm.From, offset, true)
+			hlog.SlotPrint(600, "info", "log sync pull from %s/%s to local/%s, meta keys sync/scan %d/%d, log offset %d, key offset %v",
+				hp.Addr, tm.From, tm.To, statsSync, statsScan, offset.LogOffset, string(offset.MetaKeyOffset))
+		}
+	}
+
+	// hlog.Printf("info", "pull from %s/%s at %d", hp.Addr, tm.From, offset)
+
+	var (
+		statsScan = 0
+		statsSync = 0
+		req       = &kv2.LogSyncRequest{
+			ServerId:  cn.opts.Server.ID,
+			Addr:      cn.opts.Server.Bind,
+			TableName: tm.From,
+		}
+	)
+
+	for !cn.close {
+
+		req.LogOffset = offset.LogOffset
+
+		ctx, fc := context.WithTimeout(context.Background(), time.Second*100)
+		rep, err := kv2.NewInternalClient(conn).LogSync(ctx, req)
+		fc()
+
+		if err != nil {
+			retry++
+
+			hlog.SlotPrint(600, "warn", "log sync pull from %s/%s, err %s, retry(%d) ...",
+				hp.Addr, tdb.tableName, err.Error(), retry)
+
+			time.Sleep(1e9)
+			conn, err = clientConn(hp.Addr, hp.AccessKey, hp.AuthTLSCert, true)
+			continue
+		}
+		retry = 0
+
+		if cn.close {
+			break
+		}
+
+		if len(rep.Logs) > 0 {
+
+			req2 := &kv2.LogSyncRequest{
+				ServerId:  cn.opts.Server.ID,
+				Addr:      cn.opts.Server.Bind,
+				TableName: tm.From,
+			}
+
+			for _, v := range rep.Logs {
+
+				nsKey := uint8(0)
+				if kv2.AttrAllow(v.Attrs, kv2.ObjectMetaAttrMetaOff) {
+					nsKey = nsKeyData
+				} else {
+					nsKey = nsKeyMeta
+				}
+
+				ss := tdb.db.Get(keyEncode(nsKey, v.Key), nil)
+				if ss.OK() {
+					meta, err := kv2.ObjectMetaDecode(ss.Bytes())
+					if err == nil && (meta.Version >= v.Version && (meta.Updated+mttl) >= v.Updated) {
+						continue
+					}
+				}
+
+				req2.Keys = append(req2.Keys, v)
+			}
+
+			statsScan += len(rep.Logs)
+
+			for len(req2.Keys) > 0 {
+
+				ctx, fc := context.WithTimeout(context.Background(), time.Second*100)
+				rep2, err := kv2.NewInternalClient(conn).LogSync(ctx, req2)
+				fc()
+
+				if err != nil {
+					return err
+				}
+
+				for _, item := range rep2.Items {
+
+					ow := &kv2.ObjectWriter{
+						Meta: item.Meta,
+						Data: item.Data,
+					}
+
+					if kv2.AttrAllow(item.Meta.Attrs, kv2.ObjectMetaAttrDelete) {
+						ow.ModeDeleteSet(true)
+					}
+
+					ow.TableNameSet(tm.To)
+
+					rs2 := cn.commitLocal(ow, item.Meta.Version)
+					if !rs2.OK() {
+						return rs2.Error()
+					}
+				}
+
+				statsSync += len(rep2.Items)
 				req2.Keys = rep2.NextKeys
 			}
 
-			offset = rep.Logs[len(rep.Logs)-1].Version
+			if len(rep.Logs) > 0 {
+				offset.LogOffset = rep.Logs[len(rep.Logs)-1].Version
+			}
+
+			hlog.SlotPrint(600, "info", "log sync pull from %s/%s to local/%s, log keys sync/scan %d/%d, log offset %d",
+				hp.Addr, tm.From, tm.To, statsSync, statsScan, offset.LogOffset)
 
 		} else if rep.Action == 0 {
 			time.Sleep(1e9)
 		}
 
-		if offset > req.LogOffset {
-			req.LogOffset = offset
-			tdb.logPullOffsetFlush(hp.Addr, tm.From, offset)
-			hlog.SlotPrint(600, "info", "log sync pull from %s/%s to local/%s, num %d, log offset %d",
-				hp.Addr, tm.From, tm.To, num, offset)
+		if offset.LogOffset > req.LogOffset {
+			req.LogOffset = offset.LogOffset
+			tdb.logPullOffsetFlush(hp.Addr, tm.From, offset, true)
 		}
-		// fmt.Printf("log async %d, offset %d, rep %v\n", num, req.LogOffset, rep)
-	}
-
-	if num > 0 {
-		hlog.Printf("info", "log sync pull from %s/%s to local/%s, num %d, log offset %d",
-			hp.Addr, tm.From, tm.To, num, req.LogOffset)
 	}
 
 	return nil
