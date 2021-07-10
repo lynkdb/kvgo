@@ -30,6 +30,10 @@ type dbTableIncrSet struct {
 	cutset uint64
 }
 
+const (
+	dbTableLogPullOffsetVersionCurrent uint8 = 1
+)
+
 type dbTableLogPullOffset struct {
 	Version       uint8  `json:"version"`
 	LogOffset     uint64 `json:"log_offset"`
@@ -288,7 +292,9 @@ func (tdb *dbTable) logPullOffsetFlush(hostAddr, tableFrom string,
 		}
 
 		if prevOffset == nil {
-			prevOffset, chg = &dbTableLogPullOffset{}, true
+			prevOffset, chg = &dbTableLogPullOffset{
+				Version: dbTableLogPullOffsetVersionCurrent,
+			}, true
 			tdb.logPullOffsets[lkey] = prevOffset
 		}
 	}
@@ -303,6 +309,13 @@ func (tdb *dbTable) logPullOffsetFlush(hostAddr, tableFrom string,
 		if bytes.Compare(offset.MetaKeyOffset, prevOffset.MetaKeyOffset) > 0 {
 			prevOffset.MetaKeyOffset, chg = offset.MetaKeyOffset, true
 		}
+	}
+
+	if prevOffset.Version != dbTableLogPullOffsetVersionCurrent {
+		prevOffset, chg = &dbTableLogPullOffset{
+			Version: dbTableLogPullOffsetVersionCurrent,
+		}, true
+		tdb.logPullOffsets[lkey] = prevOffset
 	}
 
 	if chg {

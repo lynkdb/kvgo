@@ -110,6 +110,10 @@ func (it *ConfigCluster) Master(addr string) *ClientConfig {
 
 func (it *ConfigCluster) randMainNodes(cap int) []*ClientConfig {
 
+	if len(it.MainNodes) == 0 {
+		return nil
+	}
+
 	var (
 		ls     = []*ClientConfig{}
 		offset = rand.Intn(len(it.MainNodes))

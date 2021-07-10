@@ -246,8 +246,10 @@ func Test_Object_Common(t *testing.T) {
 				} else {
 					if rs.DataValue().Uint32() != 1 {
 						t.Fatal("Query Key ER! Compare")
+					} else if rs.LogVersion < 100 {
+						t.Fatal("Query Key ER! LogVersion")
 					} else {
-						t.Logf("Query Key OK")
+						t.Logf("Query Key OK, LogVersion %d", rs.LogVersion)
 					}
 				}
 			}

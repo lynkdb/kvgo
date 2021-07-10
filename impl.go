@@ -305,6 +305,8 @@ func (cn *Conn) objectLocalQuery(rr *kv2.ObjectReader) *kv2.ObjectResult {
 		return rs
 	}
 
+	rs.LogVersion, _ = tdb.objectLogVersionSet(0, 0, 0)
+
 	if kv2.AttrAllow(rr.Mode, kv2.ObjectReaderModeKey) {
 
 		if cn.perfStatus != nil {
