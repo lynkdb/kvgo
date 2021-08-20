@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/hooto/hauth/go/hauth/v1"
-	"github.com/valuedig/apis/go/tsd/v1"
 	"google.golang.org/grpc"
 
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
@@ -46,6 +45,8 @@ type pQueItem struct {
 
 func (it *PublicServiceImpl) Query(ctx context.Context,
 	or *kv2.ObjectReader) (*kv2.ObjectResult, error) {
+
+	tp := timeus()
 
 	if ctx != nil {
 
@@ -70,17 +71,22 @@ func (it *PublicServiceImpl) Query(ctx context.Context,
 
 	rs := it.db.Query(or)
 
-	if it.db.perfStatus != nil {
+	if it.db.monitor != nil {
+
+		labels := map[string]string{}
+		siz := resultDataSize(rs)
 
 		if kv2.AttrAllow(or.Mode, kv2.ObjectReaderModeKey) {
-			it.db.perfStatus.Sync(PerfAPIReadKey, 0, 1, tsd.ValueAttrSum)
+			labels["Read"] = "Key"
 		} else if kv2.AttrAllow(or.Mode, kv2.ObjectReaderModeKeyRange) {
-			it.db.perfStatus.Sync(PerfAPIReadKeyRange, 0, 1, tsd.ValueAttrSum)
+			labels["Read"] = "KeyRange"
 		} else if kv2.AttrAllow(or.Mode, kv2.ObjectReaderModeLogRange) {
-			it.db.perfStatus.Sync(PerfAPIReadLogRange, 0, 1, tsd.ValueAttrSum)
+			labels["Read"] = "LogRange"
 		}
-		if siz := resultDataSize(rs); siz > 0 {
-			it.db.perfStatus.Sync(PerfAPIReadBytes, 0, siz, tsd.ValueAttrSum)
+
+		if len(labels) > 0 {
+			it.db.monitor.Metric(MetricServiceCall).With(labels).Add(siz)
+			it.db.monitor.Metric(MetricServiceLatency).With(labels).Add(timeus() - tp)
 		}
 	}
 
@@ -89,6 +95,14 @@ func (it *PublicServiceImpl) Query(ctx context.Context,
 
 func (it *PublicServiceImpl) Commit(ctx context.Context,
 	rr *kv2.ObjectWriter) (*kv2.ObjectResult, error) {
+
+	metricLabels := map[string]string{"Write": "Key"}
+	if it.db.monitor != nil {
+		tp := timeus()
+		defer func() {
+			it.db.monitor.Metric(MetricServiceLatency).With(metricLabels).Add(timeus() - tp)
+		}()
+	}
 
 	if ctx != nil {
 
@@ -119,11 +133,14 @@ func (it *PublicServiceImpl) Commit(ctx context.Context,
 		rs = it.groupCommit(ctx, rr)
 	}
 
-	if it.db.perfStatus != nil {
-		it.db.perfStatus.Sync(PerfAPIWriteKey, 0, 1, tsd.ValueAttrSum)
+	if it.db.monitor != nil {
+
+		siz := int64(0)
 		if rr.Data != nil && len(rr.Data.Value) > 0 {
-			it.db.perfStatus.Sync(PerfAPIWriteBytes, 0, int64(len(rr.Data.Value)), tsd.ValueAttrSum)
+			siz = int64(len(rr.Data.Value))
 		}
+
+		it.db.monitor.Metric(MetricServiceCall).With(metricLabels).Add(siz)
 	}
 
 	return rs, nil
@@ -339,6 +356,8 @@ func (it *PublicServiceImpl) groupCommit(ctx context.Context,
 func (it *PublicServiceImpl) BatchCommit(ctx context.Context,
 	rr *kv2.BatchRequest) (*kv2.BatchResult, error) {
 
+	tp := timeus()
+
 	if ctx != nil {
 
 		av, err := appAuthParse(ctx, it.db.keyMgr)
@@ -387,20 +406,31 @@ func (it *PublicServiceImpl) BatchCommit(ctx context.Context,
 		rs = it.groupBatchCommit(ctx, rr)
 	}
 
-	if it.db.perfStatus != nil {
-		it.db.perfStatus.Sync(PerfAPIWriteKey, 0, 1, tsd.ValueAttrSum)
-		if siz := batchResultDataSize(rs); siz > 0 {
-			it.db.perfStatus.Sync(PerfAPIReadBytes, 0, siz, tsd.ValueAttrSum)
-		}
+	if it.db.monitor != nil {
+
+		bsiz := batchResultDataSize(rs)
+		it.db.monitor.Metric(MetricServiceCall).With(map[string]string{
+			"Read": "BatchKey",
+		}).Add(bsiz)
+
+		it.db.monitor.Metric(MetricServiceLatency).With(map[string]string{
+			"Read": "BatchKey",
+		}).Add(timeus() - tp)
+
 		wsiz := 0
 		for _, b := range rr.Items {
 			if b.Writer != nil && b.Writer.Data != nil {
 				wsiz += len(b.Writer.Data.Value)
 			}
 		}
-		if wsiz > 0 {
-			it.db.perfStatus.Sync(PerfAPIWriteBytes, 0, int64(wsiz), tsd.ValueAttrSum)
-		}
+
+		it.db.monitor.Metric(MetricServiceCall).With(map[string]string{
+			"Write": "BatchKey",
+		}).Add(int64(wsiz))
+
+		it.db.monitor.Metric(MetricServiceLatency).With(map[string]string{
+			"Write": "BatchKey",
+		}).Add(timeus() - tp)
 	}
 
 	return rs, nil

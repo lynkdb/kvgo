@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/hooto/hlog4g/hlog"
-	"github.com/valuedig/apis/go/tsd/v1"
 	"google.golang.org/grpc"
 
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
@@ -274,10 +273,6 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 			return nil, errors.New("bad request (attrs)")
 		}
 
-		if it.db.perfStatus != nil {
-			it.db.perfStatus.Sync(PerfStorReadKeyRange, 0, 1, tsd.ValueAttrSum)
-		}
-
 		var (
 			offset = keyEncode(nsKey, req.KeyOffset)
 			cutset = keyEncode(nsKey, bytes.Repeat([]byte{0xff}, 32))
@@ -315,6 +310,10 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 				break
 			}
 
+			if meta.Updated == 0 {
+				meta.Updated = uint64(timems())
+			}
+
 			rs.Logs = append(rs.Logs, &kv2.ObjectMeta{
 				Version: meta.Version,
 				Key:     bytesClone(meta.Key),
@@ -332,8 +331,10 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 			return nil, iter.Error()
 		}
 
-		if dbsiz > 0 && it.db.perfStatus != nil {
-			it.db.perfStatus.Sync(PerfStorReadBytes, 0, int64(dbsiz), tsd.ValueAttrSum)
+		if it.db.monitor != nil {
+			it.db.monitor.Metric(MetricStorageCall).With(map[string]string{
+				"Read": "KeyRange",
+			}).Add(int64(dbsiz))
 		}
 
 		return rs, nil
@@ -374,18 +375,16 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 					break
 				}
 
-				if it.db.perfStatus != nil {
-					it.db.perfStatus.Sync(PerfStorReadBytes, 0, int64(ss.Len()), tsd.ValueAttrSum)
+				if it.db.monitor != nil {
+					it.db.monitor.Metric(MetricStorageCall).With(map[string]string{
+						"Read": "Key",
+					}).Add(int64(ss.Len()))
 				}
 
 				if item, err := kv2.ObjectItemDecode(ss.Bytes()); err == nil {
 					rs.Items = append(rs.Items, item)
 				}
 			}
-		}
-
-		if len(rs.Items) > 0 && it.db.perfStatus != nil {
-			it.db.perfStatus.Sync(PerfStorReadKey, 0, int64(len(rs.Items)), tsd.ValueAttrSum)
 		}
 
 		if i < len(req.Keys) {
@@ -404,10 +403,6 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 	if rs.Action == 1 {
 		if it.db.close {
 			return nil, errors.New("db closed")
-		}
-
-		if it.db.perfStatus != nil {
-			it.db.perfStatus.Sync(PerfStorReadLogRange, 0, 1, tsd.ValueAttrSum)
 		}
 
 		var (
@@ -446,6 +441,10 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 				break
 			}
 
+			if meta.Updated == 0 {
+				meta.Updated = uint64(timems())
+			}
+
 			rs.Logs = append(rs.Logs, &kv2.ObjectMeta{
 				Version: meta.Version,
 				Key:     bytesClone(meta.Key),
@@ -462,8 +461,10 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 			return nil, iter.Error()
 		}
 
-		if dbsiz > 0 && it.db.perfStatus != nil {
-			it.db.perfStatus.Sync(PerfStorReadBytes, 0, int64(dbsiz), tsd.ValueAttrSum)
+		if it.db.monitor != nil {
+			it.db.monitor.Metric(MetricStorageCall).With(map[string]string{
+				"Read": "LogRange",
+			}).Add(int64(dbsiz))
 		}
 	}
 

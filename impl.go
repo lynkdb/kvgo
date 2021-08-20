@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/hooto/hlog4g/hlog"
-	"github.com/valuedig/apis/go/tsd/v1"
 
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
@@ -50,6 +49,15 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 		return kv2.NewObjectResultClientError(err)
 	}
 
+	if cn.monitor != nil {
+		tp := timeus()
+		defer func() {
+			cn.monitor.Metric(MetricStorageLatency).With(map[string]string{
+				"Write": "Key",
+			}).Add(timeus() - tp)
+		}()
+	}
+
 	cn.mu.Lock()
 	defer cn.mu.Unlock()
 
@@ -61,10 +69,6 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 	tdb := cn.tabledb(rr.TableName)
 	if tdb == nil {
 		return kv2.NewObjectResultClientError(errors.New("table not found"))
-	}
-
-	if cn.perfStatus != nil {
-		cn.perfStatus.Sync(PerfStorWriteKey, 0, 1, tsd.ValueAttrSum)
 	}
 
 	if meta == nil {
@@ -164,8 +168,10 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 
 	if kv2.AttrAllow(rr.Mode, kv2.ObjectWriterModeDelete) {
 
-		if cn.perfStatus != nil {
-			cn.perfStatus.Sync(PerfStorWriteKey, 0, 1, tsd.ValueAttrSum)
+		if cn.monitor != nil {
+			cn.monitor.Metric(MetricStorageCall).With(map[string]string{
+				"Write": "Key",
+			}).Inc(1)
 		}
 
 		rr.Meta.Attrs |= kv2.ObjectMetaAttrDelete
@@ -205,8 +211,10 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 				batch.Put(keyEncode(nsKeyData, rr.Meta.Key), bsData)
 			}
 
-			if cn.perfStatus != nil {
-				cn.perfStatus.Sync(PerfStorWriteBytes, 0, int64(len(bsMeta)+len(bsData)), tsd.ValueAttrSum)
+			if cn.monitor != nil {
+				cn.monitor.Metric(MetricStorageCall).With(map[string]string{
+					"Write": "Key",
+				}).Add(int64(len(bsMeta) + len(bsData)))
 			}
 
 			if cLogOn && !cn.opts.Feature.WriteLogDisable {
@@ -299,6 +307,15 @@ func (cn *Conn) objectLocalQuery(rr *kv2.ObjectReader) *kv2.ObjectResult {
 
 	rs := kv2.NewObjectResultOK()
 
+	if cn.monitor != nil {
+		tp := timeus()
+		defer func() {
+			cn.monitor.Metric(MetricStorageLatency).With(map[string]string{
+				"Read": "Key",
+			}).Add(timeus() - tp)
+		}()
+	}
+
 	tdb := cn.tabledb(rr.TableName)
 	if tdb == nil {
 		rs.StatusMessage(kv2.ResultClientError, "table not found")
@@ -308,10 +325,6 @@ func (cn *Conn) objectLocalQuery(rr *kv2.ObjectReader) *kv2.ObjectResult {
 	rs.LogVersion, _ = tdb.objectLogVersionSet(0, 0, 0)
 
 	if kv2.AttrAllow(rr.Mode, kv2.ObjectReaderModeKey) {
-
-		if cn.perfStatus != nil {
-			cn.perfStatus.Sync(PerfStorReadKey, 0, 1, tsd.ValueAttrSum)
-		}
 
 		for _, k := range rr.Keys {
 
@@ -325,8 +338,10 @@ func (cn *Conn) objectLocalQuery(rr *kv2.ObjectReader) *kv2.ObjectResult {
 				rs2 = tdb.db.Get(keyEncode(nsKeyData, k), nil)
 			}
 
-			if cn.perfStatus != nil {
-				cn.perfStatus.Sync(PerfStorReadBytes, 0, int64(rs2.Len()), tsd.ValueAttrSum)
+			if cn.monitor != nil {
+				cn.monitor.Metric(MetricStorageCall).With(map[string]string{
+					"Read": "Key",
+				}).Add(int64(rs2.Len()))
 			}
 
 			if rs2.OK() {
@@ -405,13 +420,18 @@ func (cn *Conn) objectQueryRemote(rr *kv2.ObjectReader) *kv2.ObjectResult {
 
 func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) error {
 
+	if cn.monitor != nil {
+		tp := timeus()
+		defer func() {
+			cn.monitor.Metric(MetricStorageLatency).With(map[string]string{
+				"Read": "KeyRange",
+			}).Add(timeus() - tp)
+		}()
+	}
+
 	tdb := cn.tabledb(rr.TableName)
 	if tdb == nil {
 		return errors.New("table not found")
-	}
-
-	if cn.perfStatus != nil {
-		cn.perfStatus.Sync(PerfStorReadKeyRange, 0, 1, tsd.ValueAttrSum)
 	}
 
 	nsKey := nsKeyData
@@ -532,8 +552,10 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 		rs.Next = true
 	}
 
-	if cn.perfStatus != nil {
-		cn.perfStatus.Sync(PerfStorReadBytes, 0, limitSize, tsd.ValueAttrSum)
+	if cn.monitor != nil {
+		cn.monitor.Metric(MetricStorageCall).With(map[string]string{
+			"Read": "KeyRange",
+		}).Add(int64(len(values)))
 	}
 
 	return nil
@@ -541,13 +563,18 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 
 func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) error {
 
+	if cn.monitor != nil {
+		tp := timeus()
+		defer func() {
+			cn.monitor.Metric(MetricStorageLatency).With(map[string]string{
+				"Read": "LogRange",
+			}).Add(timeus() - tp)
+		}()
+	}
+
 	tdb := cn.tabledb(rr.TableName)
 	if tdb == nil {
 		return errors.New("table not found")
-	}
-
-	if cn.perfStatus != nil {
-		cn.perfStatus.Sync(PerfStorReadLogRange, 0, 1, tsd.ValueAttrSum)
 	}
 
 	var (
@@ -692,8 +719,10 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 		rs.Next = true
 	}
 
-	if cn.perfStatus != nil {
-		cn.perfStatus.Sync(PerfStorReadBytes, 0, limitSize, tsd.ValueAttrSum)
+	if cn.monitor != nil {
+		cn.monitor.Metric(MetricStorageCall).With(map[string]string{
+			"Read": "LogRange",
+		}).Add(int64(limitSize))
 	}
 
 	return nil

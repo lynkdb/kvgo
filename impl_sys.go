@@ -20,8 +20,10 @@ import (
 	"strings"
 
 	hauth "github.com/hooto/hauth/go/hauth/v1"
+
+	tsd2 "github.com/valuedig/apis/go/tsd/v2"
+
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
-	"github.com/valuedig/apis/go/tsd/v1"
 )
 
 func (cn *Conn) SysCmd(rr *kv2.SysCmdRequest) *kv2.ObjectResult {
@@ -69,21 +71,24 @@ func (cn *Conn) sysCmdSysStatus(av *hauth.AppValidator, rr *kv2.SysCmdRequest) *
 
 	return rs
 }
+
 func (cn *Conn) sysCmdSysMetrics(av *hauth.AppValidator, rr *kv2.SysCmdRequest) *kv2.ObjectResult {
 
-	if cn.perfStatus == nil {
+	if cn.monitor == nil {
 		return kv2.NewObjectResultClientError(errors.New("system status not ready"))
 	}
 
-	var req tsd.CycleExportOptions
+	var req tsd2.SampleQueryRequest
 	if err := kv2.StdProto.Decode(rr.Body, &req); err != nil {
 		return kv2.NewObjectResultClientError(err)
 	}
 
-	var (
-		rep = cn.perfStatus.Export(&req)
-		rs  = kv2.NewObjectResultOK()
-	)
+	rep, err := cn.monitor.Query(&req)
+	if err != nil {
+		return kv2.NewObjectResultClientError(err)
+	}
+
+	rs := kv2.NewObjectResultOK()
 
 	rs.Items = append(rs.Items, kv2.NewObjectItem(nil).DataValueSet(rep, nil))
 

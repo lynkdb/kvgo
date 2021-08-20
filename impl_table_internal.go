@@ -22,7 +22,7 @@ import (
 
 	"github.com/hooto/hlog4g/hlog"
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
-	"github.com/valuedig/apis/go/tsd/v1"
+	tsd2 "github.com/valuedig/apis/go/tsd/v2"
 )
 
 type dbTableIncrSet struct {
@@ -41,6 +41,8 @@ type dbTableLogPullOffset struct {
 	MetaKeyCutset []byte `json:"meta_key_cutset"`
 	DataKeyOffset []byte `json:"data_key_offset"`
 	DataKeyCutset []byte `json:"data_key_cutset"`
+	Address       string `json:"address"`
+	TableFrom     string `json:"table_from"`
 }
 
 type dbTable struct {
@@ -57,7 +59,7 @@ type dbTable struct {
 	logPullPending map[string]bool
 	logPullOffsets map[string]*dbTableLogPullOffset
 	logLockSets    map[uint64]uint64
-	perfStatus     *tsd.CycleFeed
+	monitor        *tsd2.SampleSet
 	logSyncBuffer  *logSyncBufferTable
 	closed         bool
 	expiredNext    int64

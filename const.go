@@ -50,20 +50,13 @@ const (
 )
 
 const (
-	PerfStorReadKey      = "srk"
-	PerfStorReadKeyRange = "srkr"
-	PerfStorReadLogRange = "srlr"
-	PerfStorWriteKey     = "swk"
-	PerfStorReadBytes    = "srb"
-	PerfStorWriteBytes   = "swb"
-	PerfAPIReadKey       = "ark"
-	PerfAPIReadKeyRange  = "arkr"
-	PerfAPIReadLogRange  = "arlr"
-	PerfAPIWriteKey      = "awk"
-	PerfAPIReadBytes     = "arb"
-	PerfAPIWriteBytes    = "awb"
-	PerfAPIReadLatency   = "arl"
-	PerfAPIWriteLatency  = "awl"
+	MetricLogSyncCall    = "LogSyncCall"
+	MetricLogSyncLatency = "LogSyncLatency"
+	MetricServiceCall    = "ServiceCall"
+	MetricServiceLatency = "ServiceLatency"
+	MetricStorageCall    = "StorageCall"
+	MetricStorageLatency = "StorageLatency"
+	MetricSystem         = "System"
 )
 
 var (
@@ -109,6 +102,10 @@ func nsSysAccessKey(id string) []byte {
 
 func nsSysApiStatus(name string) []byte {
 	return []byte("sys:astatus:" + name)
+}
+
+func nsSysMonitor(name string) []byte {
+	return []byte("sys:monitor:" + name)
 }
 
 var (

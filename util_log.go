@@ -240,6 +240,7 @@ func (it *logSyncBufferTable) query(req *kv2.LogSyncRequest) *kv2.LogSyncReply {
 				Version: v.id,
 				Key:     bytesClone(v.key),
 				Attrs:   v.attrs,
+				Updated: uint64(v.created),
 			})
 			rs.LogCutset = v.id
 			num--
@@ -282,6 +283,7 @@ func (it *logSyncBufferTable) query(req *kv2.LogSyncRequest) *kv2.LogSyncReply {
 							Version: v.id,
 							Key:     bytesClone(v.key),
 							Attrs:   v.attrs,
+							Updated: uint64(v.created),
 						})
 						rs.LogCutset = v.id
 						num--

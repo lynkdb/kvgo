@@ -27,7 +27,7 @@ import (
 	"github.com/hooto/hauth/go/hauth/v1"
 	"github.com/hooto/hflag4g/hflag"
 	"github.com/hooto/hlog4g/hlog"
-	"github.com/valuedig/apis/go/tsd/v1"
+	tsd2 "github.com/valuedig/apis/go/tsd/v2"
 
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
@@ -55,7 +55,7 @@ type Conn struct {
 	workerTableRefreshed  int64
 	workerStatusRefreshed int64
 	sysStatus             *kv2.SysNodeStatus
-	perfStatus            *tsd.CycleFeed
+	monitor               *tsd2.SampleSet
 }
 
 func Open(args ...interface{}) (*Conn, error) {
@@ -250,7 +250,7 @@ func (cn *Conn) dbSetup(dir string, opts *kv2.StorageOptions) (*dbTable, error) 
 		logPullPending: map[string]bool{},
 		logPullOffsets: map[string]*dbTableLogPullOffset{},
 		logLockSets:    map[uint64]uint64{},
-		perfStatus:     cn.perfStatus,
+		monitor:        cn.monitor,
 		logSyncBuffer:  newLogSyncBufferTable(),
 	}
 
@@ -268,6 +268,20 @@ func (cn *Conn) dbSetup(dir string, opts *kv2.StorageOptions) (*dbTable, error) 
 	}
 
 	return dt, err
+}
+
+func (cn *Conn) monitorSetup() error {
+	if cn.monitor == nil {
+		cn.monitor = tsd2.NewSampler()
+		if ss := cn.dbSys.Get(nsSysMonitor("node"), nil); ss.OK() {
+			if err := cn.monitor.Load(ss.Bytes()); err == nil {
+				hlog.Printf("info", "monitor load %d bytes done", len(ss.Bytes()))
+			} else {
+				hlog.Printf("warn", "monitor load %d bytes err : %s", len(ss.Bytes()), err.Error())
+			}
+		}
+	}
+	return nil
 }
 
 func (cn *Conn) dbSysSetup() error {
@@ -297,9 +311,11 @@ func (cn *Conn) dbSysSetup() error {
 		logPullPending: map[string]bool{},
 		logPullOffsets: map[string]*dbTableLogPullOffset{},
 		logLockSets:    map[uint64]uint64{},
-		perfStatus:     cn.perfStatus,
+		monitor:        cn.monitor,
 		logSyncBuffer:  newLogSyncBufferTable(),
 	}
+
+	cn.monitorSetup()
 
 	if cn.opts.Server.Bind != "" {
 
@@ -466,7 +482,7 @@ func (cn *Conn) dbTableListSetup() error {
 			logPullPending: map[string]bool{},
 			logPullOffsets: map[string]*dbTableLogPullOffset{},
 			logLockSets:    map[uint64]uint64{},
-			perfStatus:     cn.perfStatus,
+			monitor:        cn.monitor,
 			logSyncBuffer:  newLogSyncBufferTable(),
 		}
 	}
@@ -546,6 +562,11 @@ func (cn *Conn) closeForce() error {
 
 	if cn.public != nil && cn.public.sock != nil {
 		cn.public.sock.Close()
+	}
+
+	if bs, err := cn.monitor.Dump(); err == nil && len(bs) > 20 {
+		cn.dbSys.Put(nsSysMonitor("node"), bs, nil)
+		hlog.Printf("info", "flush monitor data (%d bytes) ok", len(bs))
 	}
 
 	for _, tdb := range cn.tables {

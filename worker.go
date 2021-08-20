@@ -21,15 +21,12 @@ import (
 	"fmt"
 	"math/rand"
 	"runtime"
-	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/hooto/hlog4g/hlog"
 	ps_disk "github.com/shirou/gopsutil/disk"
 	ps_mem "github.com/shirou/gopsutil/mem"
-	"github.com/valuedig/apis/go/tsd/v1"
 
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
@@ -180,22 +177,21 @@ func (cn *Conn) workerLocalTableRefresh() error {
 			Limit: []byte{0xff},
 		},
 	}
-	rgK := &kv2.StorageIteratorRange{
-		Start: keyEncode(nsKeyMeta, []byte{}),
-		Limit: keyEncode(nsKeyMeta, []byte{0xff}),
+	nsItems := []struct {
+		name string
+		ns   uint8
+	}{
+		{"sys", nsKeySys},
+		{"meta", nsKeyMeta},
+		{"data", nsKeyData},
+		{"log", nsKeyLog},
+		{"ttl", nsKeyTtl},
 	}
-	rgIncr := &kv2.StorageIteratorRange{
-		Start: keySysIncrCutset(""),
-		Limit: append(keySysIncrCutset(""), []byte{0xff}...),
-	}
-	rgPull := &kv2.StorageIteratorRange{
-		Start: keySysLogPull("", ""),
-		Limit: append(keySysLogPull("", ""), []byte{0xff}...),
-	}
-
-	if cn.opts.Feature.WriteMetaDisable {
-		rgK.Start = keyEncode(nsKeyData, []byte{})
-		rgK.Limit = keyEncode(nsKeyData, []byte{0xff})
+	nsSysItems := []struct {
+		name   string
+		prefix []byte
+	}{
+		{"incr_id", keySysIncrCutset("")},
 	}
 
 	for _, t := range cn.tables {
@@ -206,84 +202,119 @@ func (cn *Conn) workerLocalTableRefresh() error {
 		}
 
 		// db size
-		s, err := t.db.SizeOf(rgS)
+		siz, err := t.db.SizeOf(rgS)
 		if err != nil {
 			hlog.Printf("warn", "get db size error %s", err.Error())
 			continue
 		}
-		if len(s) < 1 {
+		if len(siz) < 1 {
 			continue
 		}
 
-		// db keys
-		kn := uint64(0)
-		iter := t.db.NewIterator(rgK)
-		for ok := iter.First(); ok; ok = iter.Next() {
-			kn++
-		}
-		iter.Release()
-
 		tableStatus := kv2.TableStatus{
-			Name:    t.tableName,
-			KeyNum:  kn,
-			DbSize:  uint64(s[0]),
-			Options: map[string]int64{},
+			Name:   t.tableName,
+			KeyNum: 0,
+			DbSize: uint64(siz[0]),
+			// Options: map[string]int64{},
+			States: map[string]string{},
+		}
+
+		for _, tp := range nsItems {
+			var (
+				kn = int64(0)
+				rg = &kv2.StorageIteratorRange{
+					Start: keyEncode(tp.ns, []byte{}),
+					Limit: keyEncode(tp.ns, []byte{0xff}),
+				}
+			)
+			iter := t.db.NewIterator(rg)
+			for ok := iter.First(); ok; ok = iter.Next() {
+				kn++
+				/**
+				if tp.name == "sys" {
+					tableStatus.States["sys_"+string(iter.Key()[1:])] = string(iter.Value())
+				}
+				*/
+			}
+			iter.Release()
+
+			if kn == 0 {
+				continue
+			}
+
+			if tableStatus.States["ns_"+tp.name] == "" {
+				tableStatus.States["ns_"+tp.name] = fmt.Sprintf("keys:%d", kn)
+			} else {
+				tableStatus.States["ns_"+tp.name] += fmt.Sprintf(",keys:%d", kn)
+			}
+
+			if tp.name == "meta" || tp.name == "data" {
+				tableStatus.KeyNum += uint64(kn)
+			}
+
+			if siz, err := t.db.SizeOf([]*kv2.StorageIteratorRange{rg}); err == nil || len(siz) > 0 {
+				if tableStatus.States["ns_"+tp.name] == "" {
+					tableStatus.States["ns_"+tp.name] = fmt.Sprintf("size:%d", siz[0])
+				} else {
+					tableStatus.States["ns_"+tp.name] += fmt.Sprintf(",size:%d", siz[0])
+				}
+			}
+		}
+
+		for _, tp := range nsSysItems {
+
+			var (
+				rg = &kv2.StorageIteratorRange{
+					Start: tp.prefix,
+					Limit: append(tp.prefix, []byte{0xff}...),
+				}
+				iter = t.db.NewIterator(rg)
+			)
+
+			for ok := iter.First(); ok; ok = iter.Next() {
+
+				if bytes.Compare(iter.Key(), rg.Start) <= 0 {
+					continue
+				}
+
+				if bytes.Compare(iter.Key(), rg.Limit) > 0 {
+					break
+				}
+
+				val, err := strconv.ParseInt(string(iter.Value()), 10, 64)
+				if err != nil || val == 0 {
+					continue
+				}
+
+				key := bytes.TrimPrefix(iter.Key(), rg.Start)
+				if len(key) == 0 {
+					continue
+				}
+
+				if tableStatus.States[tp.name] == "" {
+					tableStatus.States[tp.name] = fmt.Sprintf("%s:%d", string(key), val)
+				} else {
+					tableStatus.States[tp.name] += fmt.Sprintf(",%s:%d", string(key), val)
+				}
+			}
+
+			iter.Release()
 		}
 
 		// log-id
 		if ss := t.db.Get(keySysLogCutset, nil); ss.OK() {
 			if logid, err := strconv.ParseInt(ss.String(), 10, 64); err == nil {
-				tableStatus.Options["log_id"] = logid
+				tableStatus.States["log_id"] = fmt.Sprintf("%d", logid)
 			}
 		}
 
-		// incr
-		iterIncr := t.db.NewIterator(rgIncr)
-		for ok := iterIncr.First(); ok; ok = iterIncr.Next() {
-
-			if bytes.Compare(iterIncr.Key(), rgIncr.Start) <= 0 {
-				continue
-			}
-
-			if bytes.Compare(iterIncr.Key(), rgIncr.Limit) > 0 {
-				break
-			}
-
-			incrid, err := strconv.ParseInt(string(iterIncr.Value()), 10, 64)
-			if err != nil {
-				continue
-			}
-
-			key := bytes.TrimPrefix(iterIncr.Key(), rgIncr.Start)
-			if len(key) > 0 {
-				tableStatus.Options[fmt.Sprintf("incr_id_%s", string(key))] = incrid
+		for k2, v2 := range t.logPullOffsets {
+			if tableStatus.States["log_sync_pull"] == "" {
+				tableStatus.States["log_sync_pull"] = fmt.Sprintf("from:%s,log:%d", k2, v2.LogOffset)
+			} else {
+				tableStatus.States["log_sync_pull"] = fmt.Sprintf("\nfrom:%s,log:%d", k2, v2.LogOffset)
 			}
 		}
-		iterIncr.Release()
-
-		// async
-		iterPull := t.db.NewIterator(rgPull)
-		for ok := iterPull.First(); ok; ok = iterPull.Next() {
-
-			if bytes.Compare(iterPull.Key(), rgPull.Start) <= 0 {
-				continue
-			}
-
-			if bytes.Compare(iterPull.Key(), rgPull.Limit) > 0 {
-				break
-			}
-
-			logid, err := strconv.ParseInt(string(iterPull.Value()), 10, 64)
-			if err != nil {
-				continue
-			}
-
-			key := bytes.TrimPrefix(iterPull.Key(), rgPull.Start)
-			if len(key) > 0 {
-				tableStatus.Options[fmt.Sprintf("async_%s", string(key))] = logid
-			}
-		}
-		iterPull.Release()
 
 		//
 		rr := kv2.NewObjectWriter(nsSysTableStatus(t.tableName), tableStatus).
@@ -479,6 +510,8 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 				TableName: tm.From,
 			}
 
+			tlog := timems()
+
 			for _, v := range rep.Logs {
 
 				nsKey := uint8(0)
@@ -487,6 +520,19 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 				} else {
 					nsKey = nsKeyMeta
 				}
+
+				tl := tlog - int64(v.Updated)
+				if tl < 0 {
+					tl -= tl
+				}
+
+				cn.monitor.Metric(MetricLogSyncCall).With(map[string]string{
+					"TableLog": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+				}).Add(int64(len(v.Key)))
+
+				cn.monitor.Metric(MetricLogSyncLatency).With(map[string]string{
+					"TableLog": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+				}).Add(tl)
 
 				ss := tdb.db.Get(keyEncode(nsKey, v.Key), nil)
 				if ss.OK() {
@@ -509,7 +555,24 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 					return err
 				}
 
+				tlog := timems()
+
 				for _, item := range rep2.Items {
+
+					tl := tlog - int64(item.Meta.Updated)
+					if tl < 0 {
+						tl -= tl
+					}
+
+					siz := len(item.Meta.Key) + len(item.Data.Value)
+
+					cn.monitor.Metric(MetricLogSyncCall).With(map[string]string{
+						"TableKey": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+					}).Add(int64(siz))
+
+					cn.monitor.Metric(MetricLogSyncLatency).With(map[string]string{
+						"TableKey": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+					}).Add(tl)
 
 					ow := &kv2.ObjectWriter{
 						Meta: item.Meta,
@@ -599,7 +662,22 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 				TableName: tm.From,
 			}
 
+			tlog := timems()
+
 			for _, v := range rep.Logs {
+
+				tl := tlog - int64(v.Updated)
+				if tl < 0 {
+					tl -= tl
+				}
+
+				cn.monitor.Metric(MetricLogSyncCall).With(map[string]string{
+					"TableLog": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+				}).Add(int64(len(v.Key)))
+
+				cn.monitor.Metric(MetricLogSyncLatency).With(map[string]string{
+					"TableLog": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+				}).Add(tl)
 
 				nsKey := uint8(0)
 				if kv2.AttrAllow(v.Attrs, kv2.ObjectMetaAttrMetaOff) {
@@ -629,7 +707,24 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 					return err
 				}
 
+				tlog := timems()
+
 				for _, item := range rep2.Items {
+
+					tl := tlog - int64(item.Meta.Updated)
+					if tl < 0 {
+						tl -= tl
+					}
+
+					siz := len(item.Meta.Key) + len(item.Data.Value)
+
+					cn.monitor.Metric(MetricLogSyncCall).With(map[string]string{
+						"TableKey": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+					}).Add(int64(siz))
+
+					cn.monitor.Metric(MetricLogSyncLatency).With(map[string]string{
+						"TableKey": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+					}).Add(tl)
 
 					ow := &kv2.ObjectWriter{
 						Meta: item.Meta,
@@ -709,7 +804,24 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 				TableName: tm.From,
 			}
 
+			tlog := timems()
+
 			for _, v := range rep.Logs {
+
+				tl := tlog - int64(v.Updated)
+				if tl < 0 {
+					tl -= tl
+				}
+
+				// hlog.Printf("info", "logs key %s, updated %d", string(v.Key), v.Updated)
+
+				cn.monitor.Metric(MetricLogSyncCall).With(map[string]string{
+					"TableLog": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+				}).Add(int64(len(v.Key)))
+
+				cn.monitor.Metric(MetricLogSyncLatency).With(map[string]string{
+					"TableLog": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+				}).Add(tl)
 
 				nsKey := uint8(0)
 				if kv2.AttrAllow(v.Attrs, kv2.ObjectMetaAttrMetaOff) {
@@ -741,7 +853,24 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 					return err
 				}
 
+				tlog := timems()
+
 				for _, item := range rep2.Items {
+
+					tl := tlog - int64(item.Meta.Updated)
+					if tl < 0 {
+						tl -= tl
+					}
+
+					siz := len(item.Meta.Key) + len(item.Data.Value)
+
+					cn.monitor.Metric(MetricLogSyncCall).With(map[string]string{
+						"TableKey": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+					}).Add(int64(siz))
+
+					cn.monitor.Metric(MetricLogSyncLatency).With(map[string]string{
+						"TableKey": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+					}).Add(tl)
 
 					ow := &kv2.ObjectWriter{
 						Meta: item.Meta,
@@ -863,37 +992,6 @@ func (cn *Conn) workerLocalSysStatusRefresh() error {
 		return nil
 	}
 
-	if cn.perfStatus == nil {
-
-		if ss := cn.dbSys.Get(nsSysApiStatus("node"), nil); ss.OK() {
-			var perfStatus tsd.CycleFeed
-			if kv2.StdProto.Decode(ss.Bytes(), &perfStatus) == nil && perfStatus.Unit == 10 {
-				cn.perfStatus = &perfStatus
-			}
-		}
-
-		if cn.perfStatus == nil {
-			cn.perfStatus = tsd.NewCycleFeed(10)
-		}
-
-		for _, v := range []string{
-			// API QPS
-			PerfAPIReadKey, PerfAPIReadKeyRange, PerfAPIReadLogRange, PerfAPIWriteKey,
-			// API BPS
-			PerfAPIReadBytes, PerfAPIWriteBytes,
-			// Storage QPS
-			PerfStorReadKey, PerfStorReadKeyRange, PerfStorReadLogRange, PerfStorWriteKey,
-			// Storage BPS
-			PerfStorReadBytes, PerfStorWriteBytes,
-		} {
-			cn.perfStatus.Sync(v, 0, 0, tsd.ValueAttrSum)
-		}
-
-		sort.Slice(cn.perfStatus.Items, func(i, j int) bool {
-			return strings.Compare(cn.perfStatus.Items[i].Name, cn.perfStatus.Items[j].Name) < 0
-		})
-	}
-
 	if cn.sysStatus.Updated == 0 {
 		cn.sysStatus.Caps = map[string]*kv2.SysCapacity{
 			"cpu": {
@@ -913,6 +1011,14 @@ func (cn *Conn) workerLocalSysStatusRefresh() error {
 			Use: int64(vm.Used),
 			Max: int64(vm.Total),
 		}
+		if cn.monitor != nil {
+			cn.monitor.Metric(MetricSystem).With(map[string]string{
+				"Memory": "Total",
+			}).Set(1, int64(vm.Total))
+			cn.monitor.Metric(MetricSystem).With(map[string]string{
+				"Memory": "Used",
+			}).Set(1, int64(vm.Used))
+		}
 	}
 
 	if cn.workerStatusRefreshed == 0 || rand.Intn(10) == 0 {
@@ -924,8 +1030,11 @@ func (cn *Conn) workerLocalSysStatusRefresh() error {
 		}
 	}
 
-	if bs, err := kv2.StdProto.Encode(cn.perfStatus); err == nil && len(bs) > 20 {
-		cn.dbSys.Put(nsSysApiStatus("node"), bs, nil)
+	if rand.Intn(10) == 0 {
+		if bs, err := cn.monitor.Dump(); err == nil && len(bs) > 20 {
+			cn.dbSys.Put(nsSysMonitor("node"), bs, nil)
+			hlog.Printf("debug", "flush monitor data (%d bytes) ok", len(bs))
+		}
 	}
 
 	cn.workerStatusRefreshed = tn
