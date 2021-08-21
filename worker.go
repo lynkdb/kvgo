@@ -20,13 +20,17 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/hooto/hlog4g/hlog"
-	ps_disk "github.com/shirou/gopsutil/disk"
-	ps_mem "github.com/shirou/gopsutil/mem"
+	ps_cpu "github.com/shirou/gopsutil/v3/cpu"
+	ps_disk "github.com/shirou/gopsutil/v3/disk"
+	ps_mem "github.com/shirou/gopsutil/v3/mem"
+	ps_net "github.com/shirou/gopsutil/v3/net"
 
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
@@ -985,6 +989,10 @@ func (cn *Conn) workerLocalLogCleanTable(tdb *dbTable) error {
 	return nil
 }
 
+var (
+	diskDevSet []ps_disk.PartitionStat
+)
+
 func (cn *Conn) workerLocalSysStatusRefresh() error {
 
 	tn := time.Now().Unix()
@@ -1011,13 +1019,69 @@ func (cn *Conn) workerLocalSysStatusRefresh() error {
 			Use: int64(vm.Used),
 			Max: int64(vm.Total),
 		}
+
 		if cn.monitor != nil {
-			cn.monitor.Metric(MetricSystem).With(map[string]string{
-				"Memory": "Total",
-			}).Set(1, int64(vm.Total))
+
 			cn.monitor.Metric(MetricSystem).With(map[string]string{
 				"Memory": "Used",
-			}).Set(1, int64(vm.Used))
+			}).Add(int64(vm.Used))
+			cn.monitor.Metric(MetricSystem).With(map[string]string{
+				"Memory": "Cached",
+			}).Add(int64(vm.Cached))
+
+			if cio, _ := ps_cpu.Percent(0, false); len(cio) > 0 {
+				cn.monitor.Metric(MetricSystem).With(map[string]string{
+					"CPU": "Percent",
+				}).Add(int64(cio[0]))
+			}
+
+			// Network
+			if nio, _ := ps_net.IOCounters(false); len(nio) > 0 {
+				cn.monitor.Metric(MetricSystem).With(map[string]string{
+					"Net": "Recv",
+				}).Set(1, int64(nio[0].BytesRecv))
+				cn.monitor.Metric(MetricSystem).With(map[string]string{
+					"Net": "Sent",
+				}).Set(1, int64(nio[0].BytesRecv))
+			}
+
+			// Storage
+			if diskDevSet == nil {
+				diskDevSet, _ = ps_disk.Partitions(false)
+			}
+			diskFilter := func(pls []ps_disk.PartitionStat, path string) string {
+				path = filepath.Clean(path)
+				for {
+					for _, v := range pls {
+						if path == v.Mountpoint {
+							if strings.HasPrefix(v.Device, "/dev/") {
+								return v.Device[5:]
+							}
+							return ""
+						}
+					}
+					if i := strings.LastIndex(path, "/"); i > 0 {
+						path = path[:i]
+					} else if len(path) > 1 && path[0] == '/' {
+						path = "/"
+					} else {
+						break
+					}
+				}
+				return ""
+			}
+			if devName := diskFilter(diskDevSet, cn.opts.Storage.DataDirectory); devName != "" {
+				if diom, err := ps_disk.IOCounters(devName); err == nil {
+					if dio, ok := diom[devName]; ok {
+						cn.monitor.Metric(MetricSystem).With(map[string]string{
+							"Disk": "Read",
+						}).Set(int64(dio.ReadCount), int64(dio.ReadBytes))
+						cn.monitor.Metric(MetricSystem).With(map[string]string{
+							"Disk": "Write",
+						}).Set(int64(dio.WriteCount), int64(dio.WriteBytes))
+					}
+				}
+			}
 		}
 	}
 
