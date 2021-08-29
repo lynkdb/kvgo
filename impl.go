@@ -148,21 +148,27 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 	}
 
 	cLogOn := true
-	if cLog == 0 {
-		if meta != nil && meta.Version > 0 {
-			cLog = meta.Version
-		}
 
-		cLog, err = tdb.objectLogVersionSet(1, cLog, updated)
-		if err != nil {
-			return kv2.NewObjectResultServerError(err)
-		}
-	} else {
-		_, err = tdb.objectLogVersionSet(0, cLog, updated)
-		if err != nil {
-			return kv2.NewObjectResultServerError(err)
-		}
+	if kv2.AttrAllow(rr.Mode, kv2.ObjectWriterModeLogOff) {
 		cLogOn = false
+	} else {
+
+		if cLog == 0 {
+			if meta != nil && meta.Version > 0 {
+				cLog = meta.Version
+			}
+
+			cLog, err = tdb.objectLogVersionSet(1, cLog, updated)
+			if err != nil {
+				return kv2.NewObjectResultServerError(err)
+			}
+		} else {
+			_, err = tdb.objectLogVersionSet(0, cLog, updated)
+			if err != nil {
+				return kv2.NewObjectResultServerError(err)
+			}
+			cLogOn = false
+		}
 	}
 	rr.Meta.Version = cLog
 

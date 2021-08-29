@@ -113,9 +113,10 @@ func (it *InternalServiceImpl) Accept(ctx context.Context,
 	}
 
 	var (
-		tn   = uint64(time.Now().UnixNano() / 1e6)
-		cLog = rr2.Meta.Version
-		cInc = rr2.Meta.IncrId
+		tn     = uint64(time.Now().UnixNano() / 1e6)
+		cLog   = rr2.Meta.Version
+		cLogOn = true
+		cInc   = rr2.Meta.IncrId
 	)
 
 	rr, ok := it.prepares[string(rr2.Meta.Key)]
@@ -159,9 +160,13 @@ func (it *InternalServiceImpl) Accept(ctx context.Context,
 	rr.Meta.Version = cLog
 	rr.Meta.IncrId = cInc
 
+	if kv2.AttrAllow(rr.Mode, kv2.ObjectWriterModeLogOff) {
+		cLogOn = false
+	}
+
 	if kv2.AttrAllow(rr.Mode, kv2.ObjectWriterModeDelete) {
 
-		rr.Meta.Attrs = kv2.ObjectMetaAttrDelete
+		rr.Meta.Attrs |= kv2.ObjectMetaAttrDelete
 
 		if bsMeta, err := rr.MetaEncode(); err == nil {
 
@@ -173,7 +178,9 @@ func (it *InternalServiceImpl) Accept(ctx context.Context,
 				batch.Delete(keyEncode(nsKeyLog, uint64ToBytes(meta.Version)))
 			}
 
-			batch.Put(keyEncode(nsKeyLog, uint64ToBytes(cLog)), bsMeta)
+			if cLogOn {
+				batch.Put(keyEncode(nsKeyLog, uint64ToBytes(cLog)), bsMeta)
+			}
 
 			err = batch.Commit()
 		}
@@ -195,7 +202,7 @@ func (it *InternalServiceImpl) Accept(ctx context.Context,
 				batch.Put(keyEncode(nsKeyData, rr.Meta.Key), bsData)
 			}
 
-			if !it.db.opts.Feature.WriteLogDisable {
+			if cLogOn && !it.db.opts.Feature.WriteLogDisable {
 				batch.Put(keyEncode(nsKeyLog, uint64ToBytes(cLog)), bsMeta)
 			}
 

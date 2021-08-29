@@ -530,13 +530,16 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 					tl -= tl
 				}
 
-				cn.monitor.Metric(MetricLogSyncCall).With(map[string]string{
-					"TableLog": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
-				}).Add(int64(len(v.Key)))
+				if cn.monitor != nil {
 
-				cn.monitor.Metric(MetricLogSyncLatency).With(map[string]string{
-					"TableLog": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
-				}).Add(tl)
+					cn.monitor.Metric(MetricLogSyncCall).With(map[string]string{
+						"TableLog": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+					}).Add(int64(len(v.Key)))
+
+					cn.monitor.Metric(MetricLogSyncLatency).With(map[string]string{
+						"TableLog": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+					}).Add(tl)
+				}
 
 				ss := tdb.db.Get(keyEncode(nsKey, v.Key), nil)
 				if ss.OK() {
@@ -570,13 +573,15 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 
 					siz := len(item.Meta.Key) + len(item.Data.Value)
 
-					cn.monitor.Metric(MetricLogSyncCall).With(map[string]string{
-						"TableKey": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
-					}).Add(int64(siz))
+					if cn.monitor != nil {
+						cn.monitor.Metric(MetricLogSyncCall).With(map[string]string{
+							"TableKey": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+						}).Add(int64(siz))
 
-					cn.monitor.Metric(MetricLogSyncLatency).With(map[string]string{
-						"TableKey": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
-					}).Add(tl)
+						cn.monitor.Metric(MetricLogSyncLatency).With(map[string]string{
+							"TableKey": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+						}).Add(tl)
+					}
 
 					ow := &kv2.ObjectWriter{
 						Meta: item.Meta,
@@ -675,13 +680,15 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 					tl -= tl
 				}
 
-				cn.monitor.Metric(MetricLogSyncCall).With(map[string]string{
-					"TableLog": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
-				}).Add(int64(len(v.Key)))
+				if cn.monitor != nil {
+					cn.monitor.Metric(MetricLogSyncCall).With(map[string]string{
+						"TableLog": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+					}).Add(int64(len(v.Key)))
 
-				cn.monitor.Metric(MetricLogSyncLatency).With(map[string]string{
-					"TableLog": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
-				}).Add(tl)
+					cn.monitor.Metric(MetricLogSyncLatency).With(map[string]string{
+						"TableLog": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+					}).Add(tl)
+				}
 
 				nsKey := uint8(0)
 				if kv2.AttrAllow(v.Attrs, kv2.ObjectMetaAttrMetaOff) {
@@ -722,13 +729,15 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 
 					siz := len(item.Meta.Key) + len(item.Data.Value)
 
-					cn.monitor.Metric(MetricLogSyncCall).With(map[string]string{
-						"TableKey": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
-					}).Add(int64(siz))
+					if cn.monitor != nil {
+						cn.monitor.Metric(MetricLogSyncCall).With(map[string]string{
+							"TableKey": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+						}).Add(int64(siz))
 
-					cn.monitor.Metric(MetricLogSyncLatency).With(map[string]string{
-						"TableKey": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
-					}).Add(tl)
+						cn.monitor.Metric(MetricLogSyncLatency).With(map[string]string{
+							"TableKey": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+						}).Add(tl)
+					}
 
 					ow := &kv2.ObjectWriter{
 						Meta: item.Meta,
@@ -819,13 +828,15 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 
 				// hlog.Printf("info", "logs key %s, updated %d", string(v.Key), v.Updated)
 
-				cn.monitor.Metric(MetricLogSyncCall).With(map[string]string{
-					"TableLog": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
-				}).Add(int64(len(v.Key)))
+				if cn.monitor != nil {
+					cn.monitor.Metric(MetricLogSyncCall).With(map[string]string{
+						"TableLog": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+					}).Add(int64(len(v.Key)))
 
-				cn.monitor.Metric(MetricLogSyncLatency).With(map[string]string{
-					"TableLog": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
-				}).Add(tl)
+					cn.monitor.Metric(MetricLogSyncLatency).With(map[string]string{
+						"TableLog": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+					}).Add(tl)
+				}
 
 				nsKey := uint8(0)
 				if kv2.AttrAllow(v.Attrs, kv2.ObjectMetaAttrMetaOff) {
@@ -868,13 +879,15 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 
 					siz := len(item.Meta.Key) + len(item.Data.Value)
 
-					cn.monitor.Metric(MetricLogSyncCall).With(map[string]string{
-						"TableKey": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
-					}).Add(int64(siz))
+					if cn.monitor != nil {
+						cn.monitor.Metric(MetricLogSyncCall).With(map[string]string{
+							"TableKey": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+						}).Add(int64(siz))
 
-					cn.monitor.Metric(MetricLogSyncLatency).With(map[string]string{
-						"TableKey": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
-					}).Add(tl)
+						cn.monitor.Metric(MetricLogSyncLatency).With(map[string]string{
+							"TableKey": fmt.Sprintf("%s/%s", hp.Addr, tm.From),
+						}).Add(tl)
+					}
 
 					ow := &kv2.ObjectWriter{
 						Meta: item.Meta,
@@ -1091,13 +1104,6 @@ func (cn *Conn) workerLocalSysStatusRefresh() error {
 				Use: int64(st.Used),
 				Max: int64(st.Total),
 			}
-		}
-	}
-
-	if rand.Intn(10) == 0 {
-		if bs, err := cn.monitor.Dump(); err == nil && len(bs) > 20 {
-			cn.dbSys.Put(nsSysMonitor("node"), bs, nil)
-			hlog.Printf("debug", "flush monitor data (%d bytes) ok", len(bs))
 		}
 	}
 

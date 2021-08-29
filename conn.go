@@ -148,6 +148,8 @@ func Open(args ...interface{}) (*Conn, error) {
 		}
 	}
 
+	cn.monitorSetup()
+
 	if err := cn.serviceStart(); err != nil {
 		cn.closeForce()
 		return nil, err
@@ -270,20 +272,6 @@ func (cn *Conn) dbSetup(dir string, opts *kv2.StorageOptions) (*dbTable, error) 
 	return dt, err
 }
 
-func (cn *Conn) monitorSetup() error {
-	if cn.monitor == nil {
-		cn.monitor = tsd2.NewSampler()
-		if ss := cn.dbSys.Get(nsSysMonitor("node"), nil); ss.OK() {
-			if err := cn.monitor.Load(ss.Bytes()); err == nil {
-				hlog.Printf("info", "monitor load %d bytes done", len(ss.Bytes()))
-			} else {
-				hlog.Printf("warn", "monitor load %d bytes err : %s", len(ss.Bytes()), err.Error())
-			}
-		}
-	}
-	return nil
-}
-
 func (cn *Conn) dbSysSetup() error {
 
 	var (
@@ -314,8 +302,6 @@ func (cn *Conn) dbSysSetup() error {
 		monitor:        cn.monitor,
 		logSyncBuffer:  newLogSyncBufferTable(),
 	}
-
-	cn.monitorSetup()
 
 	if cn.opts.Server.Bind != "" {
 
@@ -564,9 +550,9 @@ func (cn *Conn) closeForce() error {
 		cn.public.sock.Close()
 	}
 
-	if bs, err := cn.monitor.Dump(); err == nil && len(bs) > 20 {
-		cn.dbSys.Put(nsSysMonitor("node"), bs, nil)
-		hlog.Printf("info", "flush monitor data (%d bytes) ok", len(bs))
+	if cn.monitor != nil {
+		cn.monitor.Flush(true)
+		cn.monitor.Close()
 	}
 
 	for _, tdb := range cn.tables {
