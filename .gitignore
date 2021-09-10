@@ -3,5 +3,5 @@ tests/*
 *.swp
 batch-*
 bench/*
-storage_*
+*.dev
 .DS_Store

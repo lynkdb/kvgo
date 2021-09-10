@@ -19,7 +19,6 @@ import (
 	crand "crypto/rand"
 	"errors"
 	"fmt"
-	"math/rand"
 	mrand "math/rand"
 	"os"
 	"os/exec"
@@ -546,7 +545,7 @@ func Test_Object_LogAsync(t *testing.T) {
 		}
 	}
 
-	time.Sleep(10e6)
+	time.Sleep(100e6)
 
 	ctx, fc := context.WithTimeout(context.Background(), time.Second*1)
 	defer fc()
@@ -735,7 +734,7 @@ func Benchmark_Commit_Rand_Cluster_x3_1000(b *testing.B) {
 		bs := randBytes(mrand.Intn(2000))
 		ow := kv2.NewObjectWriter(
 			[]byte(fmt.Sprintf("%032d", mrand.Int31())), bs)
-		if rs := dbs[rand.Intn(len(dbs))].Commit(ow); !rs.OK() {
+		if rs := dbs[mrand.Intn(len(dbs))].Commit(ow); !rs.OK() {
 			b.Fatalf("Commit ER!, Err %s", rs.Message)
 		}
 	}

@@ -39,7 +39,7 @@ func storOpen(drv kv2.StorageEngineOpen, samples int) (kv2.StorageEngine, error)
 	defer storTestMu.Unlock()
 
 	if drv == nil {
-		drv = leveldbStorageOpen
+		drv = storageLevelDBOpen
 	}
 
 	testDir := "/dev/shm"
@@ -186,26 +186,52 @@ func benchmarkStorageBatchWrite(b *testing.B, drv kv2.StorageEngineOpen) {
 	}
 }
 
-func Benchmark_Storage_SeqRead(b *testing.B) {
-	benchmarkStorageSeqRead(b, StorageEngineOpen, 10000)
+//
+func Benchmark_Storage_LevelDB_SeqRead(b *testing.B) {
+	benchmarkStorageSeqRead(b, storageLevelDBOpen, 10000)
 }
 
-func Benchmark_Storage_RandRead(b *testing.B) {
-	benchmarkStorageRandRead(b, StorageEngineOpen, 10000)
+func Benchmark_Storage_LevelDB_RandRead(b *testing.B) {
+	benchmarkStorageRandRead(b, storageLevelDBOpen, 10000)
 }
 
-func Benchmark_Storage_RangeRead(b *testing.B) {
-	benchmarkStorageRangeRead(b, StorageEngineOpen, 10000)
+func Benchmark_Storage_LevelDB_RangeRead(b *testing.B) {
+	benchmarkStorageRangeRead(b, storageLevelDBOpen, 10000)
 }
 
-func Benchmark_Storage_SeqWrite(b *testing.B) {
-	benchmarkStorageSeqWrite(b, StorageEngineOpen)
+func Benchmark_Storage_LevelDB_SeqWrite(b *testing.B) {
+	benchmarkStorageSeqWrite(b, storageLevelDBOpen)
 }
 
-func Benchmark_Storage_RandWrite(b *testing.B) {
-	benchmarkStorageRandWrite(b, StorageEngineOpen)
+func Benchmark_Storage_LevelDB_RandWrite(b *testing.B) {
+	benchmarkStorageRandWrite(b, storageLevelDBOpen)
 }
 
-func Benchmark_Storage_BatchWrite(b *testing.B) {
-	benchmarkStorageBatchWrite(b, StorageEngineOpen)
+func Benchmark_Storage_LevelDB_BatchWrite(b *testing.B) {
+	benchmarkStorageBatchWrite(b, storageLevelDBOpen)
+}
+
+//
+func Benchmark_Storage_Pebble_SeqRead(b *testing.B) {
+	benchmarkStorageSeqRead(b, storagePebbleOpen, 10000)
+}
+
+func Benchmark_Storage_Pebble_RandRead(b *testing.B) {
+	benchmarkStorageRandRead(b, storagePebbleOpen, 10000)
+}
+
+func Benchmark_Storage_Pebble_RangeRead(b *testing.B) {
+	benchmarkStorageRangeRead(b, storagePebbleOpen, 10000)
+}
+
+func Benchmark_Storage_Pebble_SeqWrite(b *testing.B) {
+	benchmarkStorageSeqWrite(b, storagePebbleOpen)
+}
+
+func Benchmark_Storage_Pebble_RandWrite(b *testing.B) {
+	benchmarkStorageRandWrite(b, storagePebbleOpen)
+}
+
+func Benchmark_Storage_Pebble_BatchWrite(b *testing.B) {
+	benchmarkStorageBatchWrite(b, storagePebbleOpen)
 }

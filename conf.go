@@ -50,6 +50,7 @@ type Config struct {
 
 type ConfigStorage struct {
 	DataDirectory string `toml:"data_directory" json:"data_directory"`
+	Engine        string `toml:"engine" json:"engine"`
 }
 
 type ConfigTLSCertificate struct {

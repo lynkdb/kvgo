@@ -189,13 +189,7 @@ func (cn *Conn) dbSetup(dir string, opts *kv2.StorageOptions) (*dbTable, error) 
 		return nil, err
 	}
 
-	// if false {
-	// 	opts.CompactionL0Trigger = 8
-	// 	opts.WriteL0PauseTrigger = 24
-	// 	opts.WriteL0SlowdownTrigger = 16
-	// }
-
-	db, err := StorageEngineOpen(dir, opts)
+	db, err := storageEngineOpen(cn.opts.Storage.Engine, dir, opts)
 	if err != nil {
 		return nil, err
 	}
