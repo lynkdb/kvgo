@@ -238,7 +238,7 @@ func (cn *Conn) sysCmdLocal(av *hauth.AppValidator, rr *kv2.SysCmdRequest) *kv2.
 
 		key = pkey
 
-		if !hauth.AccessKeyIdReg.MatchString(key.Id) {
+		if !hauth.AccessKeyIdRE.MatchString(key.Id) {
 			return kv2.NewObjectResultClientError(errors.New("invalid access key id"))
 		}
 
@@ -258,7 +258,7 @@ func (cn *Conn) sysCmdLocal(av *hauth.AppValidator, rr *kv2.SysCmdRequest) *kv2.
 		keyId := ""
 		if len(rr.Body) > 0 {
 			keyId = string(rr.Body)
-			if !hauth.AccessKeyIdReg.MatchString(keyId) {
+			if !hauth.AccessKeyIdRE.MatchString(keyId) {
 				return kv2.NewObjectResultClientError(errors.New("invalid access key id"))
 			}
 		}
