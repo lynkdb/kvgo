@@ -149,7 +149,7 @@ func init() {
 
 		fmt.Println("samples", len(dataSamples))
 
-		dbSample()
+		dbSample(10000)
 	}
 }
 
@@ -176,7 +176,7 @@ func dataSample() []byte {
 	return dataSamples[mrand.Intn(len(dataSamples))]
 }
 
-func dbSample() (*Conn, error) {
+func dbSample(keys int) (*Conn, error) {
 	dbTestSMu.Lock()
 	defer dbTestSMu.Unlock()
 
@@ -189,8 +189,12 @@ func dbSample() (*Conn, error) {
 		return nil, err
 	}
 
-	for i := 0; i < 10000; i++ {
-		bs := randBytes(500 + mrand.Intn(500))
+	if keys < 1 {
+		keys = 10000
+	}
+
+	for i := 0; i < keys; i++ {
+		bs := randBytes(128 + mrand.Intn(256))
 		if rs := dbs[0].NewWriter([]byte(fmt.Sprintf("%032d", i)), bs).Commit(); !rs.OK() {
 			return nil, errors.New(rs.Message)
 		}
@@ -760,7 +764,7 @@ func Benchmark_Commit_Rand_Cluster_x3_100(b *testing.B) {
 
 func Benchmark_Query_Key(b *testing.B) {
 
-	db, err := dbSample()
+	db, err := dbSample(10000)
 	if err != nil {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
@@ -774,7 +778,7 @@ func Benchmark_Query_Key(b *testing.B) {
 
 func Benchmark_Query_KeyRange(b *testing.B) {
 
-	db, err := dbSample()
+	db, err := dbSample(10000)
 	if err != nil {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}

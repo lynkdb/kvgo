@@ -22,7 +22,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 	"testing"
 
@@ -46,7 +45,12 @@ func storOpen(drv kv2.StorageEngineOpen, samples int) (kv2.StorageEngine, error)
 	if runtime.GOOS == "darwin" {
 		testDir, _ = os.UserHomeDir()
 	}
-	testDir = filepath.Clean(fmt.Sprintf("%s/kvgo/stor", testDir))
+
+	if samples > 0 {
+		testDir = filepath.Clean(fmt.Sprintf("%s/kvgo_test/stor_%d", testDir, samples))
+	} else {
+		testDir = filepath.Clean(fmt.Sprintf("%s/kvgo_test/stor", testDir))
+	}
 
 	db, err := drv(testDir, &kv2.StorageOptions{
 		WriteBufferSize: 16,
@@ -55,10 +59,15 @@ func storOpen(drv kv2.StorageEngineOpen, samples int) (kv2.StorageEngine, error)
 	if err != nil {
 		return nil, err
 	}
-	for i := 0; i < samples; i++ {
-		bs := randBytes(100 + mrand.Intn(900))
-		if rs := db.Put([]byte(fmt.Sprintf("%032d", i)), bs, nil); !rs.OK() {
-			return nil, rs.Error()
+	if samples > 0 {
+		if rs := db.Get([]byte(fmt.Sprintf("%032d", samples-1)), nil); rs.NotFound() {
+			for i := 0; i < samples; i++ {
+				bs := randBytes(128 + mrand.Intn(256)) // size 128 ~ 384 bytes, avg 256 bytes
+				if rs := db.Put([]byte(fmt.Sprintf("%032d", i)), bs, nil); !rs.OK() {
+					return nil, rs.Error()
+				}
+			}
+			fmt.Println("storage samples", samples)
 		}
 	}
 	return db, nil
@@ -72,14 +81,9 @@ func storClean(stor kv2.StorageEngine) {
 	if runtime.GOOS == "darwin" {
 		testDir, _ = os.UserHomeDir()
 	}
-	testDir = filepath.Clean(fmt.Sprintf("%s/kvgo/stor", testDir))
+	testDir = filepath.Clean(fmt.Sprintf("%s/kvgo_test/stor", testDir))
 	exec.Command("rm", "-rf", testDir).Output()
-}
-
-func init() {
-	if strings.Contains(strings.Join(os.Args, ","), "test.bench") {
-		dbSample()
-	}
+	exec.Command("rm", "-rf", testDir+"_pebble").Output()
 }
 
 func benchmarkStorageSeqRead(b *testing.B, drv kv2.StorageEngineOpen, samples int) {
@@ -88,6 +92,7 @@ func benchmarkStorageSeqRead(b *testing.B, drv kv2.StorageEngineOpen, samples in
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
 	defer storClean(db)
+	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
 		key := []byte(fmt.Sprintf("%032d", i%samples))
@@ -103,6 +108,7 @@ func benchmarkStorageRandRead(b *testing.B, drv kv2.StorageEngineOpen, samples i
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
 	defer storClean(db)
+	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
 		key := []byte(fmt.Sprintf("%032d", mrand.Intn(samples+(samples/10))))
@@ -118,6 +124,7 @@ func benchmarkStorageRangeRead(b *testing.B, drv kv2.StorageEngineOpen, samples 
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
 	defer storClean(db)
+	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
 		var (
@@ -143,6 +150,7 @@ func benchmarkStorageSeqWrite(b *testing.B, drv kv2.StorageEngineOpen) {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
 	defer storClean(db)
+	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
 		bs := randBytes(100 + mrand.Intn(900))
@@ -158,6 +166,7 @@ func benchmarkStorageRandWrite(b *testing.B, drv kv2.StorageEngineOpen) {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
 	defer storClean(db)
+	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
 		bs := randBytes(100 + mrand.Intn(900))
@@ -173,6 +182,7 @@ func benchmarkStorageBatchWrite(b *testing.B, drv kv2.StorageEngineOpen) {
 		b.Fatalf("Can Not Open Database %s", err.Error())
 	}
 	defer storClean(db)
+	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
 		id := mrand.Int()
@@ -188,48 +198,52 @@ func benchmarkStorageBatchWrite(b *testing.B, drv kv2.StorageEngineOpen) {
 
 //
 func Benchmark_Storage_LevelDB_SeqRead(b *testing.B) {
-	benchmarkStorageSeqRead(b, storageLevelDBOpen, 10000)
+	benchmarkStorageSeqRead(b, storageLevelDBOpen, 100000000)
 }
 
-func Benchmark_Storage_LevelDB_RandRead(b *testing.B) {
-	benchmarkStorageRandRead(b, storageLevelDBOpen, 10000)
-}
-
-func Benchmark_Storage_LevelDB_RangeRead(b *testing.B) {
-	benchmarkStorageRangeRead(b, storageLevelDBOpen, 10000)
-}
-
-func Benchmark_Storage_LevelDB_SeqWrite(b *testing.B) {
-	benchmarkStorageSeqWrite(b, storageLevelDBOpen)
-}
-
-func Benchmark_Storage_LevelDB_RandWrite(b *testing.B) {
-	benchmarkStorageRandWrite(b, storageLevelDBOpen)
-}
-
-func Benchmark_Storage_LevelDB_BatchWrite(b *testing.B) {
-	benchmarkStorageBatchWrite(b, storageLevelDBOpen)
+func Benchmark_Storage_Pebble_SeqRead(b *testing.B) {
+	benchmarkStorageSeqRead(b, storagePebbleOpen, 100000000)
 }
 
 //
-func Benchmark_Storage_Pebble_SeqRead(b *testing.B) {
-	benchmarkStorageSeqRead(b, storagePebbleOpen, 10000)
+func Benchmark_Storage_LevelDB_RandRead(b *testing.B) {
+	benchmarkStorageRandRead(b, storageLevelDBOpen, 100000000)
 }
 
 func Benchmark_Storage_Pebble_RandRead(b *testing.B) {
-	benchmarkStorageRandRead(b, storagePebbleOpen, 10000)
+	benchmarkStorageRandRead(b, storagePebbleOpen, 100000000)
+}
+
+//
+func Benchmark_Storage_LevelDB_RangeRead(b *testing.B) {
+	benchmarkStorageRangeRead(b, storageLevelDBOpen, 100000000)
 }
 
 func Benchmark_Storage_Pebble_RangeRead(b *testing.B) {
-	benchmarkStorageRangeRead(b, storagePebbleOpen, 10000)
+	benchmarkStorageRangeRead(b, storagePebbleOpen, 100000000)
+}
+
+//
+func Benchmark_Storage_LevelDB_SeqWrite(b *testing.B) {
+	benchmarkStorageSeqWrite(b, storageLevelDBOpen)
 }
 
 func Benchmark_Storage_Pebble_SeqWrite(b *testing.B) {
 	benchmarkStorageSeqWrite(b, storagePebbleOpen)
 }
 
+//
+func Benchmark_Storage_LevelDB_RandWrite(b *testing.B) {
+	benchmarkStorageRandWrite(b, storageLevelDBOpen)
+}
+
 func Benchmark_Storage_Pebble_RandWrite(b *testing.B) {
 	benchmarkStorageRandWrite(b, storagePebbleOpen)
+}
+
+//
+func Benchmark_Storage_LevelDB_BatchWrite(b *testing.B) {
+	benchmarkStorageBatchWrite(b, storageLevelDBOpen)
 }
 
 func Benchmark_Storage_Pebble_BatchWrite(b *testing.B) {

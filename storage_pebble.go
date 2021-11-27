@@ -17,8 +17,10 @@ package kvgo
 import (
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/bloom"
 
 	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
 )
@@ -34,10 +36,35 @@ func storagePebbleOpen(path string, opts *kv2.StorageOptions) (kv2.StorageEngine
 	opts = opts.Reset()
 
 	ldbOpts := &pebble.Options{
-		Cache: pebble.NewCache(int64(opts.WriteBufferSize) * int64(kv2.MiB)),
 		// LBaseMaxBytes: int64(opts.MaxTableSize) * int64(kv2.MiB),
-		MaxOpenFiles: opts.MaxOpenFiles,
+		L0CompactionThreshold:       2,
+		L0StopWritesThreshold:       1000,
+		LBaseMaxBytes:               64 << 20,
+		Levels:                      make([]pebble.LevelOptions, 7),
+		MaxConcurrentCompactions:    2,
+		MemTableSize:                64 << 20,
+		MemTableStopWritesThreshold: 4,
+		Cache:                       pebble.NewCache(int64(opts.WriteBufferSize) * int64(kv2.MiB)),
+		MaxOpenFiles:                opts.MaxOpenFiles,
 	}
+
+	ldbOpts.Experimental.DeleteRangeFlushDelay = 10 * time.Second
+	ldbOpts.Experimental.MinDeletionRate = 128 << 20 // 128 MB
+	ldbOpts.Experimental.ReadSamplingMultiplier = -1
+
+	for i := 0; i < len(ldbOpts.Levels); i++ {
+		l := &ldbOpts.Levels[i]
+		l.BlockSize = 32 << 10       // 32 KB
+		l.IndexBlockSize = 256 << 10 // 256 KB
+		l.FilterPolicy = bloom.FilterPolicy(10)
+		l.FilterType = pebble.TableFilter
+		if i > 0 {
+			l.TargetFileSize = ldbOpts.Levels[i-1].TargetFileSize * 2
+		}
+		l.EnsureDefaults()
+	}
+
+	ldbOpts.Levels[6].FilterPolicy = nil
 
 	// comp := pebble.NoCompression
 	// if opts.TableCompressName == "snappy" {
