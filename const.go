@@ -39,6 +39,7 @@ const (
 
 const (
 	objAcceptTTL              = uint64(3000)
+	syncLogPullDelayMilSec    = int64(9000)
 	workerLocalExpireSleep    = 200e6
 	workerLocalExpireLimit    = 200
 	workerLocalExpireMax      = int64(1 << 62)
@@ -66,9 +67,9 @@ var (
 
 func keySysLogPull(hostAddr, tableName string) []byte {
 	if hostAddr == "" {
-		return append([]byte{nsKeySys}, []byte("log:sync:pull:")...)
+		return append([]byte{nsKeySys}, []byte("sync:log-pull:")...)
 	}
-	return append([]byte{nsKeySys}, []byte("log:sync:pull:"+hostAddr+":"+tableName)...)
+	return append([]byte{nsKeySys}, []byte("sync:log-pull:"+hostAddr+":"+tableName)...)
 }
 
 func keySysIncrCutset(ns string) []byte {

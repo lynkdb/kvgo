@@ -605,6 +605,9 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 					if !rs2.OK() {
 						return rs2.Error()
 					}
+
+					hlog.Printf("info", "sync log-pull from %s/%s to local/%s, data keys sync/scan %d/%d, log offset %d, key offset %v",
+						hp.Addr, tm.From, tm.To, statsSync, statsScan, item.Meta.Version, string(item.Meta.Key))
 				}
 
 				statsSync += len(rep2.Items)
@@ -761,6 +764,9 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 					if !rs2.OK() {
 						return rs2.Error()
 					}
+
+					hlog.Printf("info", "sync log-pull from %s/%s to local/%s, meta keys sync/scan %d/%d, log offset %d, key offset %v",
+						hp.Addr, tm.From, tm.To, statsSync, statsScan, item.Meta.Version, string(item.Meta.Key))
 				}
 
 				statsSync += len(rep2.Items)
@@ -911,6 +917,9 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 					if !rs2.OK() {
 						return rs2.Error()
 					}
+
+					hlog.Printf("info", "sync log-pull from %s/%s to local/%s, keys sync/scan %d/%d, log offset %d, key offset %v",
+						hp.Addr, tm.From, tm.To, statsSync, statsScan, item.Meta.Version, string(item.Meta.Key))
 				}
 
 				statsSync += len(rep2.Items)
@@ -924,7 +933,9 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 			hlog.SlotPrint(600, "info", "log sync pull from %s/%s to local/%s, log keys sync/scan %d/%d, log offset %d",
 				hp.Addr, tm.From, tm.To, statsSync, statsScan, offset.LogOffset)
 
-		} else if rep.Action == 0 {
+		}
+
+		if len(rep.Logs) == 0 {
 			time.Sleep(1e9)
 		}
 

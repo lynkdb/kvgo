@@ -406,15 +406,19 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 		return rs, nil
 	}
 
-	rs := tdb.logSyncBuffer.query(req)
-	if rs.Action == 1 {
+	// TODO rs := tdb.logSyncBuffer.query(req)
+	rs := &kv2.LogSyncReply{
+		//
+	}
+	if true {
+
 		if it.db.close {
 			return nil, errors.New("db closed")
 		}
 
 		var (
-			offset = keyEncode(nsKeyLog, uint64ToBytes(rs.LogOffset))
-			cutset = keyEncode(nsKeyLog, uint64ToBytes(rs.LogCutset))
+			offset = keyEncode(nsKeyLog, uint64ToBytes(req.LogOffset))
+			cutset = append(offset, 0xff) // keyEncode(nsKeyLog, uint64ToBytes(rs.LogCutset))
 			num    = 1000
 			siz    = 2 * 1024 * 1024
 			dbsiz  = 0
@@ -422,6 +426,7 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 				Start: offset,
 				Limit: cutset,
 			})
+			delay = uint64(timems() - syncLogPullDelayMilSec)
 		)
 
 		for ok := iter.First(); ok && num > 0 && siz > 0; ok = iter.Next() {
@@ -450,6 +455,8 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 
 			if meta.Updated == 0 {
 				meta.Updated = uint64(timems())
+			} else if meta.Updated > delay {
+				break
 			}
 
 			rs.Logs = append(rs.Logs, &kv2.ObjectMeta{
