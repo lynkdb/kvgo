@@ -428,26 +428,16 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 		return errors.New("no table found in local server")
 	}
 
-	lkey := hp.Addr + "/" + tm.From
-
-	tdb.logPullMu.Lock()
-	if _, ok := tdb.logPullPending[lkey]; ok {
-		tdb.logPullMu.Unlock()
+	lockKey := fmt.Sprintf("task/table/sync/log-pull/addr:%s/table:%s:%s", hp.Addr, tm.From, tm.To)
+	if _, ok := cn.taskLocks.LoadOrStore(lockKey, "true"); ok {
 		return nil
 	}
-	tdb.logPullPending[lkey] = true
-	tdb.logPullMu.Unlock()
-
-	defer func() {
-		tdb.logPullMu.Lock()
-		delete(tdb.logPullPending, lkey)
-		tdb.logPullMu.Unlock()
-	}()
+	defer cn.taskLocks.Delete(lockKey)
 
 	var (
-		offset = tdb.logPullOffsetFlush(hp.Addr, tm.From, nil, false)
+		offset = tdb.logPullOffsetFlush(hp.Addr, tm.From, tm.To, nil, false)
 		retry  = 0
-		mttl   = uint64(3600) * 1000
+		// mttl   = uint64(3600) * 1000
 	)
 
 	if offset == nil {
@@ -459,10 +449,16 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 		return err
 	}
 
+	if len(offset.DataKeyOffset) == 0 {
+		offset.DataKeyOffset = []byte{0x00}
+	}
 	if len(offset.DataKeyCutset) == 0 {
 		offset.DataKeyCutset = bytes.Repeat([]byte{0xff}, 32)
 	}
 
+	if len(offset.MetaKeyOffset) == 0 {
+		offset.MetaKeyOffset = []byte{0x00}
+	}
 	if len(offset.MetaKeyCutset) == 0 {
 		offset.MetaKeyCutset = bytes.Repeat([]byte{0xff}, 32)
 	}
@@ -484,14 +480,20 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 
 			req.KeyOffset = offset.DataKeyOffset
 
+			hlog.Printf("info", "sync log-pull from %s/%s, offset %s, try ...",
+				hp.Addr, tdb.tableName, string(req.KeyOffset))
+
 			ctx, fc := context.WithTimeout(context.Background(), time.Second*100)
 			rep, err := kv2.NewInternalClient(conn).LogSync(ctx, req)
 			fc()
 
+			hlog.Printf("info", "sync log-pull from %s/%s, len %d, offset %s, err %v",
+				hp.Addr, tdb.tableName, len(rep.Logs), string(req.KeyOffset), err)
+
 			if err != nil {
 				retry++
 
-				hlog.SlotPrint(600, "warn", "log sync pull from %s/%s, err %s, retry(%d) ...",
+				hlog.SlotPrint(600, "warn", "sync log-pull from %s/%s, err %s, retry(%d) ...",
 					hp.Addr, tdb.tableName, err.Error(), retry)
 
 				time.Sleep(1e9)
@@ -504,12 +506,7 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 				break
 			}
 
-			if offset.LogOffset == 0 {
-				offset.LogOffset = rep.LogCutset
-			}
-
-			if len(rep.Logs) == 0 && offset.LogOffset > 0 {
-				offset.DataKeyCutset = offset.DataKeyOffset
+			if len(rep.Logs) == 0 {
 				break
 			}
 
@@ -551,7 +548,7 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 				ss := tdb.db.Get(keyEncode(nsKey, v.Key), nil)
 				if ss.OK() {
 					meta, err := kv2.ObjectMetaDecode(ss.Bytes())
-					if err == nil && (meta.Version >= v.Version && (meta.Updated+mttl) >= v.Updated) {
+					if err == nil && meta.Version >= v.Version { // && (meta.Updated+mttl) >= v.Updated) {
 						continue
 					}
 				}
@@ -613,7 +610,7 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 				statsSync += len(rep2.Items)
 				req2.Keys = rep2.NextKeys
 
-				hlog.SlotPrint(600, "info", "log sync pull from %s/%s to local/%s, data keys sync/scan %d/%d, log offset %d, key offset %v",
+				hlog.SlotPrint(600, "info", "sync log-pull from %s/%s to local/%s, data keys sync/scan %d/%d, log offset %d, key offset %v",
 					hp.Addr, tm.From, tm.To, statsSync, statsScan, offset.LogOffset, string(offset.DataKeyOffset))
 			}
 
@@ -621,8 +618,8 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 				offset.DataKeyOffset = bytesClone(rep.Logs[len(rep.Logs)-1].Key)
 			}
 
-			tdb.logPullOffsetFlush(hp.Addr, tm.From, offset, true)
-			hlog.SlotPrint(600, "info", "log sync pull from %s/%s to local/%s, data keys sync/scan %d/%d, log offset %d, key offset %v",
+			tdb.logPullOffsetFlush(hp.Addr, tm.From, tm.To, offset, true)
+			hlog.SlotPrint(600, "info", "sync log-pull from %s/%s to local/%s, data keys sync/scan %d/%d, log offset %d, key offset %v",
 				hp.Addr, tm.From, tm.To, statsSync, statsScan, offset.LogOffset, string(offset.DataKeyOffset))
 		}
 	}
@@ -648,10 +645,13 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 			rep, err := kv2.NewInternalClient(conn).LogSync(ctx, req)
 			fc()
 
+			hlog.Printf("info", "sync log-pull from %s/%s, len %d, offset %s",
+				hp.Addr, tdb.tableName, len(rep.Logs), string(req.KeyOffset))
+
 			if err != nil {
 				retry++
 
-				hlog.SlotPrint(600, "warn", "log sync pull from %s/%s, err %s, retry(%d) ...",
+				hlog.SlotPrint(600, "warn", "sync log-pull from %s/%s, err %s, retry(%d) ...",
 					hp.Addr, tdb.tableName, err.Error(), retry)
 
 				time.Sleep(1e9)
@@ -664,12 +664,7 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 				break
 			}
 
-			if offset.LogOffset == 0 {
-				offset.LogOffset = rep.LogCutset
-			}
-
-			if len(rep.Logs) == 0 && offset.LogOffset > 0 {
-				offset.MetaKeyCutset = offset.MetaKeyOffset
+			if len(rep.Logs) == 0 {
 				break
 			}
 
@@ -710,7 +705,7 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 				ss := tdb.db.Get(keyEncode(nsKey, v.Key), nil)
 				if ss.OK() {
 					meta, err := kv2.ObjectMetaDecode(ss.Bytes())
-					if err == nil && (meta.Version >= v.Version && (meta.Updated+mttl) >= v.Updated) {
+					if err == nil && meta.Version >= v.Version { // && (meta.Updated+mttl) >= v.Updated) {
 						continue
 					}
 				}
@@ -772,7 +767,7 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 				statsSync += len(rep2.Items)
 				req2.Keys = rep2.NextKeys
 
-				hlog.SlotPrint(600, "info", "log sync pull from %s/%s to local/%s, meta keys sync/scan %d/%d, log offset %d, key offset %v",
+				hlog.SlotPrint(600, "info", "sync log-pull from %s/%s to local/%s, meta keys sync/scan %d/%d, log offset %d, key offset %v",
 					hp.Addr, tm.From, tm.To, statsSync, statsScan, offset.LogOffset, string(offset.MetaKeyOffset))
 			}
 
@@ -780,8 +775,8 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 				offset.MetaKeyOffset = bytesClone(rep.Logs[len(rep.Logs)-1].Key)
 			}
 
-			tdb.logPullOffsetFlush(hp.Addr, tm.From, offset, true)
-			hlog.SlotPrint(600, "info", "log sync pull from %s/%s to local/%s, meta keys sync/scan %d/%d, log offset %d, key offset %v",
+			tdb.logPullOffsetFlush(hp.Addr, tm.From, tm.To, offset, true)
+			hlog.SlotPrint(600, "info", "sync log-pull from %s/%s to local/%s, meta keys sync/scan %d/%d, log offset %d, key offset %v",
 				hp.Addr, tm.From, tm.To, statsSync, statsScan, offset.LogOffset, string(offset.MetaKeyOffset))
 		}
 	}
@@ -806,10 +801,13 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 		rep, err := kv2.NewInternalClient(conn).LogSync(ctx, req)
 		fc()
 
+		hlog.Printf("debug", "sync log-pull from %s/%s, len %d, offset %d",
+			hp.Addr, tdb.tableName, len(rep.Logs), req.LogOffset)
+
 		if err != nil {
 			retry++
 
-			hlog.SlotPrint(600, "warn", "log sync pull from %s/%s, err %s, retry(%d) ...",
+			hlog.SlotPrint(600, "warn", "sync log-pull from %s/%s, err %s, retry(%d) ...",
 				hp.Addr, tdb.tableName, err.Error(), retry)
 
 			time.Sleep(1e9)
@@ -861,7 +859,7 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 				ss := tdb.db.Get(keyEncode(nsKey, v.Key), nil)
 				if ss.OK() {
 					meta, err := kv2.ObjectMetaDecode(ss.Bytes())
-					if err == nil && (meta.Version >= v.Version && (meta.Updated+mttl) >= v.Updated) {
+					if err == nil && meta.Version >= v.Version { // && (meta.Updated+mttl) >= v.Updated) {
 						continue
 					}
 				}
@@ -930,9 +928,8 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 				offset.LogOffset = rep.Logs[len(rep.Logs)-1].Version
 			}
 
-			hlog.SlotPrint(600, "info", "log sync pull from %s/%s to local/%s, log keys sync/scan %d/%d, log offset %d",
+			hlog.SlotPrint(600, "info", "sync log-pull from %s/%s to local/%s, log keys sync/scan %d/%d, log offset %d",
 				hp.Addr, tm.From, tm.To, statsSync, statsScan, offset.LogOffset)
-
 		}
 
 		if len(rep.Logs) == 0 {
@@ -941,7 +938,7 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 
 		if offset.LogOffset > req.LogOffset {
 			req.LogOffset = offset.LogOffset
-			tdb.logPullOffsetFlush(hp.Addr, tm.From, offset, true)
+			tdb.logPullOffsetFlush(hp.Addr, tm.From, tm.To, offset, true)
 		}
 	}
 

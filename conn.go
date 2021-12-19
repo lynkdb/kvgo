@@ -56,6 +56,7 @@ type Conn struct {
 	workerStatusRefreshed int64
 	sysStatus             *kv2.SysNodeStatus
 	monitor               *tsd2.SampleSet
+	taskLocks             sync.Map
 }
 
 func Open(args ...interface{}) (*Conn, error) {

@@ -16,6 +16,7 @@ package kvgo
 
 import (
 	"bytes"
+	"fmt"
 	"strconv"
 	"sync"
 	"time"
@@ -43,6 +44,7 @@ type dbTableLogPullOffset struct {
 	DataKeyCutset []byte `json:"data_key_cutset"`
 	Address       string `json:"address"`
 	TableFrom     string `json:"table_from"`
+	TableTo       string `json:"table_to"`
 }
 
 type dbTable struct {
@@ -267,10 +269,10 @@ func (tdb *dbTable) objectIncrSet(ns string, incr, set uint64) (uint64, error) {
 	return incrSet.offset, nil
 }
 
-func (tdb *dbTable) logPullOffsetFlush(hostAddr, tableFrom string,
+func (tdb *dbTable) logPullOffsetFlush(hostAddr, tableFrom, tableTo string,
 	offset *dbTableLogPullOffset, chg bool) *dbTableLogPullOffset {
 
-	lkey := hostAddr + "/" + tableFrom
+	lkey := fmt.Sprintf("addr:%s/table:%s:%s", hostAddr, tableFrom, tableTo)
 
 	tdb.logPullMu.Lock()
 	defer tdb.logPullMu.Unlock()
@@ -280,7 +282,7 @@ func (tdb *dbTable) logPullOffsetFlush(hostAddr, tableFrom string,
 	)
 
 	if !ok || prevOffset == nil {
-		if ss := tdb.db.Get(keySysLogPull(hostAddr, tableFrom), nil); !ss.OK() {
+		if ss := tdb.db.Get(keySysSyncLogPull(hostAddr, tableFrom, tableTo), nil); !ss.OK() {
 			if !ss.NotFound() {
 				return nil
 			}
@@ -321,7 +323,16 @@ func (tdb *dbTable) logPullOffsetFlush(hostAddr, tableFrom string,
 	}
 
 	if chg {
-		tdb.db.Put(keySysLogPull(hostAddr, tableFrom), jsonEncode(prevOffset), nil)
+		if prevOffset.Address != hostAddr {
+			prevOffset.Address = hostAddr
+		}
+		if prevOffset.TableFrom != tableFrom {
+			prevOffset.TableFrom = tableFrom
+		}
+		if prevOffset.TableTo != tableTo {
+			prevOffset.TableTo = tableTo
+		}
+		tdb.db.Put(keySysSyncLogPull(hostAddr, tableFrom, tableTo), jsonEncode(prevOffset), nil)
 	}
 
 	return prevOffset

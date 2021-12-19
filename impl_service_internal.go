@@ -261,9 +261,11 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 		return nil, errors.New("table not found")
 	}
 
+	/**
 	if tdb.logSyncBuffer == nil {
 		return nil, errors.New("logSyncBuffer not setup")
 	}
+	*/
 
 	if len(req.KeyOffset) > 0 {
 
@@ -418,7 +420,7 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 
 		var (
 			offset = keyEncode(nsKeyLog, uint64ToBytes(req.LogOffset))
-			cutset = append(offset, 0xff) // keyEncode(nsKeyLog, uint64ToBytes(rs.LogCutset))
+			cutset = keyEncode(nsKeyLog, []byte{0xff})
 			num    = 1000
 			siz    = 2 * 1024 * 1024
 			dbsiz  = 0
@@ -482,10 +484,12 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 		}
 	}
 
+	/**
 	if p := tdb.logSyncBuffer.status(req.ServerId, len(rs.Logs), 0); p != nil && p.logNum > 0 {
 		hlog.SlotPrint(600, "info", "log sync reply to %s/%s cold logs %d, range %d ~ %d",
 			req.ServerId, req.TableName, p.logNum, rs.LogOffset, rs.LogCutset)
 	}
+	*/
 
 	return rs, nil
 }

@@ -65,11 +65,26 @@ var (
 	keySysLogCutset  = append([]byte{nsKeySys}, []byte("log:cutset")...)
 )
 
-func keySysLogPull(hostAddr, tableName string) []byte {
+func keySysSyncLogPull(hostAddr, tableFrom, tableTo string) []byte {
+
+	key := append([]byte{nsKeySys}, []byte("debug:sync:log-pull:")...)
+
 	if hostAddr == "" {
-		return append([]byte{nsKeySys}, []byte("sync:log-pull:")...)
+		return key
 	}
-	return append([]byte{nsKeySys}, []byte("sync:log-pull:"+hostAddr+":"+tableName)...)
+	key = append(key, []byte("addr:"+hostAddr)...)
+
+	if tableFrom == "" {
+		return key
+	}
+	key = append(key, []byte("table:"+tableFrom+":")...)
+
+	if tableTo == "" {
+		return key
+	}
+	key = append(key, []byte(tableTo)...)
+
+	return key
 }
 
 func keySysIncrCutset(ns string) []byte {
