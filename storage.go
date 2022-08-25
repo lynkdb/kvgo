@@ -19,8 +19,8 @@ import (
 )
 
 func storageEngineOpen(engine, path string, opts *kv2.StorageOptions) (kv2.StorageEngine, error) {
-	if engine == "pebble" {
-		return storagePebbleOpen(path, opts)
-	}
+	// if engine == "pebble" {
+	// 	return storagePebbleOpen(path, opts)
+	// }
 	return storageLevelDBOpen(path, opts)
 }

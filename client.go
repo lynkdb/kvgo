@@ -217,6 +217,7 @@ func clientConn(addr string,
 	if c, ok := grpcClientConns[ck]; ok {
 		if forceNew {
 			c.Close()
+			c = nil
 			delete(grpcClientConns, ck)
 		} else {
 			return c, nil

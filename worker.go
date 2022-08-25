@@ -480,20 +480,17 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 
 			req.KeyOffset = offset.DataKeyOffset
 
-			hlog.Printf("info", "sync log-pull from %s/%s, offset %s, try ...",
-				hp.Addr, tdb.tableName, string(req.KeyOffset))
+			hlog.Printf("info", "sync log-pull from %s/%s, offset (%d) %s, try ...",
+				hp.Addr, tdb.tableName, len(req.KeyOffset), string(req.KeyOffset))
 
 			ctx, fc := context.WithTimeout(context.Background(), time.Second*100)
 			rep, err := kv2.NewInternalClient(conn).LogSync(ctx, req)
 			fc()
 
-			hlog.Printf("info", "sync log-pull from %s/%s, len %d, offset %s, err %v",
-				hp.Addr, tdb.tableName, len(rep.Logs), string(req.KeyOffset), err)
-
 			if err != nil {
 				retry++
 
-				hlog.SlotPrint(600, "warn", "sync log-pull from %s/%s, err %s, retry(%d) ...",
+				hlog.SlotPrint(60, "warn", "sync log-pull from %s/%s, err %s, retry(%d) ...",
 					hp.Addr, tdb.tableName, err.Error(), retry)
 
 				time.Sleep(1e9)
@@ -501,6 +498,9 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 				continue
 			}
 			retry = 0
+
+			hlog.Printf("info", "sync log-pull from %s/%s, len %d, offset %s",
+				hp.Addr, tdb.tableName, len(rep.Logs), string(req.KeyOffset))
 
 			if cn.close {
 				break
@@ -645,9 +645,6 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 			rep, err := kv2.NewInternalClient(conn).LogSync(ctx, req)
 			fc()
 
-			hlog.Printf("info", "sync log-pull from %s/%s, len %d, offset %s",
-				hp.Addr, tdb.tableName, len(rep.Logs), string(req.KeyOffset))
-
 			if err != nil {
 				retry++
 
@@ -659,6 +656,9 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 				continue
 			}
 			retry = 0
+
+			hlog.Printf("info", "sync log-pull from %s/%s, len %d, offset %s",
+				hp.Addr, tdb.tableName, len(rep.Logs), string(req.KeyOffset))
 
 			if cn.close {
 				break
@@ -801,9 +801,6 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 		rep, err := kv2.NewInternalClient(conn).LogSync(ctx, req)
 		fc()
 
-		hlog.Printf("debug", "sync log-pull from %s/%s, len %d, offset %d",
-			hp.Addr, tdb.tableName, len(rep.Logs), req.LogOffset)
-
 		if err != nil {
 			retry++
 
@@ -815,6 +812,9 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 			continue
 		}
 		retry = 0
+
+		hlog.Printf("debug", "sync log-pull from %s/%s, len %d, offset %d",
+			hp.Addr, tdb.tableName, len(rep.Logs), req.LogOffset)
 
 		if cn.close {
 			break
@@ -933,7 +933,7 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 		}
 
 		if len(rep.Logs) == 0 {
-			time.Sleep(1e9)
+			time.Sleep(3e9)
 		}
 
 		if offset.LogOffset > req.LogOffset {

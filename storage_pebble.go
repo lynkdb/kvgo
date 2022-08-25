@@ -14,6 +14,7 @@
 
 package kvgo
 
+/**
 import (
 	"os"
 	"path/filepath"
@@ -242,3 +243,4 @@ func (it *pebbleStorageIterator) Release() {
 func (it *pebbleStorageIterator) Seek(key []byte) bool {
 	return it.SeekGE(key)
 }
+*/

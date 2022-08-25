@@ -196,56 +196,50 @@ func benchmarkStorageBatchWrite(b *testing.B, drv kv2.StorageEngineOpen) {
 	}
 }
 
-//
 func Benchmark_Storage_LevelDB_SeqRead(b *testing.B) {
 	benchmarkStorageSeqRead(b, storageLevelDBOpen, 100000000)
 }
 
-func Benchmark_Storage_Pebble_SeqRead(b *testing.B) {
-	benchmarkStorageSeqRead(b, storagePebbleOpen, 100000000)
-}
-
-//
 func Benchmark_Storage_LevelDB_RandRead(b *testing.B) {
 	benchmarkStorageRandRead(b, storageLevelDBOpen, 100000000)
 }
 
-func Benchmark_Storage_Pebble_RandRead(b *testing.B) {
-	benchmarkStorageRandRead(b, storagePebbleOpen, 100000000)
-}
-
-//
 func Benchmark_Storage_LevelDB_RangeRead(b *testing.B) {
 	benchmarkStorageRangeRead(b, storageLevelDBOpen, 100000000)
 }
 
-func Benchmark_Storage_Pebble_RangeRead(b *testing.B) {
-	benchmarkStorageRangeRead(b, storagePebbleOpen, 100000000)
-}
-
-//
 func Benchmark_Storage_LevelDB_SeqWrite(b *testing.B) {
 	benchmarkStorageSeqWrite(b, storageLevelDBOpen)
 }
 
-func Benchmark_Storage_Pebble_SeqWrite(b *testing.B) {
-	benchmarkStorageSeqWrite(b, storagePebbleOpen)
-}
-
-//
 func Benchmark_Storage_LevelDB_RandWrite(b *testing.B) {
 	benchmarkStorageRandWrite(b, storageLevelDBOpen)
 }
 
-func Benchmark_Storage_Pebble_RandWrite(b *testing.B) {
-	benchmarkStorageRandWrite(b, storagePebbleOpen)
-}
-
-//
 func Benchmark_Storage_LevelDB_BatchWrite(b *testing.B) {
 	benchmarkStorageBatchWrite(b, storageLevelDBOpen)
 }
 
-func Benchmark_Storage_Pebble_BatchWrite(b *testing.B) {
-	benchmarkStorageBatchWrite(b, storagePebbleOpen)
-}
+// func Benchmark_Storage_Pebble_SeqRead(b *testing.B) {
+// 	benchmarkStorageSeqRead(b, storagePebbleOpen, 100000000)
+// }
+//
+// func Benchmark_Storage_Pebble_RandRead(b *testing.B) {
+// 	benchmarkStorageRandRead(b, storagePebbleOpen, 100000000)
+// }
+//
+// func Benchmark_Storage_Pebble_RangeRead(b *testing.B) {
+// 	benchmarkStorageRangeRead(b, storagePebbleOpen, 100000000)
+// }
+//
+// func Benchmark_Storage_Pebble_SeqWrite(b *testing.B) {
+// 	benchmarkStorageSeqWrite(b, storagePebbleOpen)
+// }
+//
+// func Benchmark_Storage_Pebble_RandWrite(b *testing.B) {
+// 	benchmarkStorageRandWrite(b, storagePebbleOpen)
+// }
+//
+// func Benchmark_Storage_Pebble_BatchWrite(b *testing.B) {
+// 	benchmarkStorageBatchWrite(b, storagePebbleOpen)
+// }
