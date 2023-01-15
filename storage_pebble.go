@@ -14,16 +14,14 @@
 
 package kvgo
 
-/**
 import (
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/bloom"
 
-	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
+	kv2 "github.com/lynkdb/kvspec/v2/go/kvspec"
 )
 
 func storagePebbleOpen(path string, opts *kv2.StorageOptions) (kv2.StorageEngine, error) {
@@ -37,21 +35,27 @@ func storagePebbleOpen(path string, opts *kv2.StorageOptions) (kv2.StorageEngine
 	opts = opts.Reset()
 
 	ldbOpts := &pebble.Options{
-		// LBaseMaxBytes: int64(opts.MaxTableSize) * int64(kv2.MiB),
-		L0CompactionThreshold:       2,
-		L0StopWritesThreshold:       1000,
-		LBaseMaxBytes:               64 << 20,
-		Levels:                      make([]pebble.LevelOptions, 7),
-		MaxConcurrentCompactions:    2,
+		L0CompactionThreshold: 2,
+		L0StopWritesThreshold: 1000,
+		LBaseMaxBytes:         64 << 20,
+		Levels:                make([]pebble.LevelOptions, 7),
+		MaxConcurrentCompactions: func() int {
+			return 1
+		},
 		MemTableSize:                64 << 20,
 		MemTableStopWritesThreshold: 4,
 		Cache:                       pebble.NewCache(int64(opts.WriteBufferSize) * int64(kv2.MiB)),
 		MaxOpenFiles:                opts.MaxOpenFiles,
 	}
 
-	ldbOpts.Experimental.DeleteRangeFlushDelay = 10 * time.Second
-	ldbOpts.Experimental.MinDeletionRate = 128 << 20 // 128 MB
-	ldbOpts.Experimental.ReadSamplingMultiplier = -1
+	// ldbOpts.Experimental.DeleteRangeFlushDelay = 10 * time.Second
+	// ldbOpts.Experimental.MinDeletionRate = 128 << 20 // 128 MB
+	// ldbOpts.Experimental.ReadSamplingMultiplier = -1
+
+	comp := pebble.NoCompression
+	if opts.TableCompressName == "snappy" {
+		comp = pebble.SnappyCompression
+	}
 
 	for i := 0; i < len(ldbOpts.Levels); i++ {
 		l := &ldbOpts.Levels[i]
@@ -63,22 +67,10 @@ func storagePebbleOpen(path string, opts *kv2.StorageOptions) (kv2.StorageEngine
 			l.TargetFileSize = ldbOpts.Levels[i-1].TargetFileSize * 2
 		}
 		l.EnsureDefaults()
+		l.Compression = comp
 	}
 
 	ldbOpts.Levels[6].FilterPolicy = nil
-
-	// comp := pebble.NoCompression
-	// if opts.TableCompressName == "snappy" {
-	// 	comp = pebble.SnappyCompression
-	// }
-
-	// for i := 0; i < 1; i++ {
-	// 	lops := pebble.LevelOptions{
-	// 		TargetFileSize: int64(opts.MaxTableSize) * int64(kv2.MiB),
-	// 		Compression:    comp,
-	// 	}
-	// 	ldbOpts.Levels = append(ldbOpts.Levels, lops)
-	// }
 
 	db, err := pebble.Open(dir, ldbOpts)
 	if err != nil {
@@ -243,4 +235,3 @@ func (it *pebbleStorageIterator) Release() {
 func (it *pebbleStorageIterator) Seek(key []byte) bool {
 	return it.SeekGE(key)
 }
-*/

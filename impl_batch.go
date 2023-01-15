@@ -18,7 +18,7 @@ import (
 	"errors"
 	"fmt"
 
-	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
+	kv2 "github.com/lynkdb/kvspec/v2/go/kvspec"
 )
 
 func (cn *Conn) BatchCommit(rr *kv2.BatchRequest) *kv2.BatchResult {

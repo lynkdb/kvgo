@@ -18,7 +18,7 @@ package kvgo
 
 import (
 	"github.com/hooto/hauth/go/hauth/v1"
-	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
+	kv2 "github.com/lynkdb/kvspec/v2/go/kvspec"
 )
 
 const (

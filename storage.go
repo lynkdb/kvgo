@@ -15,7 +15,7 @@
 package kvgo
 
 import (
-	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
+	kv2 "github.com/lynkdb/kvspec/v2/go/kvspec"
 )
 
 func storageEngineOpen(engine, path string, opts *kv2.StorageOptions) (kv2.StorageEngine, error) {

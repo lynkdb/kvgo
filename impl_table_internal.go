@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/hooto/hlog4g/hlog"
-	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
+	kv2 "github.com/lynkdb/kvspec/v2/go/kvspec"
 	tsd2 "github.com/valuedig/apis/go/tsd/v2"
 )
 

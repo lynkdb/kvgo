@@ -16,11 +16,11 @@ package main
 
 import (
 	"github.com/lynkdb/iomix/connect"
-	"github.com/lynkdb/kvspec/v2"
+	kv2 "github.com/lynkdb/kvspec/v2/go/kvspec"
 
 	"github.com/lynkdb/kvgo"
 )
 
-func NewConnector(copts *connect.ConnOptions) (kvspec2.ClientConnector, error) {
+func NewConnector(copts *connect.ConnOptions) (kv2.ClientConnector, error) {
 	return kvgo.Open(*copts)
 }

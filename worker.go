@@ -32,7 +32,7 @@ import (
 	ps_mem "github.com/shirou/gopsutil/v3/mem"
 	ps_net "github.com/shirou/gopsutil/v3/net"
 
-	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
+	kv2 "github.com/lynkdb/kvspec/v2/go/kvspec"
 )
 
 func (cn *Conn) workerLocal() {

@@ -19,7 +19,7 @@ import (
 
 	tsd2 "github.com/valuedig/apis/go/tsd/v2"
 
-	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
+	kv2 "github.com/lynkdb/kvspec/v2/go/kvspec"
 )
 
 type monitorStorage struct {

@@ -29,7 +29,7 @@ import (
 	"github.com/hooto/hlog4g/hlog"
 	tsd2 "github.com/valuedig/apis/go/tsd/v2"
 
-	kv2 "github.com/lynkdb/kvspec/go/kvspec/v2"
+	kv2 "github.com/lynkdb/kvspec/v2/go/kvspec"
 )
 
 var (
@@ -188,6 +188,59 @@ func (cn *Conn) dbSetup(dir string, opts *kv2.StorageOptions) (*dbTable, error) 
 
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return nil, err
+	}
+
+	if cn.opts.Storage.Engine == "leveldb_to_pebble" {
+
+		_, err := os.Stat(dir + "_pebble")
+
+		if err != nil {
+
+			dbDst, err := storagePebbleOpen(dir+"_pebble", opts)
+			if err != nil {
+				return nil, err
+			}
+
+			dbSrc, err := storageLevelDBOpen(dir, opts)
+			if err != nil {
+				return nil, err
+			}
+
+			siz := []*kv2.StorageIteratorRange{
+				{
+					Start: []byte{},
+					Limit: []byte{0xff, 0xff},
+				},
+			}
+
+			var (
+				t1   = time.Now()
+				num  = 0
+				iter = dbSrc.NewIterator(siz[0])
+			)
+
+			for ok := iter.First(); ok; ok = iter.Next() {
+				if ss := dbDst.Put(iter.Key(), iter.Value(), nil); ss.OK() {
+					num += 1
+				}
+				if (num % 10e4) == 0 {
+					hlog.Printf("info", "db upgrading %d, time %v", num, time.Since(t1))
+				}
+			}
+
+			iter.Release()
+
+			dbSrc.Close()
+			dbDst.Close()
+
+			if err = os.Rename(dir, fmt.Sprintf("%s_leveldb_%s", dir, time.Now().Format("20060102_150405"))); err != nil {
+				return nil, err
+			}
+
+			hlog.Printf("info", "db upgrading %d, time %v", num, time.Since(t1))
+
+			cn.opts.Storage.Engine = "pebble"
+		}
 	}
 
 	db, err := storageEngineOpen(cn.opts.Storage.Engine, dir, opts)
@@ -512,6 +565,7 @@ func (cn *Conn) dbTableSetup(tableName string, tableId uint32) error {
 		return err
 	}
 
+	hlog.Printf("info", "setup table %s ok", tableName)
 	cn.tables[tableName] = dt
 
 	return nil
