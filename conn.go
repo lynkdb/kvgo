@@ -186,22 +186,16 @@ func (cn *Conn) tabledb(name string) *dbTable {
 
 func (cn *Conn) dbSetup(dir string, opts *kv2.StorageOptions) (*dbTable, error) {
 
-	if err := os.MkdirAll(dir, 0750); err != nil {
-		return nil, err
-	}
+	if cn.opts.Storage.Engine == "leveldb_to_pebble" || cn.opts.Storage.Engine == "pebble" {
 
-	if cn.opts.Storage.Engine == "leveldb_to_pebble" {
+		if _, err := os.Stat(dir + "_pebble"); err != nil {
 
-		_, err := os.Stat(dir + "_pebble")
-
-		if err != nil {
-
-			dbDst, err := storagePebbleOpen(dir+"_pebble", opts)
+			dbDst, err := StoragePebbleOpen(dir+"_pebble", opts)
 			if err != nil {
 				return nil, err
 			}
 
-			dbSrc, err := storageLevelDBOpen(dir, opts)
+			dbSrc, err := StorageLevelDBOpen(dir, opts)
 			if err != nil {
 				return nil, err
 			}
@@ -222,25 +216,37 @@ func (cn *Conn) dbSetup(dir string, opts *kv2.StorageOptions) (*dbTable, error) 
 			for ok := iter.First(); ok; ok = iter.Next() {
 				if ss := dbDst.Put(iter.Key(), iter.Value(), nil); ss.OK() {
 					num += 1
+				} else {
+					hlog.Printf("info", "db upgrading %d, err %v", num, ss.Error())
 				}
-				if (num % 10e4) == 0 {
+				if (num % 1e4) == 0 {
 					hlog.Printf("info", "db upgrading %d, time %v", num, time.Since(t1))
 				}
 			}
+
+			hlog.Printf("info", "db upgrading %d, time %v, dir %s, done", num, time.Since(t1), dir)
 
 			iter.Release()
 
 			dbSrc.Close()
 			dbDst.Close()
+		}
 
+		if _, err := os.Stat(dir); err == nil {
 			if err = os.Rename(dir, fmt.Sprintf("%s_leveldb_%s", dir, time.Now().Format("20060102_150405"))); err != nil {
 				return nil, err
 			}
-
-			hlog.Printf("info", "db upgrading %d, time %v", num, time.Since(t1))
-
-			cn.opts.Storage.Engine = "pebble"
 		}
+
+		cn.opts.Storage.Engine = "pebble"
+	}
+
+	if cn.opts.Storage.Engine == "pebble" && !strings.HasSuffix(dir, "_pebble") {
+		dir += "_pebble"
+	}
+
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		return nil, err
 	}
 
 	db, err := storageEngineOpen(cn.opts.Storage.Engine, dir, opts)
@@ -258,7 +264,8 @@ func (cn *Conn) dbSetup(dir string, opts *kv2.StorageOptions) (*dbTable, error) 
 			nsKeyTtl,
 		} {
 
-			if strings.HasSuffix(dir, "/sys") {
+			if strings.HasSuffix(dir, "/sys") ||
+				strings.HasSuffix(dir, "/sys_pebble") {
 				continue
 			}
 

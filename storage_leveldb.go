@@ -30,12 +30,16 @@ import (
 	kv2 "github.com/lynkdb/kvspec/v2/go/kvspec"
 )
 
-func storageLevelDBOpen(path string, opts *kv2.StorageOptions) (kv2.StorageEngine, error) {
+func StorageLevelDBOpen(path string, opts *kv2.StorageOptions) (kv2.StorageEngine, error) {
 
 	dir := filepath.Clean(path)
 
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return nil, err
+	}
+
+	if opts == nil {
+		opts = &kv2.StorageOptions{}
 	}
 
 	opts = opts.Reset()

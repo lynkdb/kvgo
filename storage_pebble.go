@@ -24,14 +24,17 @@ import (
 	kv2 "github.com/lynkdb/kvspec/v2/go/kvspec"
 )
 
-func storagePebbleOpen(path string, opts *kv2.StorageOptions) (kv2.StorageEngine, error) {
+func StoragePebbleOpen(path string, opts *kv2.StorageOptions) (kv2.StorageEngine, error) {
 
-	dir := filepath.Clean(path) + "_pebble"
+	dir := filepath.Clean(path)
 
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return nil, err
 	}
 
+	if opts == nil {
+		opts = &kv2.StorageOptions{}
+	}
 	opts = opts.Reset()
 
 	ldbOpts := &pebble.Options{
@@ -42,9 +45,9 @@ func storagePebbleOpen(path string, opts *kv2.StorageOptions) (kv2.StorageEngine
 		MaxConcurrentCompactions: func() int {
 			return 1
 		},
-		MemTableSize:                64 << 20,
+		MemTableSize:                opts.WriteBufferSize << 20,
 		MemTableStopWritesThreshold: 4,
-		Cache:                       pebble.NewCache(int64(opts.WriteBufferSize) * int64(kv2.MiB)),
+		Cache:                       pebble.NewCache(int64(opts.BlockCacheSize << 20)),
 		MaxOpenFiles:                opts.MaxOpenFiles,
 	}
 
@@ -53,18 +56,20 @@ func storagePebbleOpen(path string, opts *kv2.StorageOptions) (kv2.StorageEngine
 	// ldbOpts.Experimental.ReadSamplingMultiplier = -1
 
 	comp := pebble.NoCompression
-	if opts.TableCompressName == "snappy" {
+	if opts.TableCompressName != "none" {
 		comp = pebble.SnappyCompression
 	}
 
 	for i := 0; i < len(ldbOpts.Levels); i++ {
 		l := &ldbOpts.Levels[i]
-		l.BlockSize = 32 << 10       // 32 KB
-		l.IndexBlockSize = 256 << 10 // 256 KB
+		l.BlockSize = 32 << 10
+		l.IndexBlockSize = 256 << 10
 		l.FilterPolicy = bloom.FilterPolicy(10)
 		l.FilterType = pebble.TableFilter
 		if i > 0 {
 			l.TargetFileSize = ldbOpts.Levels[i-1].TargetFileSize * 2
+		} else {
+			l.TargetFileSize = 2 << 20
 		}
 		l.EnsureDefaults()
 		l.Compression = comp

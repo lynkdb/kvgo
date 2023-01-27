@@ -49,6 +49,10 @@ func keyEncode(ns byte, key []byte) []byte {
 	return append([]byte{ns}, key...)
 }
 
+func BytesClone(src []byte) []byte {
+	return bytesClone(src)
+}
+
 func bytesClone(src []byte) []byte {
 
 	dst := make([]byte, len(src))

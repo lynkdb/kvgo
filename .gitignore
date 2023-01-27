@@ -6,3 +6,5 @@ bench/*
 *.dev
 .DS_Store
 go.sum
+bin/
+var/

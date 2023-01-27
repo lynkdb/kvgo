@@ -11,7 +11,7 @@ require (
 	github.com/lynkdb/kvspec/v2 v2.0.0
 	github.com/lynkdb/lynkbench v0.0.0-20200131160657-29d0efed79de
 	github.com/shirou/gopsutil/v3 v3.22.12
-	github.com/syndtr/goleveldb v1.0.0
+	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d
 	github.com/valuedig/apis v0.1.0
 	google.golang.org/grpc v1.52.0
 )
