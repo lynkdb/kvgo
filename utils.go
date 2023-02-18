@@ -24,11 +24,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	mrand "math/rand"
+	"net"
 	"regexp"
 	"time"
+
+	"github.com/cespare/xxhash"
 
 	kv2 "github.com/lynkdb/kvspec/v2/go/kvspec"
 )
@@ -189,4 +193,34 @@ func jsonEncode(obj interface{}) []byte {
 
 func jsonDecode(bs []byte, obj interface{}) error {
 	return json.Unmarshal(bs, obj)
+}
+
+func privateIP4Valid(ipAddr string) error {
+
+	// Private IPv4
+	// 10.0.0.0 ~ 10.255.255.255
+	// 172.16.0.0 ~ 172.31.255.255
+	// 192.168.0.0 ~ 192.168.255.255
+
+	ip := net.ParseIP(ipAddr)
+	if ip == nil {
+		return errors.New("invalid ip address")
+	}
+
+	ip = ip.To4()
+
+	ipa := int(ip[0])
+	ipb := int(ip[1])
+
+	if ipa == 10 ||
+		(ipa == 172 && ipb >= 16 && ipb <= 31) ||
+		(ipa == 192 && ipb == 168) {
+		return nil
+	}
+
+	return errors.New("invalid private ip address")
+}
+
+func hash64(b []byte) uint64 {
+	return xxhash.Sum64(b)
 }

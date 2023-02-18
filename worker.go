@@ -60,7 +60,7 @@ func (cn *Conn) workerLocal() {
 			hlog.Printf("warn", "local sys-status refresh err %s", err.Error())
 		}
 
-		time.Sleep(workerLocalExpireSleep)
+		time.Sleep(workerLocalRefreshSleep)
 	}
 }
 
@@ -92,7 +92,7 @@ func (cn *Conn) workerLocalExpiredRefreshTable(dt *dbTable) error {
 
 	tn := timems()
 
-	if tn < dt.expiredSync(0) {
+	if (dt.ttlRefreshed + workerTableTTLRefreshTime) > tn {
 		return nil
 	}
 
@@ -103,8 +103,9 @@ func (cn *Conn) workerLocalExpiredRefreshTable(dt *dbTable) error {
 			Start: offset,
 			Limit: cutset,
 		})
-		num = 0
-		ok  bool
+		ok           bool
+		statsKeys    int64
+		statsRawKeys int64
 	)
 	defer iter.Release()
 
@@ -122,54 +123,59 @@ func (cn *Conn) workerLocalExpiredRefreshTable(dt *dbTable) error {
 			break
 		}
 
+		statsKeys += 1
+		statsRawKeys += 1
+
 		meta, err := kv2.ObjectMetaDecode(bytesClone(iter.Value()))
-		if err != nil {
+		if err != nil || len(iter.Key()) <= 9 {
+			batch.Delete(bytesClone(iter.Key()))
 			hlog.Printf("warn", "db err %s", err.Error())
-			break
+			continue
 		}
 
-		for _, dbkey := range [][]byte{
-			keyEncode(nsKeyMeta, meta.Key),
-			keyEncode(nsKeyData, meta.Key),
-		} {
-			if ss := dt.db.Get(dbkey, nil); ss.OK() {
-				cmeta, err := kv2.ObjectMetaDecode(ss.Bytes())
-				if err == nil && cmeta.Version == meta.Version {
-					batch.Delete(dbkey)
+		metaKey := keyEncode(nsKeyMeta, iter.Key()[9:])
+
+		if ss := dt.db.Get(metaKey, nil); ss.OK() {
+			cmeta, err := kv2.ObjectMetaDecode(ss.Bytes())
+			if err == nil {
+				if cmeta.Version == meta.Version ||
+					(cmeta.Expired > 1e8 && int64(cmeta.Expired) < tn) {
+					batch.Delete(metaKey)
+					batch.Delete(keyEncode(nsKeyData, meta.Key))
+					statsRawKeys += 2
 				}
 			}
 		}
 
-		batch.Delete(keyEncode(nsKeyLog, uint64ToBytes(meta.Version)))
-		batch.Delete(keyExpireEncode(nsKeyTtl, meta.Expired, meta.Key))
+		if meta.Version > 0 { // TODO
+			batch.Delete(keyEncode(nsKeyLog, uint64ToBytes(meta.Version)))
+			statsRawKeys += 1
+		}
+		batch.Delete(bytesClone(iter.Key()))
 
-		if batch.Len() >= workerLocalExpireLimit {
-			err := batch.Commit()
-			if err != nil {
-				hlog.Printf("debug", "table %s, ttl clean %d, err %v",
-					dt.tableName, num, err)
+		if batch.Len() >= workerTableTTLBatchKeys {
+
+			hlog.Printf("info", "table %s, ttl clean %d, stats %d/%d", dt.tableName, batch.Len(), statsKeys, statsRawKeys)
+
+			if err := batch.Commit(); err != nil {
+				hlog.Printf("info", "table %s, ttl clean fail %s", dt.tableName, err.Error())
 				return err
 			}
-			num += batch.Len()
 			batch.Reset()
 		}
 	}
 
 	if batch.Len() > 0 {
-		err := batch.Commit()
-		if err != nil {
-			hlog.Printf("debug", "table %s, ttl clean %d, err %v",
-				dt.tableName, num, err)
+
+		hlog.Printf("info", "table %s, ttl clean %d, stats %d/%d", dt.tableName, batch.Len(), statsKeys, statsRawKeys)
+
+		if err := batch.Commit(); err != nil {
+			hlog.Printf("info", "table %s, ttl clean fail %s", dt.tableName, err.Error())
 			return err
 		}
-		num += batch.Len()
 	}
 
-	if num > 0 {
-		hlog.Printf("debug", "table %s, ttl clean %d", dt.tableName, num)
-	}
-
-	dt.expiredSync(tn + 1000)
+	dt.ttlRefreshed = tn
 
 	return nil
 }
@@ -239,7 +245,7 @@ func (cn *Conn) workerLocalTableRefresh() error {
 				}
 			)
 			iter := t.db.NewIterator(rg)
-			for ok := iter.First(); ok; ok = iter.Next() {
+			for ok := iter.First(); ok && !cn.close; ok = iter.Next() {
 				kn++
 				/**
 				if tp.name == "sys" {

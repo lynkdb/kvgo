@@ -125,6 +125,8 @@ func (cn *Conn) serviceStart() error {
 
 		go server.Serve(lis)
 
+		cn.grpcListener = lis
+
 	} else {
 		cn.public = &PublicServiceImpl{
 			db: cn,

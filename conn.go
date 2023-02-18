@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,6 +46,7 @@ type Conn struct {
 	opts                  *Config
 	clients               int
 	client                *kv2.PublicClient
+	grpcListener          net.Listener
 	public                *PublicServiceImpl
 	internal              *InternalServiceImpl
 	keyMgr                *hauth.AccessKeyManager
@@ -588,6 +590,12 @@ func (cn *Conn) Close() error {
 	defer connMu.Unlock()
 
 	cn.close = true
+
+	if cn.grpcListener != nil {
+		cn.grpcListener.Close()
+	}
+
+	time.Sleep(500e6)
 
 	return cn.closeForce()
 }
