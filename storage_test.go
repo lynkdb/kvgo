@@ -38,7 +38,7 @@ func storOpen(drv kv2.StorageEngineOpen, samples int) (kv2.StorageEngine, error)
 	defer storTestMu.Unlock()
 
 	if drv == nil {
-		drv = storageLevelDBOpen
+		drv = StorageLevelDBOpen
 	}
 
 	testDir := "/dev/shm"
@@ -197,27 +197,27 @@ func benchmarkStorageBatchWrite(b *testing.B, drv kv2.StorageEngineOpen) {
 }
 
 func Benchmark_Storage_LevelDB_SeqRead(b *testing.B) {
-	benchmarkStorageSeqRead(b, storageLevelDBOpen, 100000000)
+	benchmarkStorageSeqRead(b, StorageLevelDBOpen, 100000000)
 }
 
 func Benchmark_Storage_LevelDB_RandRead(b *testing.B) {
-	benchmarkStorageRandRead(b, storageLevelDBOpen, 100000000)
+	benchmarkStorageRandRead(b, StorageLevelDBOpen, 100000000)
 }
 
 func Benchmark_Storage_LevelDB_RangeRead(b *testing.B) {
-	benchmarkStorageRangeRead(b, storageLevelDBOpen, 100000000)
+	benchmarkStorageRangeRead(b, StorageLevelDBOpen, 100000000)
 }
 
 func Benchmark_Storage_LevelDB_SeqWrite(b *testing.B) {
-	benchmarkStorageSeqWrite(b, storageLevelDBOpen)
+	benchmarkStorageSeqWrite(b, StorageLevelDBOpen)
 }
 
 func Benchmark_Storage_LevelDB_RandWrite(b *testing.B) {
-	benchmarkStorageRandWrite(b, storageLevelDBOpen)
+	benchmarkStorageRandWrite(b, StorageLevelDBOpen)
 }
 
 func Benchmark_Storage_LevelDB_BatchWrite(b *testing.B) {
-	benchmarkStorageBatchWrite(b, storageLevelDBOpen)
+	benchmarkStorageBatchWrite(b, StorageLevelDBOpen)
 }
 
 // func Benchmark_Storage_Pebble_SeqRead(b *testing.B) {

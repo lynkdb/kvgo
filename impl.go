@@ -638,7 +638,7 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 				continue
 			}
 
-			meta, err := kv2.ObjectMetaDecode(iter.Value())
+			meta, _, err := kv2.ObjectMetaDecode(iter.Value())
 			if err != nil || meta == nil {
 				if err != nil {
 					hlog.Printf("info", "db-log-range err %s", err.Error())
@@ -764,7 +764,8 @@ func (cn *Conn) objectMetaGet(rr *kv2.ObjectWriter) (*kv2.ObjectMeta, error) {
 	}
 
 	if ss.OK() {
-		return kv2.ObjectMetaDecode(ss.Bytes())
+		meta, _, err := kv2.ObjectMetaDecode(ss.Bytes())
+		return meta, err
 	}
 
 	if ss.NotFound() {

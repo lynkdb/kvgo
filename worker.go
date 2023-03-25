@@ -126,7 +126,7 @@ func (cn *Conn) workerLocalExpiredRefreshTable(dt *dbTable) error {
 		statsKeys += 1
 		statsRawKeys += 1
 
-		meta, err := kv2.ObjectMetaDecode(bytesClone(iter.Value()))
+		meta, _, err := kv2.ObjectMetaDecode(bytesClone(iter.Value()))
 		if err != nil || len(iter.Key()) <= 9 {
 			batch.Delete(bytesClone(iter.Key()))
 			hlog.Printf("warn", "db err %s", err.Error())
@@ -136,7 +136,7 @@ func (cn *Conn) workerLocalExpiredRefreshTable(dt *dbTable) error {
 		metaKey := keyEncode(nsKeyMeta, iter.Key()[9:])
 
 		if ss := dt.db.Get(metaKey, nil); ss.OK() {
-			cmeta, err := kv2.ObjectMetaDecode(ss.Bytes())
+			cmeta, _, err := kv2.ObjectMetaDecode(ss.Bytes())
 			if err == nil {
 				if cmeta.Version == meta.Version ||
 					(cmeta.Expired > 1e8 && int64(cmeta.Expired) < tn) {
@@ -553,7 +553,7 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 
 				ss := tdb.db.Get(keyEncode(nsKey, v.Key), nil)
 				if ss.OK() {
-					meta, err := kv2.ObjectMetaDecode(ss.Bytes())
+					meta, _, err := kv2.ObjectMetaDecode(ss.Bytes())
 					if err == nil && meta.Version >= v.Version { // && (meta.Updated+mttl) >= v.Updated) {
 						continue
 					}
@@ -710,7 +710,7 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 
 				ss := tdb.db.Get(keyEncode(nsKey, v.Key), nil)
 				if ss.OK() {
-					meta, err := kv2.ObjectMetaDecode(ss.Bytes())
+					meta, _, err := kv2.ObjectMetaDecode(ss.Bytes())
 					if err == nil && meta.Version >= v.Version { // && (meta.Updated+mttl) >= v.Updated) {
 						continue
 					}
@@ -864,7 +864,7 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 
 				ss := tdb.db.Get(keyEncode(nsKey, v.Key), nil)
 				if ss.OK() {
-					meta, err := kv2.ObjectMetaDecode(ss.Bytes())
+					meta, _, err := kv2.ObjectMetaDecode(ss.Bytes())
 					if err == nil && meta.Version >= v.Version { // && (meta.Updated+mttl) >= v.Updated) {
 						continue
 					}
@@ -980,7 +980,7 @@ func (cn *Conn) workerLocalLogCleanTable(tdb *dbTable) error {
 
 		if len(iter.Value()) >= 2 {
 
-			logMeta, err := kv2.ObjectMetaDecode(iter.Value())
+			logMeta, _, err := kv2.ObjectMetaDecode(iter.Value())
 			if err == nil && logMeta != nil {
 
 				tdb.objectLogVersionSet(0, logMeta.Version, 0)
@@ -988,7 +988,7 @@ func (cn *Conn) workerLocalLogCleanTable(tdb *dbTable) error {
 				if _, ok := sets[string(logMeta.Key)]; !ok {
 
 					if ss := tdb.db.Get(keyEncode(nsKeyMeta, logMeta.Key), nil); ss.OK() {
-						meta, err := kv2.ObjectMetaDecode(ss.Bytes())
+						meta, _, err := kv2.ObjectMetaDecode(ss.Bytes())
 						if err == nil && meta.Version > 0 && meta.Version != logMeta.Version {
 							batch.Delete(iter.Key())
 							ndel++
