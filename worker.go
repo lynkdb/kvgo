@@ -213,7 +213,7 @@ func (cn *Conn) workerLocalTableRefresh() error {
 
 	for _, t := range cn.tables {
 
-		if err := cn.workerLocalLogCleanTable(t); err != nil {
+		if err := cn.workerLocalLogCleanTable(t, tn); err != nil {
 			hlog.Printf("warn", "worker log clean table %s, err %s",
 				t.tableName, err.Error())
 		}
@@ -238,36 +238,36 @@ func (cn *Conn) workerLocalTableRefresh() error {
 
 		for _, tp := range nsItems {
 			var (
-				kn = int64(0)
+				// kn = int64(0)
 				rg = &kv2.StorageIteratorRange{
 					Start: keyEncode(tp.ns, []byte{}),
 					Limit: keyEncode(tp.ns, []byte{0xff}),
 				}
 			)
-			iter := t.db.NewIterator(rg)
-			for ok := iter.First(); ok && !cn.close; ok = iter.Next() {
-				kn++
-				/**
-				if tp.name == "sys" {
-					tableStatus.States["sys_"+string(iter.Key()[1:])] = string(iter.Value())
-				}
-				*/
-			}
-			iter.Release()
+			// iter := t.db.NewIterator(rg)
+			// for ok := iter.First(); ok && !cn.close; ok = iter.Next() {
+			// 	kn++
+			// 	/**
+			// 	if tp.name == "sys" {
+			// 		tableStatus.States["sys_"+string(iter.Key()[1:])] = string(iter.Value())
+			// 	}
+			// 	*/
+			// }
+			// iter.Release()
 
-			if kn == 0 {
-				continue
-			}
+			// if kn == 0 {
+			// 	continue
+			// }
 
-			if tableStatus.States["ns_"+tp.name] == "" {
-				tableStatus.States["ns_"+tp.name] = fmt.Sprintf("keys:%d", kn)
-			} else {
-				tableStatus.States["ns_"+tp.name] += fmt.Sprintf(",keys:%d", kn)
-			}
+			// if tableStatus.States["ns_"+tp.name] == "" {
+			// 	tableStatus.States["ns_"+tp.name] = fmt.Sprintf("keys:%d", kn)
+			// } else {
+			// 	tableStatus.States["ns_"+tp.name] += fmt.Sprintf(",keys:%d", kn)
+			// }
 
-			if tp.name == "meta" || tp.name == "data" {
-				tableStatus.KeyNum += uint64(kn)
-			}
+			// if tp.name == "meta" || tp.name == "data" {
+			// 	tableStatus.KeyNum += uint64(kn)
+			// }
 
 			if siz, err := t.db.SizeOf([]*kv2.StorageIteratorRange{rg}); err == nil || len(siz) > 0 {
 				if tableStatus.States["ns_"+tp.name] == "" {
@@ -951,7 +951,12 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 	return nil
 }
 
-func (cn *Conn) workerLocalLogCleanTable(tdb *dbTable) error {
+func (cn *Conn) workerLocalLogCleanTable(tdb *dbTable, tn int64) error {
+
+	if tdb.logCleaned+workerTableLogCleanTime > tn {
+		return nil
+	}
+	tdb.logCleaned = tn
 
 	var (
 		offset = keyEncode(nsKeyLog, uint64ToBytes(0))

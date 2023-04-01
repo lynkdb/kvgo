@@ -47,6 +47,7 @@ const (
 	workerTableTTLBatchKeys   = 1000
 	workerTableTTLRefreshTime = int64(600e3)
 	workerTableRefreshTime    = int64(600)
+	workerTableLogCleanTime   = int64(3600)
 	workerStatusRefreshTime   = int64(10)
 )
 

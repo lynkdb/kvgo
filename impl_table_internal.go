@@ -61,6 +61,7 @@ type dbTable struct {
 	logPullPending map[string]bool
 	logPullOffsets map[string]*dbTableLogPullOffset
 	logLockSets    map[uint64]uint64
+	logCleaned     int64
 	monitor        *tsd2.SampleSet
 	logSyncBuffer  *logSyncBufferTable
 	closed         bool
