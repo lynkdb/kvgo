@@ -327,6 +327,8 @@ func (cn *Conn) objectLocalQuery(rr *kv2.ObjectReader) *kv2.ObjectResult {
 
 	rs.LogVersion, _ = tdb.objectLogVersionSet(0, 0, 0)
 
+	tn := timems()
+
 	if kv2.AttrAllow(rr.Mode, kv2.ObjectReaderModeKey) {
 
 		for _, k := range rr.Keys {
@@ -351,7 +353,13 @@ func (cn *Conn) objectLocalQuery(rr *kv2.ObjectReader) *kv2.ObjectResult {
 
 				item, err := kv2.ObjectItemDecode(rs2.Bytes())
 				if err == nil {
-					rs.Items = append(rs.Items, item)
+					if item.Meta.Expired > 0 && item.Meta.Expired < uint64(tn) {
+						if len(rr.Keys) == 1 {
+							rs.StatusMessage(kv2.ResultNotFound, "")
+						}
+					} else {
+						rs.Items = append(rs.Items, item)
+					}
 				} else {
 					rs.StatusMessage(kv2.ResultServerError, err.Error())
 				}
@@ -462,8 +470,8 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 	}
 
 	var (
-		iter   kv2.StorageIterator
-		values = [][]byte{}
+		iter kv2.StorageIterator
+		tn   = timems()
 	)
 
 	if kv2.AttrAllow(rr.Mode, kv2.ObjectReaderModeRevRange) {
@@ -493,13 +501,21 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 				continue
 			}
 
+			item, err := kv2.ObjectItemDecode(iter.Value())
+			if err != nil {
+				continue
+			}
+			if item.Meta.Expired > 0 && item.Meta.Expired < uint64(tn) {
+				continue
+			}
+
 			limitSize -= int64(len(iter.Value()))
-			if limitSize < 1 {
+			if limitSize < 1 && len(rs.Items) > 0 {
 				break
 			}
 
 			limitNum--
-			values = append(values, bytesClone(iter.Value()))
+			rs.Items = append(rs.Items, item)
 		}
 
 	} else {
@@ -529,13 +545,21 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 				continue
 			}
 
+			item, err := kv2.ObjectItemDecode(iter.Value())
+			if err != nil {
+				continue
+			}
+			if item.Meta.Expired > 0 && item.Meta.Expired < uint64(tn) {
+				continue
+			}
+
 			limitSize -= int64(len(iter.Value()))
-			if limitSize < 1 {
+			if limitSize < 1 && len(rs.Items) > 0 {
 				break
 			}
 
 			limitNum--
-			values = append(values, bytesClone(iter.Value()))
+			rs.Items = append(rs.Items, item)
 		}
 	}
 
@@ -545,20 +569,17 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 		return iter.Error()
 	}
 
-	for _, bs := range values {
-		if item, err := kv2.ObjectItemDecode(bs); err == nil {
-			rs.Items = append(rs.Items, item)
-		}
-	}
-
-	if limitNum < 1 || limitSize < 1 {
+	if len(rs.Items) == 0 {
+		rs.StatusMessage(kv2.ResultNotFound, "")
+		rs.Next = false
+	} else if limitNum < 1 || limitSize < 1 {
 		rs.Next = true
 	}
 
 	if cn.monitor != nil {
 		cn.monitor.Metric(MetricStorageCall).With(map[string]string{
 			"Read": "KeyRange",
-		}).Add(int64(len(values)))
+		}).Add(int64(len(rs.Items)))
 	}
 
 	return nil

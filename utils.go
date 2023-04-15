@@ -26,6 +26,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"log"
 	"math/big"
 	mrand "math/rand"
 	"net"
@@ -193,6 +194,10 @@ func jsonEncode(obj interface{}) []byte {
 
 func jsonDecode(bs []byte, obj interface{}) error {
 	return json.Unmarshal(bs, obj)
+}
+
+func jsonPrint(name string, obj interface{}) {
+	log.Printf("%s %s", name, string(jsonEncode(obj)))
 }
 
 func privateIP4Valid(ipAddr string) error {

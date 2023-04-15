@@ -330,6 +330,21 @@ func Test_Object_Common(t *testing.T) {
 
 					t.Logf("Query KeyRange OK")
 				}
+
+				req := db.NewReader(nil).
+					KeyRangeSet([]byte("0001"), []byte("0009")).
+					LimitNumSet(10)
+				req.Attrs |= kv2.ObjectMetaAttrDataOff
+				if rs := req.Query(); !rs.OK() {
+					t.Fatal("Query ER!")
+				} else {
+
+					if len(rs.Items) != 2 {
+						t.Fatalf("Query KeyRange ER! %d", len(rs.Items))
+					}
+
+					t.Logf("Query KeyRange OK")
+				}
 			}
 
 			// Query KeyRange+RevRange
@@ -363,9 +378,17 @@ func Test_Object_Common(t *testing.T) {
 				if rs := db.NewReader([]byte("0001")).Query(); !rs.OK() {
 					t.Fatal("Query Key ER! Expired")
 				}
+				if rs := db.NewReader(nil).KeyRangeSet([]byte("0000"), []byte("0001z")).Query(); !rs.OK() {
+					t.Fatal("Query Key ER! Expired")
+				}
 				time.Sleep(1e9)
 				if rs := db.NewReader([]byte("0001")).Query(); !rs.NotFound() {
 					t.Fatalf("Query Key ER! Expired")
+				} else {
+					t.Logf("Commit Expirted OK")
+				}
+				if rs := db.NewReader(nil).KeyRangeSet([]byte("0000"), []byte("0001z")).Query(); !rs.NotFound() {
+					t.Fatalf("Query Key ER! Expired %v", rs)
 				} else {
 					t.Logf("Commit Expirted OK")
 				}
@@ -526,7 +549,6 @@ func Test_Object_LogAsync(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Can Not Open Database %s", err.Error())
 	}
-	time.Sleep(1e9)
 
 	var (
 		key   = "log-async-key"
@@ -549,7 +571,7 @@ func Test_Object_LogAsync(t *testing.T) {
 		}
 	}
 
-	time.Sleep(100e6)
+	time.Sleep(1100e6)
 
 	ctx, fc := context.WithTimeout(context.Background(), time.Second*1)
 	defer fc()
@@ -560,7 +582,7 @@ func Test_Object_LogAsync(t *testing.T) {
 
 			conn, err := clientConn(hp.Addr, hp.AccessKey, hp.AuthTLSCert, false)
 			if err != nil {
-				t.Fatalf("Object AsyncLog ER %s", err.Error())
+				t.Fatalf("Object AsyncLog ER %s, node %s", err.Error(), hp.Addr)
 			}
 
 			for _, va := range attrs {
@@ -570,7 +592,7 @@ func Test_Object_LogAsync(t *testing.T) {
 
 				rs, err := kv2.NewPublicClient(conn).Query(ctx, rr)
 				if err != nil {
-					t.Fatalf("Object AsyncLog ER %s", err.Error())
+					t.Fatalf("Object AsyncLog ER %s, node %s", err.Error(), hp.Addr)
 				}
 
 				if !rs.OK() || len(rs.Items) == 0 {
