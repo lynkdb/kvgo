@@ -53,7 +53,7 @@ type ClientConnector struct {
 
 func (it *ClientConnector) reconnect(retry bool) error {
 
-	if retry || (it.err != nil && it.err == grpc.ErrClientConnClosing) {
+	if it.conn == nil || (it.err != nil && it.err == grpc.ErrClientConnClosing) {
 
 		conn, err := clientConn(it.cfg.Addr, it.cfg.AccessKey, it.cfg.AuthTLSCert, true)
 		if err != nil {

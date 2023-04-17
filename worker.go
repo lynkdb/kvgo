@@ -961,6 +961,7 @@ func (cn *Conn) workerLocalLogCleanTable(tdb *dbTable, tn int64) error {
 	var (
 		offset = keyEncode(nsKeyLog, uint64ToBytes(0))
 		cutset = keyEncode(nsKeyLog, []byte{0xff})
+		ttl    = uint64(timems() - workerTableLogTTLMilSec)
 	)
 
 	var (
@@ -968,18 +969,18 @@ func (cn *Conn) workerLocalLogCleanTable(tdb *dbTable, tn int64) error {
 			Start: offset,
 			Limit: cutset,
 		})
-		sets  = map[string]uint64{}
 		ndel  = 0
+		nbat  = 0
 		batch = tdb.db.NewBatch()
 	)
 
-	for ok := iter.Last(); ok && !cn.close; ok = iter.Prev() {
+	for ok := iter.First(); ok && !cn.close; ok = iter.Next() {
 
-		if bytes.Compare(iter.Key(), cutset) >= 0 {
+		if bytes.Compare(iter.Key(), offset) <= 0 {
 			continue
 		}
 
-		if bytes.Compare(iter.Key(), offset) <= 0 {
+		if bytes.Compare(iter.Key(), cutset) >= 0 {
 			break
 		}
 
@@ -987,40 +988,28 @@ func (cn *Conn) workerLocalLogCleanTable(tdb *dbTable, tn int64) error {
 
 			logMeta, _, err := kv2.ObjectMetaDecode(iter.Value())
 			if err == nil && logMeta != nil {
-
 				tdb.objectLogVersionSet(0, logMeta.Version, 0)
-
-				if _, ok := sets[string(logMeta.Key)]; !ok {
-
-					if ss := tdb.db.Get(keyEncode(nsKeyMeta, logMeta.Key), nil); ss.OK() {
-						meta, _, err := kv2.ObjectMetaDecode(ss.Bytes())
-						if err == nil && meta.Version > 0 && meta.Version != logMeta.Version {
-							batch.Delete(iter.Key())
-							ndel++
-							continue
-						}
-					}
-
-					sets[string(logMeta.Key)] = logMeta.Version
-					continue
+				if logMeta.Updated >= ttl {
+					break
 				}
 			}
 		}
 
 		batch.Delete(iter.Key())
 		ndel++
+		nbat++
 
-		if ndel >= 1000 {
+		if nbat >= 1000 {
 			batch.Commit()
 			batch = tdb.db.NewBatch()
-			ndel = 0
-			hlog.Printf("info", "table %s, log clean %d/%d", tdb.tableName, ndel, len(sets))
+			hlog.Printf("info", "table %s, log clean %d", tdb.tableName, ndel)
+			nbat = 0
 		}
 	}
 
-	if ndel > 0 {
+	if nbat > 0 {
 		batch.Commit()
-		hlog.Printf("info", "table %s, log clean %d/%d", tdb.tableName, ndel, len(sets))
+		hlog.Printf("info", "table %s, log clean %d", tdb.tableName, ndel)
 	}
 
 	iter.Release()
