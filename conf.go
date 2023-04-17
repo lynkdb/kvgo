@@ -159,8 +159,8 @@ func (it *Config) Reset() *Config {
 
 	if it.Performance.BlockCacheSize < 4 {
 		it.Performance.BlockCacheSize = 4
-	} else if it.Performance.BlockCacheSize > 64 {
-		it.Performance.BlockCacheSize = 64
+	} else if it.Performance.BlockCacheSize > 1024 {
+		it.Performance.BlockCacheSize = 1024
 	}
 
 	if it.Performance.MaxTableSize < 2 {

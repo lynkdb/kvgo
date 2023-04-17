@@ -48,6 +48,7 @@ const (
 	workerTableTTLRefreshTime = int64(600e3)
 	workerTableRefreshTime    = int64(600)
 	workerTableLogCleanTime   = int64(3600)
+	workerTableLogTTLMilSec   = int64(3600e3)
 	workerStatusRefreshTime   = int64(10)
 )
 

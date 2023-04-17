@@ -18,6 +18,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/hooto/hlog4g/hlog"
+
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/bloom"
 
@@ -50,6 +52,8 @@ func StoragePebbleOpen(path string, opts *kv2.StorageOptions) (kv2.StorageEngine
 		Cache:                       pebble.NewCache(int64(opts.BlockCacheSize << 20)),
 		MaxOpenFiles:                opts.MaxOpenFiles,
 	}
+
+	hlog.Printf("info", "db options %s", string(jsonEncode(opts)))
 
 	// ldbOpts.Experimental.DeleteRangeFlushDelay = 10 * time.Second
 	// ldbOpts.Experimental.MinDeletionRate = 128 << 20 // 128 MB
