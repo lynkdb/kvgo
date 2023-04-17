@@ -517,6 +517,41 @@ func Test_Object_Common(t *testing.T) {
 				}
 			}
 
+			// Delete Data Only
+			{
+				key := []byte(fmt.Sprintf("delete-data-only-%d", round))
+				wr := kv2.NewObjectWriter(key, "demo")
+				if rs := db.Commit(wr); rs.OK() {
+					t.Log("Delete DataOnly Step-1 OK")
+
+				} else {
+					t.Fatal("Delete DataOnly Step-1 ER!")
+				}
+
+				wr = kv2.NewObjectWriter(key, "demo").ModeDeleteSet(true)
+				wr.Mode |= kv2.ObjectWriterModeDeleteDataOnly
+				if rs := db.Commit(wr); rs.OK() {
+					t.Log("Delete DataOnly Step-2 OK")
+				} else {
+					t.Fatal("Delete DataOnly Step-2 ER!")
+				}
+
+				rr := db.NewReader(key)
+				if rs := rr.Query(); rs.NotFound() {
+					t.Log("Delete DataOnly Step-3 OK")
+				} else {
+					t.Fatal("Delete DataOnly Step-3 ER!")
+				}
+
+				rr = db.NewReader(key)
+				rr.Mode |= kv2.ObjectReaderModeMetaOnly
+				if rs := rr.Query(); rs.OK() {
+					t.Logf("Delete DataOnly Step-4 OK")
+				} else {
+					t.Fatal("Delete DataOnly Step-4 ER!")
+				}
+			}
+
 			// Commit Struct
 			{
 				obj := kv2.ObjectData{

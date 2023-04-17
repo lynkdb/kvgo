@@ -180,19 +180,26 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 			}).Inc(1)
 		}
 
-		rr.Meta.Attrs |= kv2.ObjectMetaAttrDelete
+		if !kv2.AttrAllow(rr.Mode, kv2.ObjectWriterModeDeleteDataOnly) {
+			rr.Meta.Attrs |= kv2.ObjectMetaAttrDelete
+		}
 
 		if bsMeta, err := rr.MetaEncode(); err == nil {
 
 			batch := tdb.db.NewBatch()
 
 			if meta != nil {
-				batch.Delete(keyEncode(nsKeyMeta, rr.Meta.Key))
-				batch.Delete(keyEncode(nsKeyData, rr.Meta.Key))
-				batch.Delete(keyEncode(nsKeyLog, uint64ToBytes(meta.Version)))
+				if !kv2.AttrAllow(rr.Mode, kv2.ObjectWriterModeDeleteDataOnly) {
+					batch.Delete(keyEncode(nsKeyMeta, rr.Meta.Key))
+					batch.Delete(keyEncode(nsKeyData, rr.Meta.Key))
+					batch.Delete(keyEncode(nsKeyLog, uint64ToBytes(meta.Version)))
+				} else {
+					batch.Delete(keyEncode(nsKeyData, rr.Meta.Key))
+				}
 			}
 
-			if cLogOn && !cn.opts.Feature.WriteLogDisable {
+			if cLogOn && !cn.opts.Feature.WriteLogDisable &&
+				!kv2.AttrAllow(rr.Mode, kv2.ObjectWriterModeDeleteDataOnly) {
 				batch.Put(keyEncode(nsKeyLog, uint64ToBytes(cLog)), bsMeta)
 				tdb.logSyncBuffer.put(cLog, rr.Meta.Attrs, rr.Meta.Key, true)
 			}
@@ -337,7 +344,8 @@ func (cn *Conn) objectLocalQuery(rr *kv2.ObjectReader) *kv2.ObjectResult {
 				rs2 kv2.StorageResult
 			)
 
-			if kv2.AttrAllow(rr.Attrs, kv2.ObjectMetaAttrDataOff) {
+			if kv2.AttrAllow(rr.Mode, kv2.ObjectReaderModeMetaOnly) ||
+				kv2.AttrAllow(rr.Attrs, kv2.ObjectMetaAttrDataOff) {
 				rs2 = tdb.db.Get(keyEncode(nsKeyMeta, k), nil)
 			} else {
 				rs2 = tdb.db.Get(keyEncode(nsKeyData, k), nil)
@@ -446,7 +454,8 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 	}
 
 	nsKey := nsKeyData
-	if kv2.AttrAllow(rr.Attrs, kv2.ObjectMetaAttrDataOff) {
+	if kv2.AttrAllow(rr.Mode, kv2.ObjectReaderModeMetaOnly) ||
+		kv2.AttrAllow(rr.Attrs, kv2.ObjectMetaAttrDataOff) {
 		nsKey = nsKeyMeta
 	}
 
