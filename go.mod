@@ -9,7 +9,7 @@ require (
 	github.com/hooto/hflag4g v0.10.0
 	github.com/hooto/hlog4g v0.9.4
 	github.com/lynkdb/iomix v0.0.0-20210408130459-cc48edfc442f
-	github.com/lynkdb/kvspec/v2 v2.0.2
+	github.com/lynkdb/kvspec/v2 v2.0.3
 	github.com/lynkdb/lynkbench v0.0.0-20200131160657-29d0efed79de
 	github.com/shirou/gopsutil/v3 v3.22.12
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d
