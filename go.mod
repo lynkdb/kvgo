@@ -2,6 +2,8 @@ module github.com/lynkdb/kvgo
 
 go 1.19
 
+// replace github.com/lynkdb/kvspec/v2 v2.0.3 => /opt/workspace/src/github.com/lynkdb/kvspec
+
 require (
 	github.com/cespare/xxhash v1.1.0
 	github.com/cockroachdb/pebble v0.0.0-20230412222916-60cfeb46143b
@@ -9,7 +11,7 @@ require (
 	github.com/hooto/hflag4g v0.10.0
 	github.com/hooto/hlog4g v0.9.4
 	github.com/lynkdb/iomix v0.0.0-20210408130459-cc48edfc442f
-	github.com/lynkdb/kvspec/v2 v2.0.3
+	github.com/lynkdb/kvspec/v2 v2.0.4
 	github.com/lynkdb/lynkbench v0.0.0-20200131160657-29d0efed79de
 	github.com/shirou/gopsutil/v3 v3.22.12
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d
@@ -37,7 +39,6 @@ require (
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/hooto/hchart v0.0.0-20210820154659-40f12957ba94 // indirect
-	github.com/hooto/htoml4g v0.9.3 // indirect
 	github.com/hooto/httpsrv v0.11.5 // indirect
 	github.com/klauspost/compress v1.16.4 // indirect
 	github.com/kr/pretty v0.3.1 // indirect

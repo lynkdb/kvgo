@@ -125,6 +125,10 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 		if meta.Created > 0 {
 			rr.Meta.Created = meta.Created
 		}
+
+		if len(meta.Extra) > 0 && len(rr.Meta.Extra) == 0 {
+			rr.Meta.Extra = meta.Extra
+		}
 	}
 
 	updated := uint64(time.Now().UnixNano() / 1e6)

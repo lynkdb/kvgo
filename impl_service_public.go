@@ -210,6 +210,10 @@ func (it *PublicServiceImpl) groupCommit(ctx context.Context,
 		if meta.Created > 0 {
 			rr.Meta.Created = meta.Created
 		}
+
+		if len(meta.Extra) > 0 && len(rr.Meta.Extra) == 0 {
+			rr.Meta.Extra = meta.Extra
+		}
 	}
 
 	if rr.Meta.Created == 0 {

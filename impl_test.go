@@ -15,6 +15,7 @@
 package kvgo
 
 import (
+	"bytes"
 	"context"
 	crand "crypto/rand"
 	"errors"
@@ -528,12 +529,23 @@ func Test_Object_Common(t *testing.T) {
 					t.Fatal("Delete DataOnly Step-1 ER!")
 				}
 
-				wr = kv2.NewObjectWriter(key, "demo").ModeDeleteSet(true)
-				wr.Mode |= kv2.ObjectWriterModeDeleteDataOnly
-				if rs := db.Commit(wr); rs.OK() {
-					t.Log("Delete DataOnly Step-2 OK")
+				if mrand.Intn(2) == 0 {
+					batch := kv2.NewBatchRequest("")
+					e := batch.Delete(key)
+					e.Mode |= kv2.ObjectWriterModeDeleteDataOnly
+					if rs := db.BatchCommit(batch); rs.OK() {
+						t.Log("Delete DataOnly Step-2 OK")
+					} else {
+						t.Fatal("Delete DataOnly Step-2 ER!")
+					}
 				} else {
-					t.Fatal("Delete DataOnly Step-2 ER!")
+					wr = kv2.NewObjectWriter(key, "demo").ModeDeleteSet(true)
+					wr.Mode |= kv2.ObjectWriterModeDeleteDataOnly
+					if rs := db.Commit(wr); rs.OK() {
+						t.Log("Delete DataOnly Step-2 OK")
+					} else {
+						t.Fatal("Delete DataOnly Step-2 ER!")
+					}
 				}
 
 				rr := db.NewReader(key)
@@ -549,6 +561,35 @@ func Test_Object_Common(t *testing.T) {
 					t.Logf("Delete DataOnly Step-4 OK")
 				} else {
 					t.Fatal("Delete DataOnly Step-4 ER!")
+				}
+			}
+
+			// Meta Extra
+			{
+				extra := []byte("extra-data")
+
+				key := []byte("meta-extra-data")
+				wr := kv2.NewObjectWriter(key, "demo")
+				wr.ExtraSet(extra)
+				if rs := db.Commit(wr); rs.OK() {
+					t.Log("Meta Extra Put OK")
+				} else {
+					t.Fatal("Meta Extra Put ER!")
+				}
+
+				rr := db.NewReader(key)
+				if rs := rr.Query(); rs.OK() && bytes.Compare(extra, rs.Meta.Extra) == 0 {
+					t.Log("Meta Extra Get OK")
+				} else {
+					t.Fatal("Meta Extra Get ER!")
+				}
+
+				rr = db.NewReader(key)
+				rr.Mode |= kv2.ObjectReaderModeMetaOnly
+				if rs := rr.Query(); rs.OK() && bytes.Compare(extra, rs.Meta.Extra) == 0 {
+					t.Log("Meta Extra Get OK")
+				} else {
+					t.Fatal("Meta Extra Get ER!")
 				}
 			}
 
@@ -588,6 +629,7 @@ func Test_Object_LogAsync(t *testing.T) {
 	var (
 		key   = "log-async-key"
 		value = "log-async-test"
+		extra = []byte("extra-data")
 		attrs = [][]uint64{
 			{0, 0},
 			{kv2.ObjectMetaAttrMetaOff, 0},
@@ -598,6 +640,7 @@ func Test_Object_LogAsync(t *testing.T) {
 	for i, va := range attrs {
 		ow := kv2.NewObjectWriter([]byte(fmt.Sprintf("%s-%d", key, va[0])), value)
 		ow.Meta.Attrs |= va[0]
+		ow.ExtraSet(extra)
 		if rs := dbs[0].commitLocal(ow, 0); !rs.OK() {
 			t.Fatalf("Commit ER! %s", rs.Message)
 		} else {
@@ -630,7 +673,7 @@ func Test_Object_LogAsync(t *testing.T) {
 					t.Fatalf("Object AsyncLog ER %s, node %s", err.Error(), hp.Addr)
 				}
 
-				if !rs.OK() || len(rs.Items) == 0 {
+				if !rs.OK() || len(rs.Items) == 0 || bytes.Compare(extra, rs.Items[0].Meta.Extra) != 0 {
 					t.Fatalf("Object AsyncLog ER, ok %v, msg %s, len %d, node %s",
 						rs.OK(), rs.Message, len(rs.Items), hp.Addr)
 				} else {
