@@ -53,18 +53,25 @@ type ClientConnector struct {
 
 func (it *ClientConnector) reconnect(retry bool) error {
 
-	if it.conn == nil || (it.err != nil && it.err == grpc.ErrClientConnClosing) {
-
+	if it.conn == nil {
 		conn, err := clientConn(it.cfg.Addr, it.cfg.AccessKey, it.cfg.AuthTLSCert, true)
 		if err != nil {
 			return err
 		}
-		prev := it.conn
-		it.conn, it.err = conn, nil
-		if prev != nil {
-			prev.Close()
-		}
+		it.conn = conn
 	}
+
+	// if it.conn == nil || (it.err != nil && it.err == grpc.ErrClientConnClosing) {
+	// 	conn, err := clientConn(it.cfg.Addr, it.cfg.AccessKey, it.cfg.AuthTLSCert, true)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	prev := it.conn
+	// 	it.conn, it.err = conn, nil
+	// 	if prev != nil {
+	// 		prev.Close()
+	// 	}
+	// }
 
 	return nil
 }

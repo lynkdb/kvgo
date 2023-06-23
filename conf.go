@@ -61,11 +61,16 @@ type ConfigTLSCertificate struct {
 }
 
 type ConfigServer struct {
-	ID            string                `toml:"id" json:"id"`
-	Bind          string                `toml:"bind" json:"bind"`
-	AccessKey     *hauth.AccessKey      `toml:"access_key" json:"access_key"`
-	AuthTLSCert   *ConfigTLSCertificate `toml:"auth_tls_cert" json:"auth_tls_cert"`
-	PprofHttpPort uint16                `toml:"pprof_http_port,omitempty" json:"pprof_http_port,omitempty"`
+	ID          string                `toml:"id" json:"id"`
+	Bind        string                `toml:"bind" json:"bind"`
+	AccessKey   *hauth.AccessKey      `toml:"access_key" json:"access_key"`
+	AuthTLSCert *ConfigTLSCertificate `toml:"auth_tls_cert" json:"auth_tls_cert"`
+
+	HttpPort uint16 `toml:"http_port,omitempty" json:"http_port,omitempty"`
+
+	PprofEnable bool `toml:"pprof_enable,omitempty" json:"pprof_enable,omitempty"`
+
+	MetricsEnable bool `toml:"metrics_enable,omitempty" json:"metrics_enable,omitempty"`
 }
 
 type ConfigPerformance struct {
