@@ -3,6 +3,7 @@ module github.com/lynkdb/kvgo
 go 1.19
 
 // replace github.com/lynkdb/kvspec/v2 v2.0.3 => /opt/workspace/src/github.com/lynkdb/kvspec
+// replace github.com/hooto/hmetrics v0.0.1 => /opt/workspace/src/github.com/hooto/hmetrics
 
 require (
 	github.com/cespare/xxhash v1.1.0
@@ -10,6 +11,7 @@ require (
 	github.com/hooto/hauth v0.1.0
 	github.com/hooto/hflag4g v0.10.0
 	github.com/hooto/hlog4g v0.9.4
+	github.com/hooto/hmetrics v0.0.1
 	github.com/lynkdb/iomix v0.0.0-20210408130459-cc48edfc442f
 	github.com/lynkdb/kvspec/v2 v2.0.4
 	github.com/lynkdb/lynkbench v0.0.0-20200131160657-29d0efed79de

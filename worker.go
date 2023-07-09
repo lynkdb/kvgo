@@ -20,6 +20,8 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -31,6 +33,7 @@ import (
 	ps_disk "github.com/shirou/gopsutil/v3/disk"
 	ps_mem "github.com/shirou/gopsutil/v3/mem"
 	ps_net "github.com/shirou/gopsutil/v3/net"
+	ps_proc "github.com/shirou/gopsutil/v3/process"
 
 	kv2 "github.com/lynkdb/kvspec/v2/go/kvspec"
 )
@@ -526,6 +529,11 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 
 			tlog := timems()
 
+			if cn.opts.Server.MetricsEnable {
+				metricCounter.Add(metricLogSync,
+					fmt.Sprintf("TableLog.%s.%s", hp.Addr, tm.From), float64(len(rep.Logs)))
+			}
+
 			for _, v := range rep.Logs {
 
 				nsKey := uint8(0)
@@ -538,6 +546,13 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 				tl := tlog - int64(v.Updated)
 				if tl < 0 {
 					tl -= tl
+				}
+
+				if cn.opts.Server.MetricsEnable {
+					metricCounter.Add(metricLogSyncSize,
+						fmt.Sprintf("TableLog.%s.%s", hp.Addr, tm.From), float64(len(v.Key)))
+					metricLatency.Add(metricLogSync,
+						fmt.Sprintf("TableLog.%s.%s", hp.Addr, tm.From), float64(tl)/1e3)
 				}
 
 				if cn.monitor != nil {
@@ -574,6 +589,11 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 
 				tlog := timems()
 
+				if cn.opts.Server.MetricsEnable {
+					metricCounter.Add(metricLogSync,
+						fmt.Sprintf("TableKey.%s.%s", hp.Addr, tm.From), float64(len(rep2.Items)))
+				}
+
 				for _, item := range rep2.Items {
 
 					tl := tlog - int64(item.Meta.Updated)
@@ -582,6 +602,13 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 					}
 
 					siz := len(item.Meta.Key) + len(item.Data.Value)
+
+					if cn.opts.Server.MetricsEnable {
+						metricCounter.Add(metricLogSyncSize,
+							fmt.Sprintf("TableKey.%s.%s", hp.Addr, tm.From), float64(siz))
+						metricLatency.Add(metricLogSync,
+							fmt.Sprintf("TableKey.%s.%s", hp.Addr, tm.From), float64(tl)/1e3)
+					}
 
 					if cn.monitor != nil {
 						cn.monitor.Metric(MetricLogSyncCall).With(map[string]string{
@@ -684,11 +711,23 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 
 			tlog := timems()
 
+			if cn.opts.Server.MetricsEnable {
+				metricCounter.Add(metricLogSync,
+					fmt.Sprintf("TableLog.%s.%s", hp.Addr, tm.From), float64(len(rep.Logs)))
+			}
+
 			for _, v := range rep.Logs {
 
 				tl := tlog - int64(v.Updated)
 				if tl < 0 {
 					tl -= tl
+				}
+
+				if cn.opts.Server.MetricsEnable {
+					metricCounter.Add(metricLogSyncSize,
+						fmt.Sprintf("TableLog.%s.%s", hp.Addr, tm.From), float64(len(v.Key)))
+					metricLatency.Add(metricLogSync,
+						fmt.Sprintf("TableLog.%s.%s", hp.Addr, tm.From), float64(tl)/1e3)
 				}
 
 				if cn.monitor != nil {
@@ -731,6 +770,11 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 
 				tlog := timems()
 
+				if cn.opts.Server.MetricsEnable {
+					metricCounter.Add(metricLogSync,
+						fmt.Sprintf("TableKey.%s.%s", hp.Addr, tm.From), float64(len(rep2.Items)))
+				}
+
 				for _, item := range rep2.Items {
 
 					tl := tlog - int64(item.Meta.Updated)
@@ -739,6 +783,13 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 					}
 
 					siz := len(item.Meta.Key) + len(item.Data.Value)
+
+					if cn.opts.Server.MetricsEnable {
+						metricCounter.Add(metricLogSyncSize,
+							fmt.Sprintf("TableKey/%s/%s", hp.Addr, tm.From), float64(siz))
+						metricLatency.Add(metricLogSync,
+							fmt.Sprintf("TableKey/%s/%s", hp.Addr, tm.From), float64(tl)/1e3)
+					}
 
 					if cn.monitor != nil {
 						cn.monitor.Metric(MetricLogSyncCall).With(map[string]string{
@@ -836,6 +887,11 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 
 			tlog := timems()
 
+			if cn.opts.Server.MetricsEnable {
+				metricCounter.Add(metricLogSync,
+					fmt.Sprintf("TableLog.%s.%s", hp.Addr, tm.From), float64(len(rep.Logs)))
+			}
+
 			for _, v := range rep.Logs {
 
 				tl := tlog - int64(v.Updated)
@@ -844,6 +900,13 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 				}
 
 				// hlog.Printf("info", "logs key %s, updated %d", string(v.Key), v.Updated)
+
+				if cn.opts.Server.MetricsEnable {
+					metricCounter.Add(metricLogSyncSize,
+						fmt.Sprintf("TableLog.%s.%s", hp.Addr, tm.From), float64(len(v.Key)))
+					metricLatency.Add(metricLogSync,
+						fmt.Sprintf("TableLog.%s.%s", hp.Addr, tm.From), float64(tl)/1e3)
+				}
 
 				if cn.monitor != nil {
 					cn.monitor.Metric(MetricLogSyncCall).With(map[string]string{
@@ -887,6 +950,11 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 
 				tlog := timems()
 
+				if cn.opts.Server.MetricsEnable {
+					metricCounter.Add(metricLogSync,
+						fmt.Sprintf("TableKey.%s.%s", hp.Addr, tm.From), float64(len(rep2.Items)))
+				}
+
 				for _, item := range rep2.Items {
 
 					tl := tlog - int64(item.Meta.Updated)
@@ -895,6 +963,13 @@ func (cn *Conn) workerLocalReplicaOfLogPullTable(hp *ClientConfig, tm *ConfigRep
 					}
 
 					siz := len(item.Meta.Key) + len(item.Data.Value)
+
+					if cn.opts.Server.MetricsEnable {
+						metricCounter.Add(metricLogSyncSize,
+							fmt.Sprintf("TableKey.%s.%s", hp.Addr, tm.From), float64(siz))
+						metricLatency.Add(metricLogSync,
+							fmt.Sprintf("TableKey.%s.%s", hp.Addr, tm.From), float64(tl)/1e3)
+					}
 
 					if cn.monitor != nil {
 						cn.monitor.Metric(MetricLogSyncCall).With(map[string]string{
@@ -1018,7 +1093,8 @@ func (cn *Conn) workerLocalLogCleanTable(tdb *dbTable, tn int64) error {
 }
 
 var (
-	diskDevSet []ps_disk.PartitionStat
+	diskDevSet       []ps_disk.PartitionStat
+	diskStatusCaches = map[string]ps_disk.IOCountersStat{}
 )
 
 func (cn *Conn) workerLocalSysStatusRefresh() error {
@@ -1041,7 +1117,21 @@ func (cn *Conn) workerLocalSysStatusRefresh() error {
 
 	cn.sysStatus.Updated = tn
 
-	{
+	if cn.monitor != nil || cn.opts.Server.MetricsEnable {
+
+		// CPU
+		if cio, _ := ps_cpu.Percent(0, false); len(cio) > 0 {
+			if cn.monitor != nil {
+				cn.monitor.Metric(MetricSystem).With(map[string]string{
+					"CPU": "Percent",
+				}).Add(int64(cio[0]))
+			}
+			if cn.opts.Server.MetricsEnable {
+				metricGauge.Set(metricSystem+"CPUPercent", "Host", float64(cio[0]))
+			}
+		}
+
+		// RAM
 		vm, _ := ps_mem.VirtualMemory()
 		cn.sysStatus.Caps["mem"] = &kv2.SysCapacity{
 			Use: int64(vm.Used),
@@ -1049,31 +1139,41 @@ func (cn *Conn) workerLocalSysStatusRefresh() error {
 		}
 
 		if cn.monitor != nil {
-
 			cn.monitor.Metric(MetricSystem).With(map[string]string{
 				"Memory": "Used",
 			}).Add(int64(vm.Used))
 			cn.monitor.Metric(MetricSystem).With(map[string]string{
 				"Memory": "Cached",
 			}).Add(int64(vm.Cached))
+		}
 
-			if cio, _ := ps_cpu.Percent(0, false); len(cio) > 0 {
-				cn.monitor.Metric(MetricSystem).With(map[string]string{
-					"CPU": "Percent",
-				}).Add(int64(cio[0]))
-			}
+		if cn.opts.Server.MetricsEnable {
+			metricGauge.Set(metricSystem+"Memory", "HostUsed", float64(vm.Used))
+			metricGauge.Set(metricSystem+"Memory", "HostCached", float64(vm.Cached))
+			metricGauge.Set(metricSystem+"Memory", "HostTotal", float64(vm.Total))
+			metricGauge.Set(metricSystem+"MemoryPercent", "Host", float64(vm.UsedPercent))
+		}
 
-			// Network
-			if nio, _ := ps_net.IOCounters(false); len(nio) > 0 {
+		// Network
+		if nio, _ := ps_net.IOCounters(false); len(nio) > 0 {
+			if cn.monitor != nil {
 				cn.monitor.Metric(MetricSystem).With(map[string]string{
 					"Net": "Recv",
 				}).Set(1, int64(nio[0].BytesRecv))
 				cn.monitor.Metric(MetricSystem).With(map[string]string{
 					"Net": "Sent",
-				}).Set(1, int64(nio[0].BytesRecv))
+				}).Set(1, int64(nio[0].BytesSent))
 			}
+			if cn.opts.Server.MetricsEnable {
+				metricCounter.Set(metricSystem+"IO", "NetRecv", float64(nio[0].PacketsRecv))
+				metricCounter.Set(metricSystem+"IOBytes", "NetRecv", float64(nio[0].BytesRecv))
+				metricCounter.Set(metricSystem+"IO", "NetSent", float64(nio[0].PacketsSent))
+				metricCounter.Set(metricSystem+"IOBytes", "NetSent", float64(nio[0].BytesSent))
+			}
+		}
 
-			// Storage
+		// Storage
+		{
 			if diskDevSet == nil {
 				diskDevSet, _ = ps_disk.Partitions(false)
 			}
@@ -1101,14 +1201,56 @@ func (cn *Conn) workerLocalSysStatusRefresh() error {
 			if devName := diskFilter(diskDevSet, cn.opts.Storage.DataDirectory); devName != "" {
 				if diom, err := ps_disk.IOCounters(devName); err == nil {
 					if dio, ok := diom[devName]; ok {
-						cn.monitor.Metric(MetricSystem).With(map[string]string{
-							"Disk": "Read",
-						}).Set(int64(dio.ReadCount), int64(dio.ReadBytes))
-						cn.monitor.Metric(MetricSystem).With(map[string]string{
-							"Disk": "Write",
-						}).Set(int64(dio.WriteCount), int64(dio.WriteBytes))
+						if cn.monitor != nil {
+							cn.monitor.Metric(MetricSystem).With(map[string]string{
+								"Disk": "Read",
+							}).Set(int64(dio.ReadCount), int64(dio.ReadBytes))
+							cn.monitor.Metric(MetricSystem).With(map[string]string{
+								"Disk": "Write",
+							}).Set(int64(dio.WriteCount), int64(dio.WriteBytes))
+						}
+						if cn.opts.Server.MetricsEnable {
+							metricCounter.Set(metricSystem+"IO", "DiskRead", float64(dio.ReadCount))
+							metricCounter.Set(metricSystem+"IOBytes", "DiskRead", float64(dio.ReadBytes))
+
+							metricCounter.Set(metricSystem+"IO", "DiskWrite", float64(dio.WriteCount))
+							metricCounter.Set(metricSystem+"IOBytes", "DiskWrite", float64(dio.WriteBytes))
+
+							if prev, ok := diskStatusCaches[cn.opts.Storage.DataDirectory]; ok {
+								if dio.ReadCount > prev.ReadCount {
+									metricLatency.Add(metricSystem+"IO", "DiskRead",
+										(float64(dio.ReadTime-prev.ReadTime)/1e3)/float64(dio.ReadCount-prev.ReadCount))
+								}
+								if dio.WriteCount > prev.WriteCount {
+									metricLatency.Add(metricSystem+"IO", "DiskWrite",
+										(float64(dio.WriteTime-prev.WriteTime)/1e3)/float64(dio.WriteCount-prev.WriteCount))
+								}
+							}
+							diskStatusCaches[cn.opts.Storage.DataDirectory] = dio
+						}
 					}
 				}
+			}
+		}
+	}
+
+	if cn.opts.Server.MetricsEnable {
+		if p, err := ps_proc.NewProcess(int32(os.Getpid())); err == nil {
+			if s, err := p.IOCounters(); err == nil {
+				metricCounter.Set(metricSystem+"IO", "ProcRead", float64(s.ReadCount))
+				metricCounter.Set(metricSystem+"IOBytes", "ProcRead", float64(s.ReadBytes))
+
+				metricCounter.Set(metricSystem+"IO", "ProcWrite", float64(s.WriteCount))
+				metricCounter.Set(metricSystem+"IOBytes", "ProcWrite", float64(s.WriteBytes))
+			}
+			if pp, err := p.CPUPercent(); err == nil {
+				metricGauge.Set(metricSystem+"CPUPercent", "Proc", pp)
+			}
+			if pm, err := p.MemoryInfo(); err == nil {
+				metricGauge.Set(metricSystem+"Memory", "ProcUsed", float64(pm.RSS))
+			}
+			if pmp, err := p.MemoryPercent(); err == nil {
+				metricGauge.Set(metricSystem+"MemoryPercent", "Proc", float64(pmp))
 			}
 		}
 	}
@@ -1118,6 +1260,17 @@ func (cn *Conn) workerLocalSysStatusRefresh() error {
 			cn.sysStatus.Caps["disk"] = &kv2.SysCapacity{
 				Use: int64(st.Used),
 				Max: int64(st.Total),
+			}
+			if cn.opts.Server.MetricsEnable {
+				metricGauge.Set(metricSystem+"Disk", "HostUsed", float64(st.Used))
+				metricGauge.Set(metricSystem+"Disk", "HostTotal", float64(st.Total))
+				if b, err := exec.Command("du", "-s", cn.opts.Storage.DataDirectory).Output(); err == nil {
+					if ar := strings.Split(strings.TrimSpace(string(b)), "\t"); len(ar) == 2 {
+						if i, err := strconv.Atoi(ar[0]); err == nil && i > 0 {
+							metricGauge.Set(metricSystem+"Disk", "ProcUsed", float64(i*1024))
+						}
+					}
+				}
 			}
 		}
 	}

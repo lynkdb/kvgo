@@ -179,6 +179,10 @@ func batchResultDataSize(rs *kv2.BatchResult) int64 {
 	return siz
 }
 
+func timeNow() time.Time {
+	return time.Now()
+}
+
 func timeus() int64 {
 	return (time.Now().UnixNano() / 1e3)
 }

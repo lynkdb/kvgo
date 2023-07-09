@@ -1,29 +1,35 @@
 package kvgo
 
 import (
-	"github.com/hooto/metrics"
+	"github.com/hooto/hmetrics"
 )
 
 var (
-	metricsCounter = metrics.RegisterCounterMap(
+	metricCounter = hmetrics.RegisterCounterMap(
 		"counter",
 		"The General Counter Metric",
 	)
 
-	metricsGauge = metrics.RegisterGaugeMap(
-		"counter",
+	metricGauge = hmetrics.RegisterGaugeMap(
+		"gauge",
 		"The General Gauge Metric",
 	)
 
-	metricsHistogram = metrics.RegisterHistogramMap(
-		"histogram",
-		"The General Histogram Metric",
-		metrics.NewBuckets(0.0001, 1.5, 36),
+	metricLatency = hmetrics.RegisterHistogramMap(
+		"latency",
+		"The General Latency Metric",
+		hmetrics.NewBuckets(0.0001, 1.5, 36),
 	)
 
-	metricsComplex = metrics.RegisterComplexMap(
+	metricHistogram = hmetrics.RegisterHistogramMap(
+		"histogram",
+		"The General Histogram Metric",
+		hmetrics.NewBuckets(0.0001, 1.5, 36),
+	)
+
+	metricComplex = hmetrics.RegisterComplexMap(
 		"complex",
 		"The General Complex Metric",
-		metrics.NewBuckets(0.0001, 1.5, 36),
+		hmetrics.NewBuckets(0.0001, 1.5, 36),
 	)
 )

@@ -62,6 +62,17 @@ const (
 	MetricSystem         = "System"
 )
 
+// for hmetrics
+const (
+	metricStorage     = "Storage"
+	metricStorageSize = "StorageSize"
+	metricService     = "Service"
+	metricServiceSize = "ServiceSize"
+	metricLogSync     = "LogSync"
+	metricLogSyncSize = "LogSyncSize"
+	metricSystem      = "System"
+)
+
 var (
 	keySysInstanceId = append([]byte{nsKeySys}, []byte("inst:id")...)
 	keySysLogCutset  = append([]byte{nsKeySys}, []byte("log:cutset")...)

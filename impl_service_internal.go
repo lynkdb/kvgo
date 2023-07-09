@@ -44,6 +44,14 @@ func (it *InternalServiceImpl) Prepare(ctx context.Context,
 		return kv2.NewObjectResultClientError(err), nil
 	}
 
+	if it.db.opts.Server.MetricsEnable {
+		t0 := time.Now()
+		defer func() {
+			metricCounter.Add(metricService, "Key.Prepare", 1)
+			metricLatency.Add(metricService, "Key.Prepare", time.Since(t0).Seconds())
+		}()
+	}
+
 	tdb := it.db.tabledb(or.TableName)
 	if tdb == nil {
 		return kv2.NewObjectResultClientError(errors.New("table not found")), nil
@@ -103,6 +111,14 @@ func (it *InternalServiceImpl) Accept(ctx context.Context,
 
 	if err := appAuthValid(ctx, it.db.keyMgr); err != nil {
 		return kv2.NewObjectResultClientError(err), nil
+	}
+
+	if it.db.opts.Server.MetricsEnable {
+		t0 := time.Now()
+		defer func() {
+			metricCounter.Add(metricService, "Key.Accept", 1)
+			metricLatency.Add(metricService, "Key.Accept", time.Since(t0).Seconds())
+		}()
 	}
 
 	it.proposalMu.Lock()
@@ -256,6 +272,8 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 		return nil, err
 	}
 
+	t0 := time.Now()
+
 	if !hex16.MatchString(req.ServerId) {
 		return nil, errors.New("server id not found")
 	}
@@ -287,12 +305,12 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 		}
 
 		var (
-			offset = keyEncode(nsKey, req.KeyOffset)
-			cutset = keyEncode(nsKey, bytes.Repeat([]byte{0xff}, 32))
-			num    = 1000
-			siz    = 2 * 1024 * 1024
-			dbsiz  = 0
-			iter   = tdb.db.NewIterator(&kv2.StorageIteratorRange{
+			offset    = keyEncode(nsKey, req.KeyOffset)
+			cutset    = keyEncode(nsKey, bytes.Repeat([]byte{0xff}, 32))
+			num       = 1000
+			siz       = 2 * 1024 * 1024
+			readBytes = 0
+			iter      = tdb.db.NewIterator(&kv2.StorageIteratorRange{
 				Start: offset,
 				Limit: cutset,
 			})
@@ -314,7 +332,7 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 				continue
 			}
 
-			dbsiz += len(iter.Value())
+			readBytes += len(iter.Value())
 			meta, _, err := kv2.ObjectMetaDecode(iter.Value())
 			if err != nil || meta == nil {
 				if err != nil {
@@ -344,10 +362,16 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 			return nil, iter.Error()
 		}
 
+		if it.db.opts.Server.MetricsEnable {
+			metricCounter.Add(metricStorage, "Log.KeyRange", 1)
+			metricCounter.Add(metricStorageSize, "Log.KeyRange", float64(readBytes))
+			metricLatency.Add(metricStorage, "Log.KeyRange", time.Since(t0).Seconds())
+		}
+
 		if it.db.monitor != nil {
 			it.db.monitor.Metric(MetricStorageCall).With(map[string]string{
 				"Read": "KeyRange",
-			}).Add(int64(dbsiz))
+			}).Add(int64(readBytes))
 		}
 
 		return rs, nil
@@ -356,9 +380,10 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 	if len(req.Keys) > 0 {
 
 		var (
-			siz = 4 * 1024 * 1024
-			i   = 0
-			rs  = &kv2.LogSyncReply{}
+			siz       = 4 * 1024 * 1024
+			i         = 0
+			rs        = &kv2.LogSyncReply{}
+			readBytes int
 		)
 
 		for ; i < len(req.Keys); i++ {
@@ -383,9 +408,14 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 
 			if ss.OK() {
 
+				readBytes += ss.Len()
 				siz -= ss.Len()
 				if siz < 0 {
 					break
+				}
+
+				if it.db.opts.Server.MetricsEnable {
+					metricCounter.Add(metricStorageSize, "Key.Read", float64(ss.Len()))
 				}
 
 				if it.db.monitor != nil {
@@ -398,6 +428,12 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 					rs.Items = append(rs.Items, item)
 				}
 			}
+		}
+
+		if it.db.opts.Server.MetricsEnable {
+			metricCounter.Add(metricStorage, "Log.KeyRead", 1)
+			metricCounter.Add(metricStorageSize, "Log.KeyRead", float64(readBytes))
+			metricLatency.Add(metricStorage, "Log.KeyRead", time.Since(t0).Seconds())
 		}
 
 		if i < len(req.Keys) {
@@ -423,12 +459,12 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 		}
 
 		var (
-			offset = keyEncode(nsKeyLog, uint64ToBytes(req.LogOffset))
-			cutset = keyEncode(nsKeyLog, []byte{0xff})
-			num    = 1000
-			siz    = 2 * 1024 * 1024
-			dbsiz  = 0
-			iter   = tdb.db.NewIterator(&kv2.StorageIteratorRange{
+			offset    = keyEncode(nsKeyLog, uint64ToBytes(req.LogOffset))
+			cutset    = keyEncode(nsKeyLog, []byte{0xff})
+			num       = 1000
+			siz       = 2 * 1024 * 1024
+			readBytes = 0
+			iter      = tdb.db.NewIterator(&kv2.StorageIteratorRange{
 				Start: offset,
 				Limit: cutset,
 			})
@@ -450,7 +486,7 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 				continue
 			}
 
-			dbsiz += len(iter.Value())
+			readBytes += len(iter.Value())
 			meta, _, err := kv2.ObjectMetaDecode(iter.Value())
 			if err != nil || meta == nil {
 				if err != nil {
@@ -481,10 +517,16 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 			return nil, iter.Error()
 		}
 
+		if it.db.opts.Server.MetricsEnable {
+			metricCounter.Add(metricStorage, "Log.Range", 1)
+			metricCounter.Add(metricStorageSize, "Log.Range", float64(readBytes))
+			metricLatency.Add(metricStorage, "Log.Range", time.Since(t0).Seconds())
+		}
+
 		if it.db.monitor != nil {
 			it.db.monitor.Metric(MetricStorageCall).With(map[string]string{
 				"Read": "LogRange",
-			}).Add(int64(dbsiz))
+			}).Add(int64(readBytes))
 		}
 	}
 

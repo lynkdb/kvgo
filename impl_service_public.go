@@ -46,8 +46,6 @@ type pQueItem struct {
 func (it *PublicServiceImpl) Query(ctx context.Context,
 	or *kv2.ObjectReader) (*kv2.ObjectResult, error) {
 
-	tp := timeus()
-
 	if ctx != nil {
 
 		av, err := appAuthParse(ctx, it.db.keyMgr)
@@ -69,22 +67,37 @@ func (it *PublicServiceImpl) Query(ctx context.Context,
 		}
 	}
 
+	t0 := time.Now()
+	tp := t0.UnixNano() / 1e3
+
 	rs := it.db.Query(or)
 
-	if it.db.monitor != nil {
+	if it.db.monitor != nil || it.db.opts.Server.MetricsEnable {
 
-		labels := map[string]string{}
-		siz := resultDataSize(rs)
+		var (
+			labels     = map[string]string{}
+			siz        = resultDataSize(rs)
+			labelValue = ""
+		)
 
 		if kv2.AttrAllow(or.Mode, kv2.ObjectReaderModeKey) {
 			labels["Read"] = "Key"
+			labelValue = "Key.Read"
 		} else if kv2.AttrAllow(or.Mode, kv2.ObjectReaderModeKeyRange) {
 			labels["Read"] = "KeyRange"
+			labelValue = "Log.Range"
 		} else if kv2.AttrAllow(or.Mode, kv2.ObjectReaderModeLogRange) {
 			labels["Read"] = "LogRange"
+			labelValue = "Log.Range"
 		}
 
-		if len(labels) > 0 {
+		if it.db.opts.Server.MetricsEnable && labelValue != "" {
+			metricCounter.Add(metricService, labelValue, 1)
+			metricLatency.Add(metricService, labelValue, time.Since(t0).Seconds())
+			metricCounter.Add(metricServiceSize, labelValue, float64(siz))
+		}
+
+		if it.db.monitor != nil && len(labels) > 0 {
 			it.db.monitor.Metric(MetricServiceCall).With(labels).Add(siz)
 			it.db.monitor.Metric(MetricServiceLatency).With(labels).Add(timeus() - tp)
 		}
@@ -96,9 +109,18 @@ func (it *PublicServiceImpl) Query(ctx context.Context,
 func (it *PublicServiceImpl) Commit(ctx context.Context,
 	rr *kv2.ObjectWriter) (*kv2.ObjectResult, error) {
 
+	t0 := timeNow()
+
+	if it.db.opts.Server.MetricsEnable {
+		defer func() {
+			metricCounter.Add(metricService, "Key.Write", 1)
+			metricLatency.Add(metricService, "Key.Write", time.Since(t0).Seconds())
+		}()
+	}
+
 	metricLabels := map[string]string{"Write": "Key"}
 	if it.db.monitor != nil {
-		tp := timeus()
+		tp := t0.UnixNano() / 1e3
 		defer func() {
 			it.db.monitor.Metric(MetricServiceLatency).With(metricLabels).Add(timeus() - tp)
 		}()
@@ -133,14 +155,21 @@ func (it *PublicServiceImpl) Commit(ctx context.Context,
 		rs = it.groupCommit(ctx, rr)
 	}
 
-	if it.db.monitor != nil {
+	if it.db.monitor != nil || it.db.opts.Server.MetricsEnable {
 
-		siz := int64(0)
+		var siz int
+
 		if rr.Data != nil && len(rr.Data.Value) > 0 {
-			siz = int64(len(rr.Data.Value))
+			siz = len(rr.Data.Value)
 		}
 
-		it.db.monitor.Metric(MetricServiceCall).With(metricLabels).Add(siz)
+		if it.db.monitor != nil {
+			it.db.monitor.Metric(MetricServiceCall).With(metricLabels).Add(int64(siz))
+		}
+
+		if it.db.opts.Server.MetricsEnable {
+			metricCounter.Add(metricServiceSize, "Key.Write", float64(siz))
+		}
 	}
 
 	return rs, nil
@@ -360,7 +389,8 @@ func (it *PublicServiceImpl) groupCommit(ctx context.Context,
 func (it *PublicServiceImpl) BatchCommit(ctx context.Context,
 	rr *kv2.BatchRequest) (*kv2.BatchResult, error) {
 
-	tp := timeus()
+	t0 := time.Now()
+	tp := t0.UnixNano() / 1e3
 
 	if ctx != nil {
 
@@ -410,16 +440,9 @@ func (it *PublicServiceImpl) BatchCommit(ctx context.Context,
 		rs = it.groupBatchCommit(ctx, rr)
 	}
 
-	if it.db.monitor != nil {
+	if it.db.monitor != nil || it.db.opts.Server.MetricsEnable {
 
 		bsiz := batchResultDataSize(rs)
-		it.db.monitor.Metric(MetricServiceCall).With(map[string]string{
-			"Read": "BatchKey",
-		}).Add(bsiz)
-
-		it.db.monitor.Metric(MetricServiceLatency).With(map[string]string{
-			"Read": "BatchKey",
-		}).Add(timeus() - tp)
 
 		wsiz := 0
 		for _, b := range rr.Items {
@@ -428,13 +451,37 @@ func (it *PublicServiceImpl) BatchCommit(ctx context.Context,
 			}
 		}
 
-		it.db.monitor.Metric(MetricServiceCall).With(map[string]string{
-			"Write": "BatchKey",
-		}).Add(int64(wsiz))
+		if bsiz > 0 && it.db.monitor != nil {
+			it.db.monitor.Metric(MetricServiceCall).With(map[string]string{
+				"Read": "BatchKey",
+			}).Add(bsiz)
 
-		it.db.monitor.Metric(MetricServiceLatency).With(map[string]string{
-			"Write": "BatchKey",
-		}).Add(timeus() - tp)
+			it.db.monitor.Metric(MetricServiceLatency).With(map[string]string{
+				"Read": "BatchKey",
+			}).Add(timeus() - tp)
+		}
+
+		if wsiz > 0 && it.db.monitor != nil {
+			it.db.monitor.Metric(MetricServiceCall).With(map[string]string{
+				"Write": "BatchKey",
+			}).Add(int64(wsiz))
+
+			it.db.monitor.Metric(MetricServiceLatency).With(map[string]string{
+				"Write": "BatchKey",
+			}).Add(timeus() - tp)
+		}
+
+		if bsiz > 0 && it.db.opts.Server.MetricsEnable {
+			metricCounter.Add(metricService, "Key.BatchRead", 1)
+			metricLatency.Add(metricService, "Key.BatchRead", time.Since(t0).Seconds())
+			metricCounter.Add(metricServiceSize, "Key.BatchRead", float64(bsiz))
+		}
+
+		if wsiz > 0 && it.db.opts.Server.MetricsEnable {
+			metricCounter.Add(metricService, "Key.BatchWrite", 1)
+			metricLatency.Add(metricService, "Key.BatchWrite", time.Since(t0).Seconds())
+			metricCounter.Add(metricServiceSize, "Key.BatchWrite", float64(wsiz))
+		}
 	}
 
 	return rs, nil
@@ -518,6 +565,14 @@ func (it *PublicServiceImpl) SysCmd(ctx context.Context, req *kv2.SysCmdRequest)
 			av.Allow(authPermSysAll) != nil {
 			return kv2.NewObjectResultAccessDenied(), nil
 		}
+	}
+
+	if it.db.opts.Server.MetricsEnable {
+		metricCounter.Add(metricService, "Sys.Cmd", 1)
+		t0 := time.Now()
+		defer func() {
+			metricLatency.Add(metricService, "Sys.Cmd", time.Since(t0).Seconds())
+		}()
 	}
 
 	if len(it.db.opts.Cluster.MainNodes) == 0 {

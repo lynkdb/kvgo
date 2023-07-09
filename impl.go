@@ -49,6 +49,17 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 		return kv2.NewObjectResultClientError(err)
 	}
 
+	t0 := time.Now()
+	if cn.opts.Server.MetricsEnable {
+		defer func() {
+			if kv2.AttrAllow(rr.Mode, kv2.ObjectWriterModeDelete) {
+				metricLatency.Add(metricStorage, "Key.Delete", time.Since(t0).Seconds())
+			} else {
+				metricLatency.Add(metricStorage, "Key.Write", time.Since(t0).Seconds())
+			}
+		}()
+	}
+
 	if cn.monitor != nil {
 		tp := timeus()
 		defer func() {
@@ -178,6 +189,10 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 
 	if kv2.AttrAllow(rr.Mode, kv2.ObjectWriterModeDelete) {
 
+		if cn.opts.Server.MetricsEnable {
+			metricCounter.Add(metricStorage, "Key.Delete", 1)
+		}
+
 		if cn.monitor != nil {
 			cn.monitor.Metric(MetricStorageCall).With(map[string]string{
 				"Write": "Key",
@@ -228,6 +243,11 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 				batch.Put(keyEncode(nsKeyData, rr.Meta.Key), bsData)
 			}
 
+			if cn.opts.Server.MetricsEnable {
+				metricCounter.Add(metricStorage, "Key.Write", 1)
+				metricCounter.Add(metricStorageSize, "Key.Write", float64(len(bsMeta)+len(bsData)))
+			}
+
 			if cn.monitor != nil {
 				cn.monitor.Metric(MetricStorageCall).With(map[string]string{
 					"Write": "Key",
@@ -236,10 +256,16 @@ func (cn *Conn) commitLocal(rr *kv2.ObjectWriter, cLog uint64) *kv2.ObjectResult
 
 			if cLogOn && !cn.opts.Feature.WriteLogDisable {
 				batch.Put(keyEncode(nsKeyLog, uint64ToBytes(cLog)), bsMeta)
+				if cn.opts.Server.MetricsEnable {
+					metricCounter.Add(metricStorageSize, "Key.Write", float64(len(bsMeta)))
+				}
 			}
 
 			if rr.Meta.Expired > 0 {
 				batch.Put(keyExpireEncode(nsKeyTtl, rr.Meta.Expired, rr.Meta.Key), bsMeta)
+				if cn.opts.Server.MetricsEnable {
+					metricCounter.Add(metricStorageSize, "Key.Write", float64(len(bsMeta)))
+				}
 			}
 
 			if meta != nil {
@@ -321,6 +347,13 @@ func (cn *Conn) objectLocalQuery(rr *kv2.ObjectReader) *kv2.ObjectResult {
 
 	rs := kv2.NewObjectResultOK()
 
+	t0 := time.Now()
+	if cn.opts.Server.MetricsEnable {
+		defer func() {
+			metricLatency.Add(metricStorage, "Key.Read", time.Since(t0).Seconds())
+		}()
+	}
+
 	if cn.monitor != nil {
 		tp := timeus()
 		defer func() {
@@ -359,6 +392,11 @@ func (cn *Conn) objectLocalQuery(rr *kv2.ObjectReader) *kv2.ObjectResult {
 				cn.monitor.Metric(MetricStorageCall).With(map[string]string{
 					"Read": "Key",
 				}).Add(int64(rs2.Len()))
+			}
+
+			if cn.opts.Server.MetricsEnable {
+				metricCounter.Add(metricStorage, "Key.Read", 1)
+				metricCounter.Add(metricStorageSize, "Key.Read", float64(rs2.Len()))
 			}
 
 			if rs2.OK() {
@@ -443,6 +481,13 @@ func (cn *Conn) objectQueryRemote(rr *kv2.ObjectReader) *kv2.ObjectResult {
 
 func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) error {
 
+	t0 := time.Now()
+	if cn.opts.Server.MetricsEnable {
+		defer func() {
+			metricLatency.Add(metricStorage, "Key.Range", time.Since(t0).Seconds())
+		}()
+	}
+
 	if cn.monitor != nil {
 		tp := timeus()
 		defer func() {
@@ -466,20 +511,21 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 	var (
 		offset    = keyEncode(nsKey, bytesClone(rr.KeyOffset))
 		cutset    = keyEncode(nsKey, bytesClone(rr.KeyCutset))
-		limitNum  = rr.LimitNum
-		limitSize = rr.LimitSize
+		limitNum  = int(rr.LimitNum)
+		limitSize = int(rr.LimitSize)
+		readSize  int
 	)
 
-	if limitNum > kv2.ObjectReaderLimitNumMax {
-		limitNum = kv2.ObjectReaderLimitNumMax
+	if limitNum > int(kv2.ObjectReaderLimitNumMax) {
+		limitNum = int(kv2.ObjectReaderLimitNumMax)
 	} else if limitNum < 1 {
 		limitNum = 1
 	}
 
 	if limitSize < 1 {
-		limitSize = kv2.ObjectReaderLimitSizeDef
-	} else if limitSize > kv2.ObjectReaderLimitSizeMax {
-		limitSize = kv2.ObjectReaderLimitSizeMax
+		limitSize = int(kv2.ObjectReaderLimitSizeDef)
+	} else if limitSize > int(kv2.ObjectReaderLimitSizeMax) {
+		limitSize = int(kv2.ObjectReaderLimitSizeMax)
 	}
 
 	var (
@@ -497,10 +543,6 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 		})
 
 		for ok := iter.Last(); ok; ok = iter.Prev() {
-
-			if limitNum < 1 {
-				break
-			}
 
 			if bytes.Compare(iter.Key(), offset) >= 0 {
 				continue
@@ -522,13 +564,18 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 				continue
 			}
 
-			limitSize -= int64(len(iter.Value()))
-			if limitSize < 1 && len(rs.Items) > 0 {
+			if len(rs.Items) > 0 && readSize+len(iter.Value()) > int(limitSize) {
+				rs.Next = true
 				break
 			}
+			readSize += len(iter.Value())
 
-			limitNum--
 			rs.Items = append(rs.Items, item)
+
+			if len(rs.Items) >= limitNum || readSize >= limitSize {
+				rs.Next = true
+				break
+			}
 		}
 
 	} else {
@@ -541,10 +588,6 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 		})
 
 		for ok := iter.First(); ok; ok = iter.Next() {
-
-			if limitNum < 1 {
-				break
-			}
 
 			if bytes.Compare(iter.Key(), offset) <= 0 {
 				continue
@@ -566,13 +609,18 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 				continue
 			}
 
-			limitSize -= int64(len(iter.Value()))
-			if limitSize < 1 && len(rs.Items) > 0 {
+			if len(rs.Items) > 0 && readSize+len(iter.Value()) > limitSize {
+				rs.Next = true
 				break
 			}
+			readSize += len(iter.Value())
 
-			limitNum--
 			rs.Items = append(rs.Items, item)
+
+			if len(rs.Items) >= limitNum || readSize >= limitSize {
+				rs.Next = true
+				break
+			}
 		}
 	}
 
@@ -584,9 +632,12 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 
 	if len(rs.Items) == 0 {
 		rs.StatusMessage(kv2.ResultNotFound, "")
-		rs.Next = false
-	} else if limitNum < 1 || limitSize < 1 {
-		rs.Next = true
+	}
+
+	if cn.opts.Server.MetricsEnable {
+		metricCounter.Add(metricStorage, "Key.Range", 1)
+		metricCounter.Add(metricStorage, "Key.Range.Item", float64(len(rs.Items)))
+		metricCounter.Add(metricStorageSize, "Key.Range", float64(readSize))
 	}
 
 	if cn.monitor != nil {
@@ -599,6 +650,13 @@ func (cn *Conn) objectQueryKeyRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 }
 
 func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) error {
+
+	t0 := time.Now()
+	if cn.opts.Server.MetricsEnable {
+		defer func() {
+			metricLatency.Add(metricStorage, "Log.Range", time.Since(t0).Seconds())
+		}()
+	}
 
 	if cn.monitor != nil {
 		tp := timeus()
@@ -617,20 +675,21 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 	var (
 		offset    = keyEncode(nsKeyLog, uint64ToBytes(rr.LogOffset))
 		cutset    = keyEncode(nsKeyLog, []byte{0xff})
-		limitNum  = rr.LimitNum
-		limitSize = rr.LimitSize
+		limitNum  = int(rr.LimitNum)
+		limitSize = int(rr.LimitSize)
+		readSize  int
 	)
 
-	if limitNum > kv2.ObjectReaderLimitNumMax {
-		limitNum = kv2.ObjectReaderLimitNumMax
+	if limitNum > int(kv2.ObjectReaderLimitNumMax) {
+		limitNum = int(kv2.ObjectReaderLimitNumMax)
 	} else if limitNum < 1 {
 		limitNum = 1
 	}
 
 	if limitSize < 1 {
-		limitSize = kv2.ObjectReaderLimitSizeDef
-	} else if limitSize > kv2.ObjectReaderLimitSizeMax {
-		limitSize = kv2.ObjectReaderLimitSizeMax
+		limitSize = int(kv2.ObjectReaderLimitSizeDef)
+	} else if limitSize > int(kv2.ObjectReaderLimitSizeMax) {
+		limitSize = int(kv2.ObjectReaderLimitSizeMax)
 	}
 
 	if rr.WaitTime < 0 {
@@ -656,10 +715,6 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 
 		for ok := iter.First(); ok; ok = iter.Next() {
 
-			if limitNum < 1 {
-				break
-			}
-
 			if bytes.Compare(iter.Key(), offset) <= 0 {
 				continue
 			}
@@ -671,6 +726,12 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 			if len(iter.Value()) < 2 {
 				continue
 			}
+
+			if len(rs.Items) > 0 && readSize+len(iter.Value()) > limitSize {
+				rs.Next = true
+				break
+			}
+			readSize += len(iter.Value())
 
 			meta, _, err := kv2.ObjectMetaDecode(iter.Value())
 			if err != nil || meta == nil {
@@ -726,15 +787,19 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 					break
 				}
 
-				limitSize -= int64(ss.Len())
-				if limitSize < 1 {
+				if len(rs.Items) > 0 && readSize+ss.Len() > limitSize {
+					rs.Next = true
 					break
 				}
+				readSize += ss.Len()
 
 				rs.Items = append(rs.Items, item)
 			}
 
-			limitNum--
+			if len(rs.Items) >= limitNum || readSize >= limitSize {
+				rs.Next = true
+				break
+			}
 		}
 
 		iter.Release()
@@ -752,14 +817,16 @@ func (cn *Conn) objectQueryLogRange(rr *kv2.ObjectReader, rs *kv2.ObjectResult) 
 		}
 	}
 
-	if limitNum < 1 || limitSize < 1 {
-		rs.Next = true
+	if cn.opts.Server.MetricsEnable {
+		metricCounter.Add(metricStorage, "Log.Range", 1)
+		metricCounter.Add(metricStorage, "Log.Range.Item", float64(len(rs.Items)))
+		metricCounter.Add(metricStorageSize, "Log.Range", float64(readSize))
 	}
 
 	if cn.monitor != nil {
 		cn.monitor.Metric(MetricStorageCall).With(map[string]string{
 			"Read": "LogRange",
-		}).Add(int64(limitSize))
+		}).Add(int64(readSize))
 	}
 
 	return nil
