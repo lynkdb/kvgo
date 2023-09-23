@@ -1,4 +1,4 @@
-// Copyright 2015 Eryx <evorui аt gmаil dοt cοm>, All rights reserved.
+// Copyright 2015 Eryx <evorui at gmail dot com>, All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -30,6 +30,7 @@ import (
 	"testing"
 	"time"
 
+	// "github.com/lynkdb/kvgo/internal/utils"
 	kv2 "github.com/lynkdb/kvspec/v2/go/kvspec"
 )
 
@@ -39,7 +40,7 @@ var (
 	dbTestAccessKey = NewSystemAccessKey()
 )
 
-func dbTestOpen(ports []int, clientEnable bool) ([]*Conn, error) {
+func dbTestOpen(ports []int, clientEnable bool, args ...interface{}) ([]*Conn, error) {
 
 	dbTestMu.Lock()
 	defer dbTestMu.Unlock()
@@ -47,7 +48,18 @@ func dbTestOpen(ports []int, clientEnable bool) ([]*Conn, error) {
 	var (
 		dbs   = []*Conn{}
 		nodes = []*ClientConfig{}
+		opts  = map[string]bool{}
 	)
+
+	for _, arg := range args {
+		switch arg.(type) {
+		// 	case *testing.T:
+		// 		t = arg.(*testing.T)
+
+		case string:
+			opts[arg.(string)] = true
+		}
+	}
 
 	for _, v := range ports {
 		if v > 0 {

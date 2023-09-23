@@ -1,4 +1,4 @@
-// Copyright 2015 Eryx <evorui аt gmаil dοt cοm>, All rights reserved.
+// Copyright 2015 Eryx <evorui at gmail dot com>, All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	hauth "github.com/hooto/hauth/go/hauth/v1"
+	"github.com/hooto/hlog4g/hlog"
 
 	tsd2 "github.com/valuedig/apis/go/tsd/v2"
 
@@ -98,6 +99,8 @@ func (cn *Conn) sysCmdSysMetrics(av *hauth.AppValidator, rr *kv2.SysCmdRequest) 
 func (cn *Conn) sysCmdLocal(av *hauth.AppValidator, rr *kv2.SysCmdRequest) *kv2.ObjectResult {
 
 	var rs *kv2.ObjectResult
+
+	hlog.Printf("info", "sys-cmd %s", rr.Method)
 
 	switch rr.Method {
 

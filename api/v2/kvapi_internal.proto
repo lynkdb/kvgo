@@ -1,0 +1,120 @@
+// Copyright 2015 Eryx <evorui at gmail dot com>, All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package lynkdb.kvapi.v2;
+
+option optimize_for = LITE_RUNTIME;
+option go_package = "./;kvapi";
+
+import "kvapi.proto";
+
+message LogMeta {
+  uint64 id = 1;
+  uint64 version = 2;
+  uint64 attrs = 3;
+  int64 expired = 4;
+  int64 created = 5;
+  int32 size = 6;
+  bytes key = 7;
+}
+
+message RawKeyValue {
+  bytes key = 1;
+  bytes value = 2;
+}
+
+message TableMap {
+  message Replica {
+    uint64 id = 1;
+    uint64 version = 2;
+    string store_id = 3;
+    uint64 action = 7;
+  }
+  message Shard {
+    uint64 id = 1;
+    uint64 version = 2;
+    bytes lower_key = 5;
+    bytes upper_key = 6;
+    uint64 action = 7;
+    repeated Replica replicas = 9;
+  }
+  string id = 1;
+  uint64 version = 2;
+  repeated Shard shards = 9;
+}
+
+message SysNode {
+  string id = 1;
+}
+
+message SysVolume {
+  string id = 1;
+  string node_id = 2;
+  // string mountpoint = 3;
+}
+
+message SysVolumeStatus {
+  string id = 1;
+  uint64 capacity_used = 8;
+  uint64 capacity_free = 9;
+  uint64 load_cycle_count = 10;
+  uint64 updated = 15;
+}
+
+message WriteProposalRequest {
+  uint64 id = 1;
+  WriteRequest write = 2;
+  // uint64 expired = 3;
+}
+
+message DeleteProposalRequest {
+  uint64 id = 1;
+  bytes key = 2;
+  Meta meta = 3;
+  uint64 attrs = 4;
+  // uint64 expired = 4;
+}
+
+message LogRangeRequest {
+  string table_id = 1;
+  uint64 shard_id = 2;
+  uint64 replica_id = 3;
+  uint64 lower_log = 4;
+  uint64 upper_log = 5;
+}
+
+message LogRangeResponse {
+  // uint64 log_left = 7;
+  uint64 log_offset = 8;
+  repeated LogMeta items = 9;
+  bool next_result_set = 10;
+  bool log_offset_outrange = 11;
+}
+
+message LogKeyRangeRequest {
+  string table_id = 1;
+  uint64 shard_id = 2;
+  uint64 replica_id = 3;
+  bytes lower_key = 4;
+  bytes upper_key = 5;
+}
+
+message LogKeyRangeResponse {
+  repeated Meta items = 9;
+  bool next_result_set = 10;
+}
+
+service KvgoInternal {}

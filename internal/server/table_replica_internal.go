@@ -1,0 +1,517 @@
+// Copyright 2015 Eryx <evorui at gmail dot com>, All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package server
+
+import (
+	"errors"
+	"time"
+
+	"github.com/lynkdb/kvgo/pkg/kvapi"
+	"github.com/lynkdb/kvgo/pkg/storage"
+)
+
+func (it *tableReplica) getMeta(key []byte) (*kvapi.Meta, error) {
+
+	ss := it.store.Get(keyEncode(nsKeyMeta, key), nil)
+
+	if !ss.OK() {
+		if ss.NotFound() {
+			return nil, nil
+		}
+		return nil, ss.Error()
+	}
+
+	meta, _, err := kvapi.MetaDecode(ss.Bytes())
+	return meta, err
+}
+
+func (it *tableReplica) getRawMeta(nsKey byte, key []byte) (*kvapi.Meta, error) {
+
+	ss := it.store.Get(keyEncode(nsKey, key), nil)
+
+	if !ss.OK() {
+		if ss.NotFound() {
+			return nil, nil
+		}
+		return nil, ss.Error()
+	}
+
+	meta, _, err := kvapi.MetaDecode(ss.Bytes())
+	return meta, err
+}
+
+func (it *tableReplica) getData(key []byte) (*kvapi.KeyValue, error) {
+
+	ss := it.store.Get(keyEncode(nsKeyData, key), nil)
+
+	if !ss.OK() {
+		if ss.NotFound() {
+			return nil, nil
+		}
+		return nil, ss.Error()
+	}
+
+	kv, err := kvapi.KeyValueDecode(ss.Bytes())
+	if err == nil {
+		kv.Key = key
+	}
+	return kv, err
+}
+
+func (it *tableReplica) logRange(req *kvapi.LogRangeRequest) (*kvapi.LogRangeResponse, error) {
+
+	if req.UpperLog <= req.LowerLog {
+		req.UpperLog = 1 << 63
+	}
+
+	if req.LowerLog <= it.logState.RetentionOffset {
+		return &kvapi.LogRangeResponse{
+			LogOffset:         it.logState.Offset,
+			LogOffsetOutrange: true,
+		}, nil
+	}
+
+	var (
+		lowerKey  = keyLogEncode(req.ReplicaId, req.LowerLog)
+		upperKey  = keyLogEncode(req.ReplicaId, req.UpperLog)
+		limitNum  = 10000
+		limitSize = 2 << 20
+		readSize  int
+		rs        = &kvapi.LogRangeResponse{}
+	)
+
+	iter := it.store.NewIterator(&storage.IterOptions{
+		LowerKey: lowerKey,
+		UpperKey: upperKey,
+	})
+	defer iter.Release()
+
+	for ok := iter.SeekToFirst(); ok; ok = iter.Next() {
+
+		if len(rs.Items) > 0 && readSize+len(iter.Value()) > limitSize {
+			rs.NextResultSet = true
+			break
+		}
+		readSize += len(iter.Value())
+
+		item, err := kvapi.LogDecode(bytesClone(iter.Value()))
+		if err != nil {
+			continue
+		}
+
+		rs.Items = append(rs.Items, item)
+
+		if len(rs.Items) >= limitNum || readSize >= limitSize {
+			rs.NextResultSet = true
+			break
+		}
+	}
+
+	return rs, nil
+}
+
+func (it *tableReplica) logKeyRangeMeta(req *kvapi.LogKeyRangeRequest) (*kvapi.ResultSet, error) {
+
+	var (
+		lowerKey  = keyEncode(nsKeyMeta, req.LowerKey)
+		upperKey  = keyEncode(nsKeyMeta, req.UpperKey)
+		limitNum  = 10000
+		limitSize = 2 << 20
+		readSize  int
+		rs        = &kvapi.ResultSet{}
+	)
+
+	iter := it.store.NewIterator(&storage.IterOptions{
+		LowerKey: lowerKey,
+		UpperKey: upperKey,
+	})
+	defer iter.Release()
+
+	for ok := iter.SeekToFirst(); ok && !it.close; ok = iter.Next() {
+
+		if len(rs.Items) > 0 && readSize+len(iter.Value()) > limitSize {
+			rs.NextResultSet = true
+			break
+		}
+
+		meta, _, err := kvapi.MetaDecode(bytesClone(iter.Value()))
+		if err != nil || meta == nil {
+			continue
+		}
+
+		readSize += len(iter.Key())
+		readSize += len(iter.Value())
+
+		rs.Items = append(rs.Items, &kvapi.KeyValue{
+			Key:  bytesClone(iter.Key())[1:],
+			Meta: meta,
+		})
+
+		if len(rs.Items) >= limitNum || readSize >= limitSize {
+			rs.NextResultSet = true
+			break
+		}
+	}
+
+	return rs, nil
+}
+
+func (it *tableReplica) _writePrepare(req *kvapi.WriteProposalRequest) (*kvapi.Meta, error) {
+
+	if it.cfg.Server.MetricsEnable {
+		t0 := time.Now()
+		defer func() {
+			metricCounter.Add(metricService, "Key.Prepare", 1)
+			metricLatency.Add(metricService, "Key.Prepare", time.Since(t0).Seconds())
+		}()
+	}
+
+	if req.Write == nil {
+		return nil, errors.New("invalid request")
+	}
+
+	it.proposalMu.Lock()
+	defer it.proposalMu.Unlock()
+
+	tn := time.Now().UnixNano() / 1e6
+
+	if len(it.proposals) > 10 {
+		dels := []string{}
+		for k, v := range it.proposals {
+			if (v.expired) < tn {
+				dels = append(dels, k)
+			}
+		}
+		for _, k := range dels {
+			delete(it.proposals, k)
+		}
+	}
+
+	p, ok := it.proposals[string(req.Write.Key)]
+	if ok && p.expired > tn && p.id != req.Id {
+		return nil, errors.New("write deny")
+	}
+
+	pLog, err := it.versionSync(1, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	pInc := req.Write.Meta.IncrId
+	if req.Write.IncrNamespace != "" && req.Write.Meta.IncrId == 0 {
+		pInc, err = it.incrSync(req.Write.IncrNamespace, 1, 0)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	it.proposals[string(req.Write.Key)] = &proposalx{
+		id:      req.Id,
+		expired: tn + writeProposalTTL,
+		write:   req,
+	}
+
+	return &kvapi.Meta{
+		Version: pLog,
+		IncrId:  pInc,
+	}, nil
+}
+
+func (it *tableReplica) _writeAccept(req *kvapi.WriteProposalRequest) (*kvapi.Meta, error) {
+
+	if it.cfg.Server.MetricsEnable {
+		t0 := time.Now()
+		defer func() {
+			metricCounter.Add(metricService, "Key.Accept", 1)
+			metricLatency.Add(metricService, "Key.Accept", time.Since(t0).Seconds())
+		}()
+	}
+
+	if req.Write.Meta == nil {
+		return nil, errors.New("invalid request")
+	}
+
+	var (
+		tn     = time.Now().UnixNano() / 1e6
+		cLogOn = true
+		cLog   = req.Write.Meta.Version
+		cInc   = req.Write.Meta.IncrId
+	)
+
+	it.proposalMu.Lock()
+	defer it.proposalMu.Unlock()
+
+	pp, ok := it.proposals[string(req.Write.Key)]
+	if !ok || (pp.expired) < tn || pp.write == nil {
+		return nil, errors.New("deny")
+	}
+
+	if pp.write.Write.Meta.Version > cLog {
+		return nil, errors.New("invalid version")
+	}
+
+	it.versionSync(0, cLog)
+	if pp.write.Write.IncrNamespace != "" && cInc > 0 {
+		it.incrSync(pp.write.Write.IncrNamespace, 0, cInc)
+	}
+
+	it.mu.Lock()
+	defer it.mu.Unlock()
+
+	meta, err := it.getMeta(req.Write.Key)
+	if meta == nil && err != nil {
+		return nil, err
+	}
+	if meta != nil && meta.Version > cLog {
+		return nil, errors.New("invalid version")
+	}
+
+	if pp.write.Write.Meta.Updated < 1 {
+		pp.write.Write.Meta.Updated = tn
+	}
+
+	// if pp.write.Write.Meta.Created < 1 {
+	// 	pp.write.Write.Meta.Created = tn
+	// }
+
+	pp.write.Write.Meta.Version = cLog
+	pp.write.Write.Meta.IncrId = cInc
+
+	bsMeta, bsData, err := pp.write.Write.Encode()
+	if err != nil {
+		return nil, err
+	}
+	writeSize := len(bsMeta) + len(bsData)
+
+	batch := it.store.NewBatch()
+
+	if !kvapi.AttrAllow(pp.write.Write.Attrs, kvapi.Write_Attrs_IgnoreMeta) {
+		batch.Put(keyEncode(nsKeyMeta, pp.write.Write.Key), bsMeta)
+	}
+	if !kvapi.AttrAllow(pp.write.Write.Attrs, kvapi.Write_Attrs_IgnoreData) {
+		batch.Put(keyEncode(nsKeyData, pp.write.Write.Key), bsData)
+	}
+
+	if (cLogOn && !it.cfg.Feature.WriteLogDisable) ||
+		pp.write.Write.Meta.Expired > 0 {
+
+		it.logMu.Lock()
+		defer it.logMu.Unlock()
+
+		logId, err := it.logSync(1, 0)
+		if err != nil {
+			return nil, err
+		}
+
+		bsLogMeta, err := pp.write.Write.LogEncode(logId)
+		if err != nil {
+			return nil, err
+		}
+
+		if cLogOn && !it.cfg.Feature.WriteLogDisable {
+			batch.Put(keyLogEncode(it.replicaId, logId), bsLogMeta)
+			writeSize += len(bsLogMeta)
+		}
+
+		if pp.write.Write.Meta.Expired > 0 {
+			batch.Put(keyExpireEncode(it.replicaId, pp.write.Write.Meta.Expired, pp.write.Write.Key), bsLogMeta)
+			writeSize += len(bsLogMeta)
+		}
+	}
+
+	wopts := &storage.WriteOptions{}
+
+	if kvapi.AttrAllow(pp.write.Write.Attrs, kvapi.Write_Attrs_Sync) {
+		wopts.Sync = true
+	}
+
+	if ss := batch.Apply(wopts); !ss.OK() {
+		err = ss.Error()
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if it.cfg.Server.MetricsEnable {
+		metricCounter.Add(metricStorage, "Key.Write", 1)
+		metricCounter.Add(metricStorageSize, "Key.Write", float64(writeSize))
+	}
+
+	delete(it.proposals, string(pp.write.Write.Key))
+
+	return &kvapi.Meta{
+		Version: cLog,
+		IncrId:  cInc,
+	}, nil
+}
+
+func (it *tableReplica) _deletePrepare(req *kvapi.DeleteProposalRequest) (*kvapi.Meta, error) {
+
+	if it.cfg.Server.MetricsEnable {
+		t0 := time.Now()
+		defer func() {
+			metricCounter.Add(metricService, "Key.Prepare", 1)
+			metricLatency.Add(metricService, "Key.Prepare", time.Since(t0).Seconds())
+		}()
+	}
+
+	it.proposalMu.Lock()
+	defer it.proposalMu.Unlock()
+
+	tn := time.Now().UnixNano() / 1e6
+
+	if len(it.proposals) > 10 {
+		dels := []string{}
+		for k, v := range it.proposals {
+			if (v.expired) < tn {
+				dels = append(dels, k)
+			}
+		}
+		for _, k := range dels {
+			delete(it.proposals, k)
+		}
+	}
+
+	p, ok := it.proposals[string(req.Key)]
+	if ok && p.expired > tn && p.id != req.Id {
+		return nil, errors.New("write deny")
+	}
+
+	pLog, err := it.versionSync(1, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	it.proposals[string(req.Key)] = &proposalx{
+		id:      req.Id,
+		expired: tn + writeProposalTTL,
+		delete:  req,
+	}
+
+	return &kvapi.Meta{
+		Version: pLog,
+	}, nil
+}
+
+func (it *tableReplica) _deleteAccept(req *kvapi.DeleteProposalRequest) (*kvapi.Meta, error) {
+
+	if it.cfg.Server.MetricsEnable {
+		t0 := time.Now()
+		defer func() {
+			metricCounter.Add(metricService, "Key.Accept", 1)
+			metricLatency.Add(metricService, "Key.Accept", time.Since(t0).Seconds())
+		}()
+	}
+
+	if req.Meta == nil {
+		return nil, errors.New("invalid request")
+	}
+
+	var (
+		tn     = time.Now().UnixNano() / 1e6
+		cLogOn = true
+		cLog   = req.Meta.Version
+	)
+
+	it.proposalMu.Lock()
+	defer it.proposalMu.Unlock()
+
+	pp, ok := it.proposals[string(req.Key)]
+	if !ok || (pp.expired) < tn || pp.delete == nil {
+		return nil, errors.New("deny")
+	}
+
+	if pp.delete.Meta.Version > cLog {
+		return nil, errors.New("invalid version")
+	}
+
+	it.versionSync(0, cLog)
+
+	it.mu.Lock()
+	defer it.mu.Unlock()
+
+	meta, err := it.getMeta(req.Key)
+	if meta == nil && err != nil {
+		return nil, err
+	}
+	if meta != nil && meta.Version > cLog {
+		return nil, errors.New("invalid version")
+	}
+
+	if pp.delete.Meta.Updated < 1 {
+		pp.delete.Meta.Updated = tn
+	}
+
+	// if pp.delete.Meta.Created < 1 {
+	// 	pp.delete.Meta.Created = tn
+	// }
+
+	pp.delete.Meta.Version = cLog
+
+	batch := it.store.NewBatch()
+
+	if !kvapi.AttrAllow(pp.delete.Attrs, kvapi.Write_Attrs_RetainMeta) {
+		batch.Delete(keyEncode(nsKeyMeta, pp.delete.Key))
+	}
+
+	batch.Delete(keyEncode(nsKeyData, pp.delete.Key))
+
+	if it.cfg.Server.MetricsEnable {
+		metricCounter.Add(metricStorage, "Key.Delete", 1)
+		metricCounter.Add(metricStorageSize, "Key.Delete", float64(len(pp.delete.Key)))
+	}
+
+	if cLogOn && !it.cfg.Feature.WriteLogDisable {
+
+		it.logMu.Lock()
+		defer it.logMu.Unlock()
+
+		logId, err := it.logSync(1, 0)
+		if err != nil {
+			return nil, err
+		}
+
+		bsLogMeta, err := pp.delete.LogEncode(logId, cLog)
+		if err != nil {
+			return nil, err
+		}
+
+		batch.Put(keyLogEncode(it.replicaId, logId), bsLogMeta)
+		if it.cfg.Server.MetricsEnable {
+			metricCounter.Add(metricStorageSize, "Key.Delete", float64(len(bsLogMeta)))
+		}
+	}
+
+	wopts := &storage.WriteOptions{}
+
+	if kvapi.AttrAllow(pp.delete.Attrs, kvapi.Write_Attrs_Sync) {
+		wopts.Sync = true
+	}
+
+	if ss := batch.Apply(wopts); !ss.OK() {
+		err = ss.Error()
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	delete(it.proposals, string(pp.delete.Key))
+
+	return &kvapi.Meta{
+		Version: cLog,
+	}, nil
+}

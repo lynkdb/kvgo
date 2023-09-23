@@ -1,0 +1,45 @@
+# Storage Settings
+[storage]
+
+data_directory = "/opt/lynkdb/kvgo/var/data"
+
+
+# Server Settings
+[server]
+bind = "127.0.0.1:9100"
+
+[server.access_key]
+id = "<access_key_id>"
+secret = "<access_key_secret>"
+
+
+# Performance Settings
+[performance]
+# in MiB, default to 8
+write_buffer_size = 8
+
+# in MiB, default to 32
+block_cache_size = 32
+
+# in MiB, default to 8
+max_table_size = 8
+
+# default to 500
+max_open_files = 500
+
+
+# Cluster Settings
+[cluster]
+
+# [[cluster.main_nodes]]
+# addr = "127.0.0.31:9101"
+# [cluster.main_nodes.access_key]
+# id = "<access_key_id>"
+# secret = "<access_key_secret>"
+#
+# [[cluster.main_nodes]]
+# addr = "127.0.0.32:9101"
+# [cluster.main_nodes.access_key]
+# id = "<access_key_id>"
+# secret = "<access_key_secret>"
+

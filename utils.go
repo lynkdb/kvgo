@@ -1,4 +1,4 @@
-// Copyright 2015 Eryx <evorui аt gmаil dοt cοm>, All rights reserved.
+// Copyright 2015 Eryx <evorui at gmail dot com>, All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -41,6 +41,10 @@ import (
 var (
 	hex16 = regexp.MustCompile("^[a-f0-9]{16}$")
 )
+
+func init() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile | log.Lmicroseconds)
+}
 
 func debugPrint(args ...interface{}) {
 	fmt.Println(args...)
@@ -191,6 +195,10 @@ func timems() int64 {
 	return (time.Now().UnixNano() / 1e6)
 }
 
+func timesec() int64 {
+	return (time.Now().Unix())
+}
+
 func jsonEncode(obj interface{}) []byte {
 	bs, _ := json.Marshal(obj)
 	return bs
@@ -201,7 +209,10 @@ func jsonDecode(bs []byte, obj interface{}) error {
 }
 
 func jsonPrint(name string, obj interface{}) {
-	log.Printf("%s %s", name, string(jsonEncode(obj)))
+	// bs, _ := json.MarshalIndent(obj, "", "  ")
+	bs, _ := json.Marshal(obj)
+	// log.Printf("%s %s", name, string(bs))
+	log.Output(2, name+" "+string(bs))
 }
 
 func privateIP4Valid(ipAddr string) error {
