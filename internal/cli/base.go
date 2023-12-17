@@ -17,20 +17,20 @@ package cli
 import (
 	"fmt"
 
-	kv2 "github.com/lynkdb/kvspec/v2/go/kvspec"
+	"github.com/lynkdb/kvgo/pkg/kvapi"
 )
 
 func sizeFormat(siz int64) string {
 
 	sizeS := "0"
-	if siz > kv2.TiB {
-		sizeS = fmt.Sprintf("%.2f TB", float64(siz)/float64(kv2.TiB))
-	} else if siz > kv2.GiB {
-		sizeS = fmt.Sprintf("%.2f GB", float64(siz)/float64(kv2.GiB))
-	} else if siz > kv2.MiB {
-		sizeS = fmt.Sprintf("%d MB", siz/kv2.MiB)
-	} else if siz > kv2.KiB {
-		sizeS = fmt.Sprintf("%d KB", siz/kv2.KiB)
+	if siz > kvapi.TiB {
+		sizeS = fmt.Sprintf("%.2f TB", float64(siz)/float64(kvapi.TiB))
+	} else if siz > kvapi.GiB {
+		sizeS = fmt.Sprintf("%.2f GB", float64(siz)/float64(kvapi.GiB))
+	} else if siz > kvapi.MiB {
+		sizeS = fmt.Sprintf("%d MB", siz/kvapi.MiB)
+	} else if siz > kvapi.KiB {
+		sizeS = fmt.Sprintf("%d KB", siz/kvapi.KiB)
 	}
 	return sizeS
 }

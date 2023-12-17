@@ -16,6 +16,7 @@ package server
 
 import (
 	"bytes"
+	"fmt"
 	"sort"
 	"sync"
 
@@ -28,6 +29,8 @@ type tableMapMgr struct {
 
 	cfg *Config
 
+	storeMgr *storeManager
+
 	tables    map[string]*tableMap
 	arrTables []*tableMap
 
@@ -36,6 +39,8 @@ type tableMapMgr struct {
 }
 
 type tableMapSelectShard struct {
+	mapVersion uint64
+
 	shardId uint64
 
 	keys [][]byte
@@ -45,6 +50,12 @@ type tableMapSelectShard struct {
 
 	replicas   []*tableReplica
 	replicaNum int
+}
+
+type tableMapShardStats struct {
+	usageAvg int64
+
+	lastSetUpdated int64
 }
 
 type tableMap struct {
@@ -58,22 +69,102 @@ type tableMap struct {
 	mapMeta *kvapi.Meta
 	mapData *kvapi.TableMap
 
-	stores map[string]storage.Conn
+	mapIncr uint64
 
-	replicas map[uint64]*tableReplica
+	storeMgr *storeManager
+
+	repMut      sync.RWMutex
+	replicas    map[uint64]*tableReplica
+	arrReplicas []*tableReplica
+	rmReplicas  map[uint64]int64
+
+	stmut  sync.RWMutex
+	status kvapi.TableMapStatus
 
 	arrIndex int
+
+	stats map[uint64]*tableMapShardStats
 }
 
-func newTableMapMgr(cfg *Config) *tableMapMgr {
+func (it *tableMap) replica(id uint64) *tableReplica {
+	it.repMut.Lock()
+	defer it.repMut.Unlock()
+	if rep, ok := it.replicas[id]; ok {
+		return rep
+	}
+	return nil
+}
+
+func (it *tableMap) tryRemoveReplica(repId uint64) {
+	it.repMut.Lock()
+	defer it.repMut.Unlock()
+	// it.rmReplicas[repId] = 1
+}
+
+func (it *tableMap) tryInitReplica(shard *kvapi.TableMap_Shard, rep *kvapi.TableMap_Replica) *tableReplica {
+	it.repMut.Lock()
+	defer it.repMut.Unlock()
+
+	if _, ok := it.rmReplicas[rep.Id]; ok {
+		return nil
+	}
+
+	store := it.storeMgr.store(rep.StoreId)
+	if store == nil {
+		return nil
+	}
+
+	trep, ok := it.replicas[rep.Id]
+	if !ok {
+		trep, err = NewTable(store, it.data.Id, it.data.Name, shard.Id, rep.Id, it.cfg)
+		if err != nil {
+			return nil
+		}
+
+		it.replicas[rep.Id] = trep
+		it.arrReplicas = append(it.arrReplicas, trep)
+	}
+	return trep
+}
+
+func (it *tableMap) iterStatusDisplay(fn func(
+	shard *kvapi.TableMap_Shard,
+	shardStatus string,
+	replicaStatus []string,
+)) {
+	it.mu.RLock()
+	defer it.mu.RUnlock()
+	for _, shard := range it.mapData.Shards {
+		status := []string{}
+		for _, rep := range shard.Replicas {
+			if repInst := it.replica(rep.Id); repInst != nil {
+				status = append(status, fmt.Sprintf("#%d %s %s %dM %ds", rep.Id,
+					replicaActionDisplay(rep.Action), replicaActionDisplay(repInst.status.action),
+					repInst.status.storageUsed.value/(1<<20),
+					timesec()-repInst.status.storageUsed.updated,
+				))
+			} else {
+				status = append(status, fmt.Sprintf("#%d %s %s %d -1", rep.Id,
+					replicaActionDisplay(rep.Action), replicaActionDisplay(0), 0))
+			}
+		}
+		fn(shard, shardActionDisplay(shard.Action), status)
+	}
+}
+
+func newTableMapMgr(cfg *Config, storeMgr *storeManager) *tableMapMgr {
 	if cfg == nil {
 		panic("no config setup")
 	}
+	if storeMgr == nil {
+		panic("no store setup")
+	}
 	cfg.Reset()
 	mgr := &tableMapMgr{
-		cfg:     cfg,
-		tables:  map[string]*tableMap{},
-		indexes: map[string]string{},
+		cfg:      cfg,
+		storeMgr: storeMgr,
+		tables:   map[string]*tableMap{},
+		indexes:  map[string]string{},
 	}
 	return mgr
 }
@@ -101,8 +192,14 @@ func (it *tableMapMgr) getById(id string) *tableMap {
 func (it *tableMapMgr) iter(fn func(tbl *tableMap)) {
 	// it.mu.RLock()
 	// defer it.mu.RUnlock()
-	for _, tbl := range it.arrTables {
-		fn(tbl)
+	for _, tm := range it.arrTables {
+
+		if tm.meta == nil || tm.data == nil || tm.data.ReplicaNum < 1 ||
+			tm.mapMeta == nil || tm.mapData == nil {
+			continue
+		}
+
+		fn(tm)
 	}
 }
 
@@ -115,12 +212,15 @@ func (it *tableMapMgr) syncTable(meta *kvapi.Meta, data *kvapi.Table) *tableMap 
 	pt, ok := it.tables[data.Id]
 	if !ok {
 		pt = &tableMap{
-			cfg:      it.cfg,
-			meta:     meta,
-			data:     data,
-			stores:   map[string]storage.Conn{},
-			replicas: map[uint64]*tableReplica{},
-			arrIndex: len(it.tables),
+			storeMgr:   it.storeMgr,
+			cfg:        it.cfg,
+			meta:       meta,
+			data:       data,
+			replicas:   map[uint64]*tableReplica{},
+			rmReplicas: map[uint64]int64{},
+			arrIndex:   len(it.tables),
+
+			stats: map[uint64]*tableMapShardStats{},
 		}
 		it.tables[data.Id] = pt
 		it.arrTables = append(it.arrTables, pt)
@@ -132,13 +232,35 @@ func (it *tableMapMgr) syncTable(meta *kvapi.Meta, data *kvapi.Table) *tableMap 
 	return pt
 }
 
-func (it *tableMap) getStore(id string) (store storage.Conn) {
+func (it *tableMap) nextIncr() uint64 {
 	it.mu.Lock()
 	defer it.mu.Unlock()
-	if s, ok := it.stores[id]; ok {
-		return s
+	if it.mapData == nil {
+		panic("init logic error")
 	}
-	return nil
+
+	for _, shard := range it.mapData.Shards {
+		if shard.Id > it.mapData.IncrId {
+			it.mapData.IncrId = shard.Id
+		}
+		for _, rep := range shard.Replicas {
+			if rep.Id > it.mapData.IncrId {
+				it.mapData.IncrId = rep.Id
+			}
+		}
+	}
+
+	if it.mapData.IncrId < 10 {
+		it.mapData.IncrId = 10
+	} else {
+		it.mapData.IncrId += 1
+	}
+
+	return it.mapData.IncrId
+}
+
+func (it *tableMap) getStore(id uint64) (store storage.Conn) {
+	return it.storeMgr.store(id)
 }
 
 func (it *tableMap) syncMap(meta *kvapi.Meta, data *kvapi.TableMap) {
@@ -153,25 +275,56 @@ func (it *tableMap) syncMap(meta *kvapi.Meta, data *kvapi.TableMap) {
 	}
 }
 
-func (it *tableMap) syncStore(id string, store storage.Conn) {
-	it.mu.Lock()
-	defer it.mu.Unlock()
-	if _, ok := it.stores[id]; !ok {
-		it.stores[id] = store
-	}
+func (it *tableMap) syncStore(id uint64, store storage.Conn) {
+	it.storeMgr.syncStore(id, store)
 }
 
-func (it *tableMap) getShard(id uint64) *kvapi.TableMap_Shard {
+func (it *tableMap) getShard(id uint64) (*kvapi.TableMap_Shard, *kvapi.TableMap_Shard) {
 	it.mu.Lock()
 	defer it.mu.Unlock()
 	if it.mapData != nil {
-		for _, s := range it.mapData.Shards {
+		for i, s := range it.mapData.Shards {
 			if s.Id == id {
-				return s
+				if i+1 < len(it.mapData.Shards) {
+					return s, it.mapData.Shards[i+1]
+				}
+				return s, nil
 			}
 		}
 	}
-	return nil
+	return nil, nil
+}
+
+func (it *tableMap) _hitShardConv(hit *kvapi.TableMap_Shard) *tableMapSelectShard {
+	slr := &tableMapSelectShard{
+		mapVersion: hit.Version,
+		shardId:    hit.Id,
+		replicaNum: int(it.data.ReplicaNum),
+		lowerKey:   bytesClone(hit.LowerKey),
+	}
+	it.repMut.Lock()
+	defer it.repMut.Unlock()
+	for _, rep := range hit.Replicas {
+		if !kvapi.AttrAllow(rep.Action, kReplicaSetup_In) {
+			continue
+		}
+		store := it.storeMgr.store(rep.StoreId)
+		if store == nil {
+			continue
+		}
+		trep, ok := it.replicas[rep.Id]
+		if !ok {
+			trep, err = NewTable(store, it.data.Id, it.data.Name, hit.Id, rep.Id, it.cfg)
+			if err != nil {
+				continue
+			}
+
+			it.replicas[rep.Id] = trep
+			it.arrReplicas = append(it.arrReplicas, trep)
+		}
+		slr.replicas = append(slr.replicas, trep)
+	}
+	return slr
 }
 
 func (it *tableMapMgr) lookupByKey(tableName string, key []byte) *tableMapSelectShard {
@@ -197,34 +350,34 @@ func (it *tableMap) lookupByKey(key []byte) *tableMapSelectShard {
 	}
 
 	var (
-		slr = &tableMapSelectShard{}
-		err error
+		hit *kvapi.TableMap_Shard
 	)
-	for _, shard := range it.mapData.Shards {
-		if bytes.Compare(shard.LowerKey, key) <= 0 &&
-			(len(shard.UpperKey) == 0 || bytes.Compare(key, shard.UpperKey) <= 0) {
-			slr.shardId = shard.Id
-			slr.replicaNum = int(it.data.ReplicaNum)
-			for _, rep := range shard.Replicas {
-				store, ok := it.stores[rep.StoreId]
-				if !ok {
-					continue
-				}
-				trep, ok := it.replicas[rep.Id]
-				if !ok {
-					trep, err = NewTable(store, it.data.Id, it.data.Name, shard.Id, rep.Id, it.cfg)
-					if err != nil {
-						continue
-					}
-					it.replicas[rep.Id] = trep
-				}
-				slr.replicas = append(slr.replicas, trep)
+
+	if len(it.mapData.Shards) == 1 {
+		hit = it.mapData.Shards[0]
+	} else {
+		for i, shard := range it.mapData.Shards {
+			if bytes.Compare(key, shard.LowerKey) < 0 {
+				continue
 			}
-			break
+			if i+1 < len(it.mapData.Shards) {
+				next := it.mapData.Shards[i+1]
+				if len(next.LowerKey) == 0 || bytes.Compare(key, next.LowerKey) < 0 {
+					hit = shard
+					break
+				}
+			} else {
+				hit = shard
+				break
+			}
 		}
 	}
 
-	return slr
+	if hit != nil {
+		return it._hitShardConv(hit)
+	}
+
+	return &tableMapSelectShard{}
 }
 
 func (it *tableMap) lookupByKeys(keys [][]byte) []*tableMapSelectShard {
@@ -241,53 +394,45 @@ func (it *tableMap) lookupByKeys(keys [][]byte) []*tableMapSelectShard {
 
 	var (
 		selectShards []*tableMapSelectShard
-		err          error
 	)
-	for _, shard := range it.mapData.Shards {
 
-		var selectShard *tableMapSelectShard
+	if len(it.mapData.Shards) == 1 {
+		selectShards = append(selectShards, it._hitShardConv(it.mapData.Shards[0]))
+		selectShards[0].keys = keys
+	} else {
+		for i, shard := range it.mapData.Shards {
 
-		for _, key := range keys {
+			var (
+				next        *kvapi.TableMap_Shard
+				selectShard *tableMapSelectShard
+			)
 
-			if bytes.Compare(shard.LowerKey, key) <= 0 &&
-				(len(shard.UpperKey) == 0 || bytes.Compare(key, shard.UpperKey) <= 0) {
+			if i+1 < len(it.mapData.Shards) {
+				next = it.mapData.Shards[i+1]
+			}
 
-				if selectShard == nil {
-					selectShard = &tableMapSelectShard{
-						shardId:    shard.Id,
-						replicaNum: int(it.data.ReplicaNum),
-					}
-				}
+			for _, key := range keys {
 
-				selectShard.keys = append(selectShard.keys, key)
+				if bytes.Compare(key, shard.LowerKey) >= 0 {
+					if next == nil || len(next.LowerKey) == 0 || bytes.Compare(key, next.LowerKey) < 0 {
 
-				for _, rep := range shard.Replicas {
-					store, ok := it.stores[rep.StoreId]
-					if !ok {
-						continue
-					}
-					trep, ok := it.replicas[rep.Id]
-					if !ok {
-						trep, err = NewTable(store, it.data.Id, it.data.Name, shard.Id, rep.Id, it.cfg)
-						if err != nil {
-							continue
+						if selectShard == nil {
+							selectShard = it._hitShardConv(shard)
 						}
-						it.replicas[rep.Id] = trep
+
+						selectShard.keys = append(selectShard.keys, key)
 					}
-					selectShard.replicas = append(selectShard.replicas, trep)
 				}
 			}
-		}
 
-		if selectShard == nil {
-			continue
-		}
+			if selectShard != nil {
+				selectShards = append(selectShards, selectShard)
+				keys = keys[len(selectShard.keys):]
+			}
 
-		selectShards = append(selectShards, selectShard)
-		keys = keys[len(selectShard.keys):]
-
-		if len(keys) == 0 {
-			break
+			if len(keys) == 0 {
+				break
+			}
 		}
 	}
 
@@ -308,65 +453,112 @@ func (it *tableMap) lookupByRange(lowerKey, upperKey []byte, rev bool) []*tableM
 
 	var (
 		selectShards []*tableMapSelectShard
-		err          error
 	)
 
-	for _, shard := range it.mapData.Shards {
+	if len(it.mapData.Shards) == 1 {
+		selectShards = append(selectShards, it._hitShardConv(it.mapData.Shards[0]))
+	} else {
 
-		var selectShard *tableMapSelectShard
+		for i, shard := range it.mapData.Shards {
 
-		if len(selectShards) == 0 {
+			var (
+				next        *kvapi.TableMap_Shard
+				selectShard *tableMapSelectShard
+			)
 
-			if bytes.Compare(shard.LowerKey, lowerKey) <= 0 &&
-				(len(shard.UpperKey) == 0 || bytes.Compare(lowerKey, shard.UpperKey) <= 0) {
-
-				selectShard = &tableMapSelectShard{
-					shardId:    shard.Id,
-					replicaNum: int(it.data.ReplicaNum),
-				}
+			if i+1 < len(it.mapData.Shards) {
+				next = it.mapData.Shards[i+1]
 			}
 
-		} else {
+			if len(selectShards) == 0 {
 
-			if bytes.Compare(shard.LowerKey, upperKey) <= 0 &&
-				(len(shard.UpperKey) == 0 || bytes.Compare(upperKey, shard.UpperKey) <= 0) {
-
-				selectShard = &tableMapSelectShard{
-					shardId:    shard.Id,
-					replicaNum: int(it.data.ReplicaNum),
-				}
-			}
-		}
-
-		if selectShard != nil {
-			for _, rep := range shard.Replicas {
-				store, ok := it.stores[rep.StoreId]
-				if !ok {
+				if bytes.Compare(lowerKey, shard.LowerKey) < 0 {
 					continue
 				}
-				trep, ok := it.replicas[rep.Id]
-				if !ok {
-					trep, err = NewTable(store, it.data.Id, it.data.Name, shard.Id, rep.Id, it.cfg)
-					if err != nil {
-						continue
-					}
-					it.replicas[rep.Id] = trep
-				}
-				selectShard.replicas = append(selectShard.replicas, trep)
-			}
-			selectShard.lowerKey = bytesClone(shard.LowerKey)
-			selectShard.upperKey = bytesClone(shard.UpperKey)
-			selectShards = append(selectShards, selectShard)
-		}
-	}
 
-	if rev && len(selectShards) > 1 {
-		for i := 0; i < len(selectShards)/2; i++ {
-			selectShards[i], selectShards[len(selectShards)-i-1] = selectShards[len(selectShards)-i-1], selectShards[i]
+				selectShard = it._hitShardConv(shard)
+
+			} else {
+
+				if len(shard.LowerKey) == 0 || bytes.Compare(shard.LowerKey, upperKey) <= 0 {
+					selectShard = it._hitShardConv(shard)
+				} else {
+					break
+				}
+			}
+
+			if selectShard != nil {
+				selectShard.lowerKey = bytesClone(shard.LowerKey)
+				if next != nil {
+					selectShard.upperKey = bytesClone(next.LowerKey)
+				}
+				selectShards = append(selectShards, selectShard)
+			}
+		}
+
+		if rev && len(selectShards) > 1 {
+			for i := 0; i < len(selectShards)/2; i++ {
+				selectShards[i], selectShards[len(selectShards)-i-1] = selectShards[len(selectShards)-i-1], selectShards[i]
+			}
 		}
 	}
 
 	return selectShards
+}
+
+type tableMap_ShardStatus struct {
+	replicas []*kvapi.TableMapStatus_Replica
+	avgSize  int64
+}
+
+func (it *tableMap) shardStatus(
+	shard *kvapi.TableMap_Shard,
+	mapVersion uint64,
+	setupAction uint64,
+	statusAction uint64,
+) *tableMap_ShardStatus {
+	ss := &tableMap_ShardStatus{}
+	for _, rep := range shard.Replicas {
+		if setupAction > 0 && !kvapi.AttrAllow(rep.Action, setupAction) {
+			continue
+		}
+		repStatus := it.statusReplica(rep.Id)
+		if repStatus == nil || repStatus.MapVersion != mapVersion {
+			continue
+		}
+		if statusAction > 0 && !kvapi.AttrAllow(repStatus.Action, statusAction) {
+			continue
+		}
+		ss.avgSize += repStatus.Used
+		ss.replicas = append(ss.replicas, repStatus)
+	}
+	if len(ss.replicas) > 0 {
+		ss.avgSize = ss.avgSize / int64(len(ss.replicas))
+	}
+	return ss
+}
+
+func (it *tableMap) syncStatusReplica(repId, action uint64) *kvapi.TableMapStatus_Replica {
+	rep := it.statusReplica(repId)
+	rep.Action = action
+	rep.Updated = timesec()
+	return rep
+}
+
+func (it *tableMap) statusReplica(repId uint64) *kvapi.TableMapStatus_Replica {
+	it.stmut.Lock()
+	defer it.stmut.Unlock()
+	if it.status.Replicas == nil {
+		it.status.Replicas = map[uint64]*kvapi.TableMapStatus_Replica{}
+	}
+	rep, ok := it.status.Replicas[repId]
+	if !ok {
+		rep = &kvapi.TableMapStatus_Replica{
+			//
+		}
+		it.status.Replicas[repId] = rep
+	}
+	return rep
 }
 
 func (it *tableMap) Close() error {

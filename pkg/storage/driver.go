@@ -15,7 +15,7 @@
 package storage
 
 import (
-	"errors"
+	"fmt"
 	"sync"
 )
 
@@ -53,7 +53,7 @@ func Open(driver, dirname string, opts *Options) (Conn, error) {
 	drv, ok := drivers[driver]
 	dmu.Unlock()
 	if !ok {
-		return nil, errors.New("driver not found")
+		return nil, fmt.Errorf("driver (%s) not found", driver)
 	}
 	return drv.Open(dirname, opts)
 }

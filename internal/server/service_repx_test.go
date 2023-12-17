@@ -576,10 +576,14 @@ func test_ServiceApi_RepX_Open(name string, args ...interface{}) (*testServiceAp
 	cfg.Server.AccessKey = test_ServiceApi_RepX_AccessKey
 	cfg.Server.RuntimeMode = StandaloneMode
 
+	if _, ok := opts["compression_with_none"]; ok {
+		cfg.Feature.Compression = "none"
+	}
+
 	for i := 0; i < 4; i++ {
 		dir := fmt.Sprintf("%s/vol-%02d", testDir, i)
 		exec.Command("rm", "-rf", dir).Output()
-		cfg.Storage.Volumes = append(cfg.Storage.Volumes, &ConfigVolume{
+		cfg.Storage.Stores = append(cfg.Storage.Stores, &ConfigStore{
 			Engine:     storage.DefaultDriver,
 			Mountpoint: dir,
 		})

@@ -141,7 +141,7 @@ func test_AdminApi_Open(args ...interface{}) (*testAdminApiSession, error) {
 		for i := 0; i < 3; i++ {
 			dir := fmt.Sprintf("%s/vol-%02d", testDir, i)
 			exec.Command("rm", "-rf", dir).Output()
-			cfg.Storage.Volumes = append(cfg.Storage.Volumes, &ConfigVolume{
+			cfg.Storage.Stores = append(cfg.Storage.Stores, &ConfigStore{
 				Engine:     storage.DefaultDriver,
 				Mountpoint: dir,
 			})

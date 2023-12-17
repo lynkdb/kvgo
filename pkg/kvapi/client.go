@@ -30,6 +30,7 @@ type AdminClient interface {
 	TableCreate(req *TableCreateRequest) *ResultSet
 	TableAlter(req *TableAlterRequest) *ResultSet
 	TableList(req *TableListRequest) *ResultSet
+	Status(req *StatusRequest) *ResultSet
 	Close() error
 }
 

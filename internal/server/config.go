@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	hauth "github.com/hooto/hauth/go/hauth/v1"
+	"github.com/lynkdb/kvgo/pkg/storage"
 )
 
 type Config struct {
@@ -44,18 +45,20 @@ type ConfigStorage struct {
 	DataDirectory string `toml:"data_directory" json:"data_directory"`
 	Engine        string `toml:"engine" json:"engine"`
 
-	Volumes []*ConfigVolume `toml:"volumes,omitempty" json:"volumes,omitempty"`
+	Stores []*ConfigStore `toml:"stores,omitempty" json:"stores,omitempty"`
 }
 
-type ConfigVolume struct {
-	Id         string `toml:"id" json:"id"`
+type ConfigStore struct {
+	UniId      string `toml:"uni_id" json:"uni_id"`
 	Name       string `toml:"name,omitempty" json:"name,omitempty"`
 	Engine     string `toml:"engine" json:"engine"`
 	Mountpoint string `toml:"mountpoint" json:"mountpoint"`
+
+	StoreId uint64 `toml:"store_id" json:"store_id"`
 }
 
-type ConfigVolumeSetupMeta struct {
-	Id      string `json:"id"`
+type ConfigStoreSetupMeta struct {
+	UniId   string `json:"uni_id"`
 	Engine  string `json:"engine"`
 	Created uint64 `json:"created"`
 	Updated uint64 `json:"updated"`
@@ -176,6 +179,10 @@ func NewConfig(dir string) *Config {
 
 func (it *Config) Reset() *Config {
 
+	if it.Storage.Engine == "" {
+		it.Storage.Engine = storage.DriverV2
+	}
+
 	if it.Performance.WriteBufferSize < 2 {
 		it.Performance.WriteBufferSize = 2
 	} else if it.Performance.WriteBufferSize > 256 {
@@ -228,4 +235,16 @@ func (it *Config) Reset() *Config {
 	}
 
 	return it
+}
+
+func (it *Config) cloneStorageOptions() *storage.Options {
+	it.Reset()
+	opts := &storage.Options{
+		WriteBufferSize: uint64(it.Performance.WriteBufferSize),
+		BlockCacheSize:  it.Performance.BlockCacheSize,
+		MaxTableSize:    64,
+		MaxOpenFiles:    it.Performance.MaxOpenFiles,
+		Compression:     it.Feature.Compression,
+	}
+	return opts
 }

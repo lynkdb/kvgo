@@ -146,13 +146,18 @@ func (it *engine) Get(
 
 func (it *engine) NewIterator(
 	opts *storage.IterOptions,
-) storage.Iterator {
-	return &iterator{
-		iter: it.db.NewIter(&pebble.IterOptions{
-			LowerBound: opts.LowerKey,
-			UpperBound: opts.UpperKey,
-		}),
+) (storage.Iterator, error) {
+	iter, err := it.db.NewIter(&pebble.IterOptions{
+		LowerBound: opts.LowerKey,
+		UpperBound: opts.UpperKey,
+	})
+	if err != nil {
+		return nil, err
 	}
+
+	return &iterator{
+		iter: iter,
+	}, nil
 }
 
 func (it *engine) Put(
@@ -173,6 +178,22 @@ func (it *engine) Delete(
 		return newResult(nil, it.db.Delete(key, pebble.NoSync))
 	}
 	return newResult(nil, it.db.Delete(key, pebble.Sync))
+}
+
+func (it *engine) DeleteRange(
+	lowerKey, upperKey []byte,
+	opts *storage.WriteOptions,
+) storage.Result {
+	if opts == nil || !opts.Sync {
+		return newResult(nil, it.db.DeleteRange(lowerKey, upperKey, pebble.NoSync))
+	}
+	return newResult(nil, it.db.DeleteRange(lowerKey, upperKey, pebble.Sync))
+}
+
+func (it *engine) ExpCompact(
+	lowerKey, upperKey []byte,
+) error {
+	return it.db.Compact(lowerKey, upperKey, false)
 }
 
 func (it *engine) NewBatch() storage.WriteBatch {

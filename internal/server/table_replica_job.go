@@ -16,6 +16,7 @@ package server
 
 import (
 	"bytes"
+	"fmt"
 	"time"
 
 	"github.com/hooto/hlog4g/hlog"
@@ -34,10 +35,13 @@ func (it *tableReplica) _jobCleanTTL() error {
 		statsRawKeys int64
 	)
 
-	iter := it.store.NewIterator(&storage.IterOptions{
+	iter, err := it.store.NewIterator(&storage.IterOptions{
 		LowerKey: offset,
 		UpperKey: cutset,
 	})
+	if err != nil {
+		return err
+	}
 	defer iter.Release()
 
 	batch := it.store.NewBatch()
@@ -108,10 +112,13 @@ func (it *tableReplica) _jobCleanLog() error {
 		statsKeys int64
 	)
 
-	iter := it.store.NewIterator(&storage.IterOptions{
+	iter, err := it.store.NewIterator(&storage.IterOptions{
 		LowerKey: offset,
 		UpperKey: cutset,
 	})
+	if err != nil {
+		return err
+	}
 	defer iter.Release()
 
 	batch := it.store.NewBatch()
@@ -160,12 +167,16 @@ func (it *tableReplica) _jobCleanLog() error {
 	it.logMu.Lock()
 	defer it.logMu.Unlock()
 
-	_, err := it.logSync(0, retenId)
+	_, err = it.logSync(0, retenId)
 
 	return err
 }
 
-func (it *tableReplica) _jobLogPull(shard *kvapi.TableMap_Shard, src *tableReplica) error {
+func (it *tableReplica) _jobLogPull(
+	shard *kvapi.TableMap_Shard,
+	lowerKey, upperKey []byte,
+	src *tableReplica,
+	sts *dbReplicaStatusItem) error {
 	//
 	if it.tableId != src.tableId ||
 		it.shardId != src.shardId ||
@@ -173,12 +184,19 @@ func (it *tableReplica) _jobLogPull(shard *kvapi.TableMap_Shard, src *tableRepli
 		return nil
 	}
 
+	taskKey := fmt.Sprintf("log-pull-%d", src.replicaId)
+	if _, ok := it.taskMut.LoadOrStore(taskKey, "true"); ok {
+		return nil
+	}
+	defer it.taskMut.Delete(taskKey)
+
 	var (
 		logPullState logPullReplicaState
 		nsPullKey    = keySysLogPullOffset(it.replicaId, src.replicaId)
 		fetchNum     int64
 		flushNum     int64
 		err          error
+		mapVersion   = shard.Version
 	)
 
 	if rs := it.store.Get(nsPullKey, nil); !rs.OK() {
@@ -187,11 +205,18 @@ func (it *tableReplica) _jobLogPull(shard *kvapi.TableMap_Shard, src *tableRepli
 		}
 		logPullState.ShardId = it.shardId
 		logPullState.ReplicaId = it.replicaId
+		logPullState.SrcReplicaId = src.replicaId
+
+		if rs0 := it.store.Put(nsPullKey, jsonEncode(&logPullState), nil); !rs0.OK() {
+			return rs0.Error()
+		}
+
+		// jsonPrint("logpull offset", logPullState)
 	} else {
 		if err = jsonDecode(rs.Bytes(), &logPullState); err != nil {
 			return err
 		}
-		hlog.Printf("info", "table %s, shard %d, replica %d < %d, offset %d",
+		hlog.Printf("info", "table %s, shard %d, replica %d <- %d, offset %d",
 			it.tableId, it.shardId, it.replicaId, src.replicaId, logPullState.SrcLogOffset)
 
 		// jsonPrint("logpull offset", logPullState)
@@ -214,6 +239,7 @@ func (it *tableReplica) _jobLogPull(shard *kvapi.TableMap_Shard, src *tableRepli
 			logPullState.FullScan = true
 			logPullState.SrcKeyOffset = nil
 			logPullState.SrcLogOffset = rs1.LogOffset
+			testPrintf("log-pull %d -> %d delta skip, try full sync ...", src.replicaId, it.replicaId)
 			break
 		}
 
@@ -296,6 +322,7 @@ func (it *tableReplica) _jobLogPull(shard *kvapi.TableMap_Shard, src *tableRepli
 	}
 
 	if !logPullState.FullScan {
+		sts.mapVersion, sts.value = mapVersion, int64(kReplicaStatus_Ready)
 		// jsonPrint("logpull offset", logPullState)
 		return nil
 	}
@@ -305,7 +332,7 @@ func (it *tableReplica) _jobLogPull(shard *kvapi.TableMap_Shard, src *tableRepli
 	}
 
 	var (
-		keyCutset = append(bytesClone(shard.UpperKey), bytes.Repeat([]byte{0xff}, 64)...)
+		keyCutset = append(bytesClone(upperKey), bytes.Repeat([]byte{0xff}, 64)...)
 	)
 
 	// full scan
@@ -319,7 +346,7 @@ func (it *tableReplica) _jobLogPull(shard *kvapi.TableMap_Shard, src *tableRepli
 			return err
 		}
 
-		// jsonPrint("logpull full offset", logPullState)
+		jsonPrint(fmt.Sprintf("log-pull %d -> %d, full offset", src.replicaId, it.replicaId), logPullState)
 
 		fetchNum += int64(len(rs2.Items))
 
@@ -369,7 +396,7 @@ func (it *tableReplica) _jobLogPull(shard *kvapi.TableMap_Shard, src *tableRepli
 			}
 			hlog.Printf("info", "table %s, shard %d, replica %d < %d, offset %v",
 				it.tableId, it.shardId, it.replicaId, src.replicaId, logPullState.SrcKeyOffset)
-			// testPrintf("logpull full fetch %d flush %d", fetchNum, flushNum)
+			testPrintf("logpull full fetch %d flush %d", fetchNum, flushNum)
 		}
 
 		//
@@ -380,11 +407,13 @@ func (it *tableReplica) _jobLogPull(shard *kvapi.TableMap_Shard, src *tableRepli
 
 	logPullState.FullScan = false
 
-	// jsonPrint("logpull offset", logPullState)
+	jsonPrint("logpull offset", logPullState)
 
 	if rs0 := it.store.Put(nsPullKey, jsonEncode(&logPullState), nil); !rs0.OK() {
 		return rs0.Error()
 	}
+
+	sts.mapVersion, sts.value = mapVersion, int64(kReplicaStatus_Ready)
 
 	return nil
 }

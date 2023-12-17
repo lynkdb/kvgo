@@ -20,6 +20,9 @@ all:
 	@echo "build complete"
 	@echo ""
 
+server:
+	go build -o ${EXE_SERVER} cmd/server/main.go
+
 cli:
 	go build -o ${EXE_CLI} cmd/cli/main.go
 
@@ -27,8 +30,11 @@ cli-install: cli
 	mkdir -p ${APP_HOME}/bin
 	install -m 755 ${EXE_CLI} ${APP_HOME}/${EXE_CLI}
 
-cli-run: cli-install
-	${APP_HOME}/${EXE_CLI}
+cli-run: cli
+	${EXE_CLI}
+
+server-run: server
+	${EXE_SERVER} -logtostderr true
 
 install:
 	mkdir -p ${APP_HOME}/bin

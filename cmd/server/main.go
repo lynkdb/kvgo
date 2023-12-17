@@ -34,7 +34,7 @@ func main() {
 
 	srv, err := server.Setup(version, release)
 	if err != nil {
-		hlog.Printf("error", "%s config err %s", srv.AppName, err.Error())
+		hlog.Printf("error", "%s config err %s", server.AppName, err.Error())
 		hlog.Flush()
 		os.Exit(1)
 	}

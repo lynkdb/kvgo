@@ -217,6 +217,9 @@ func (it *tableReplica) write(req *kvapi.WriteRequest, cLog uint64) *kvapi.Resul
 		metricCounter.Add(metricStorageSize, "Key.Write", float64(writeSize))
 	}
 
+	it.status.kvWriteKeys.Add(1)
+	it.status.kvWriteSize.Add(int64(writeSize))
+
 	rs := newResultSetOK()
 	rs.MaxVersion = cLog
 	resultSetAppend(rs, req.Key, &kvapi.Meta{
@@ -331,6 +334,11 @@ func (it *tableReplica) Delete(req *kvapi.DeleteRequest) *kvapi.ResultSet {
 		if ss := batch.Apply(nil); !ss.OK() {
 			return newResultSetWithServerError(ss.ErrorMessage())
 		}
+	}
+
+	it.status.kvWriteKeys.Add(1)
+	if meta != nil && meta.Size > 0 {
+		it.status.kvWriteSize.Add(int64(meta.Size))
 	}
 
 	rs := newResultSetOK()
@@ -474,10 +482,16 @@ func (it *tableReplica) Range(req *kvapi.RangeRequest) *kvapi.ResultSet {
 		ok bool
 	)
 
-	iter := it.store.NewIterator(&storage.IterOptions{
+	iter, err := it.store.NewIterator(&storage.IterOptions{
 		LowerKey: lowerKey,
 		UpperKey: upperKey,
 	})
+	if err != nil {
+		rs.StatusCode = kvapi.Status_InvalidArgument
+		rs.StatusMessage = err.Error()
+		return rs
+	}
+
 	defer iter.Release()
 
 	move := func() bool {
@@ -628,10 +642,14 @@ func (it *tableReplica) RawRange(req *kvapi.RangeRequest) ([]*kvapi.RawKeyValue,
 		ok bool
 	)
 
-	iter := it.store.NewIterator(&storage.IterOptions{
+	iter, err := it.store.NewIterator(&storage.IterOptions{
 		LowerKey: lowerKey,
 		UpperKey: upperKey,
 	})
+	if err != nil {
+		return nil, err
+	}
+
 	defer iter.Release()
 
 	move := func() bool {

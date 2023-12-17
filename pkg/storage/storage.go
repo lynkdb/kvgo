@@ -26,7 +26,7 @@ type Options struct {
 	// WriteBufferSize defines maximum memory size of the journal before flushed to disk.
 	//
 	// The default value is 8 MiB.
-	WriteBufferSize int `toml:"write_buffer_size" json:"write_buffer_size" desc:"in MiB, default to 8"`
+	WriteBufferSize uint64 `toml:"write_buffer_size" json:"write_buffer_size" desc:"in MiB, default to 8"`
 
 	// BlockCacheSize defines the capacity of the 'sorted table' block caching.
 	//
@@ -94,7 +94,7 @@ type Reader interface {
 	Get(key []byte, opts *ReadOptions) Result
 
 	// NewIterator returns an iterator for the latest snapshot of the DB.
-	NewIterator(opts *IterOptions) Iterator
+	NewIterator(opts *IterOptions) (Iterator, error)
 }
 
 type Writer interface {
@@ -103,6 +103,13 @@ type Writer interface {
 
 	// Delete deletes the value for the given key.
 	Delete(key []byte, opts *WriteOptions) Result
+
+	// DeleteRange deletes all of the point keys (and values) in the range
+	// [lower, upper)
+	DeleteRange(lowerKey, upperKey []byte, opts *WriteOptions) Result
+
+	// EXP ...
+	ExpCompact(lowerKey, upperKey []byte) error
 
 	// NewBatch returns a new empty batch.
 	NewBatch() WriteBatch

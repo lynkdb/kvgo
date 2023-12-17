@@ -65,6 +65,14 @@ func bytesClone(src []byte) []byte {
 	return dst
 }
 
+func objectClone(src, dst interface{}) error {
+	js, err := json.Marshal(src)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(js, dst)
+}
+
 func uint32ToBytes(v uint32) []byte {
 	bs := make([]byte, 4)
 	binary.BigEndian.PutUint32(bs, v)
@@ -91,6 +99,13 @@ func bytesToHexString(bs []byte) string {
 
 func randUint64() uint64 {
 	return mrand.Uint64()
+}
+
+func randFloat64(v float64) float64 {
+	if v < 0.0001 {
+		v = 0.0001
+	}
+	return v * mrand.Float64()
 }
 
 func randHexString(length int) string {
@@ -266,4 +281,93 @@ func privateIP4Valid(ipAddr string) error {
 
 func hash64(b []byte) uint64 {
 	return xxhash.Sum64(b)
+}
+
+func absInt64(v int64) int64 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func absFloat64(v float64) float64 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+func bytesRepeat(b []byte, c byte, siz int) []byte {
+	if n := siz - len(b); n > 0 {
+		b = append(b, bytes.Repeat([]byte{c}, n)...)
+	}
+	return b
+}
+
+func middleKey(lower, upper []byte) ([]byte, bool) {
+	if bytes.Compare(lower, upper) >= 0 {
+		return lower, false
+	}
+	if n := len(lower) - len(upper); n > 0 {
+		upper = append(upper, make([]byte, n)...)
+	}
+	var (
+		mid = []byte{}
+	)
+	for i := 0; i < len(lower); i++ {
+		if lower[i] == upper[i] {
+			mid = append(mid, lower[i])
+		} else if lower[i] < upper[i] {
+			if lower[i]+2 < upper[i] {
+				mid = append(mid, lower[i]+((upper[i]-lower[i])/2))
+			} else if lower[i]+1 == upper[i] {
+				if i+1 < len(lower) {
+					if i+1 >= len(upper) {
+						upper = append(upper, 0x00)
+					}
+					if lower[i+1] == 0xff {
+						mid = append(mid, upper[i])
+						mid = append(mid, 0x00)
+					} else {
+						ln := (binary.BigEndian.Uint16(upper[i:i+2]) -
+							binary.BigEndian.Uint16(lower[i:i+2])) / 2
+						ln += binary.BigEndian.Uint16(lower[i : i+2])
+						mid = append(mid, []byte{0x00, 0x00}...)
+						binary.BigEndian.PutUint16(mid[i:i+2], ln)
+					}
+				} else {
+					mid = append(mid, lower[i])
+					mid = append(mid, 0x80)
+				}
+			} else {
+				mid = append(mid, lower[i]+1)
+			}
+			return mid, true
+		} else {
+			return mid, false
+		}
+	}
+	if bytes.Compare(mid, lower[:len(mid)]) == 0 {
+		upper = append(upper, 0xff)
+		for i := len(mid); i < len(upper); i++ {
+			if upper[i] == 0x00 {
+				mid = append(mid, 0x00)
+			} else {
+				if upper[i] > 0x01 {
+					mid = append(mid, upper[i]/2)
+				} else {
+					mid = append(mid, 0x00)
+				}
+				return mid, true
+			}
+		}
+	}
+	return mid, true
 }

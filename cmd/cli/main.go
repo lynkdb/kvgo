@@ -89,7 +89,7 @@ func main() {
 			out, err = cli.TableCreate(l)
 
 		case lineStr == "status":
-			out, err = cli.SysStatus()
+			out, err = cli.Status(nil)
 
 		case lineStr == "help", lineStr == "h":
 			out, err = cmdHelp()

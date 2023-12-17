@@ -41,7 +41,7 @@ func init() {
 type driver struct{}
 
 func (it *driver) Name() string {
-	return "v2"
+	return "v1"
 }
 
 func (it *driver) Open(dirname string, opts *storage.Options) (storage.Conn, error) {
@@ -127,6 +127,19 @@ func (it *engine) Delete(key []byte,
 		return newResult(nil, it.db.Delete(key, nil))
 	}
 	return newResult(nil, it.db.Delete(key, &opt.WriteOptions{Sync: true}))
+}
+
+func (it *engine) DeleteRange(
+	lowerKey, upperKey []byte,
+	opts *storage.WriteOptions,
+) storage.Result {
+	return newResult(nil, errors.New("un-support"))
+}
+
+func (it *engine) ExpCompact(
+	lowerKey, upperKey []byte,
+) error {
+	return errors.New("un-support")
 }
 
 func (it *engine) NewBatch() storage.WriteBatch {

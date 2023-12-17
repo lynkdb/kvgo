@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"github.com/hooto/hlog4g/hlog"
 
@@ -36,8 +37,6 @@ type tableReplica struct {
 
 	shardId   uint64
 	replicaId uint64
-	lowerKey  []byte
-	upperKey  []byte
 
 	cfg *Config
 
@@ -53,6 +52,8 @@ type tableReplica struct {
 	logMu    sync.RWMutex
 	logState tableReplicaLogState
 
+	taskMut sync.Map
+
 	expiredNext  int64
 	expiredMu    sync.RWMutex
 	ttlRefreshed int64
@@ -60,7 +61,46 @@ type tableReplica struct {
 	proposals  map[string]*proposalx
 	proposalMu sync.RWMutex
 
+	status dbReplicaStatus
+
 	close bool
+}
+
+type dbReplicaStatusItem struct {
+	mapVersion uint64
+	value      int64
+	updated    int64
+}
+
+type dbReplicaStatus struct {
+	mu sync.Mutex
+
+	mapVersion uint64
+	action     uint64
+	updated    int64
+
+	kvWriteKeys atomic.Int64
+	kvWriteSize atomic.Int64
+
+	storageUsed dbReplicaStatusItem
+
+	pulls     map[uint64]*dbReplicaStatusItem
+	iterPulls []*dbReplicaStatusItem
+}
+
+func (it *dbReplicaStatus) pull(id uint64) *dbReplicaStatusItem {
+	it.mu.Lock()
+	defer it.mu.Unlock()
+	if it.pulls == nil {
+		it.pulls = map[uint64]*dbReplicaStatusItem{}
+	}
+	item, ok := it.pulls[id]
+	if !ok {
+		item = &dbReplicaStatusItem{}
+		it.pulls[id] = item
+		it.iterPulls = append(it.iterPulls, item)
+	}
+	return item
 }
 
 type proposalx struct {
@@ -161,7 +201,7 @@ func (it *tableReplica) init() error {
 	// load incr state
 	{
 		var (
-			iter = it.store.NewIterator(&storage.IterOptions{
+			iter, _ = it.store.NewIterator(&storage.IterOptions{
 				LowerKey: keySysIncrCutset(""),
 				UpperKey: keySysIncrCutset("zzzzzzzz"),
 			})

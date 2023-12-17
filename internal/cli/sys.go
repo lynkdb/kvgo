@@ -14,21 +14,32 @@
 
 package cli
 
-/**
 import (
-	"bytes"
+	"encoding/json"
 	"fmt"
-	"regexp"
-	"sort"
-	"strconv"
-	"strings"
-	"time"
 
-	"github.com/olekukonko/tablewriter"
+	// "github.com/olekukonko/tablewriter"
+	"github.com/chzyer/readline"
 
-	kv2 "github.com/lynkdb/kvspec/v2/go/kvspec"
+	"github.com/lynkdb/kvgo/pkg/kvapi"
 )
 
+func Status(l *readline.Instance) (string, error) {
+
+	req := &kvapi.StatusRequest{}
+
+	rs := adminClient.Status(req)
+	if !rs.OK() {
+		return "", rs.Error()
+	}
+
+	js, _ := json.MarshalIndent(rs, "", "  ")
+	fmt.Println(string(js))
+
+	return "", nil
+}
+
+/**
 func SysStatus() (string, error) {
 	req := kv2.NewSysCmdRequest("SysStatus", nil)
 

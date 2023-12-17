@@ -50,6 +50,10 @@ func (it *dbServer) apiWrite(req *kvapi.WriteRequest, selectShard *tableMapSelec
 		}()
 	}
 
+	if len(selectShard.replicas) < selectShard.replicaNum {
+		testPrintf("write to replicas %d/%d", len(selectShard.replicas), selectShard.replicaNum)
+	}
+
 	mainReplica := selectShard.replicas[0]
 
 	meta, err := mainReplica.getMeta(req.Key)

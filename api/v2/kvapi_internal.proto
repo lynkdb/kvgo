@@ -39,39 +39,60 @@ message RawKeyValue {
 message TableMap {
   message Replica {
     uint64 id = 1;
-    uint64 version = 2;
-    string store_id = 3;
+    uint64 store_id = 3;
+    uint64 prev = 4;
     uint64 action = 7;
   }
   message Shard {
     uint64 id = 1;
     uint64 version = 2;
+    uint64 prev = 4;
     bytes lower_key = 5;
-    bytes upper_key = 6;
     uint64 action = 7;
     repeated Replica replicas = 9;
+    int64 updated = 15;
   }
   string id = 1;
   uint64 version = 2;
   repeated Shard shards = 9;
+  uint64 incr_id = 13;
+  int64 updated = 15;
+}
+
+message TableMapStatus {
+  message SyncPull {
+    uint64 map_version = 1;
+    uint64 version = 2;
+    uint64 action = 3;
+  }
+  message Replica {
+    uint64 map_version = 1;
+    uint64 action = 7;
+    int64 used = 8;
+    // map<uint64, SyncPull> pulls = 9;
+    int64 updated = 15;
+  }
+  map<uint64, Replica> replicas = 9;
 }
 
 message SysNode {
   string id = 1;
 }
 
-message SysVolume {
-  string id = 1;
-  string node_id = 2;
-  // string mountpoint = 3;
-}
-
-message SysVolumeStatus {
-  string id = 1;
+message SysStoreStatus {
+  uint64 id = 1;
+  string uni_id = 2;
   uint64 capacity_used = 8;
   uint64 capacity_free = 9;
   uint64 load_cycle_count = 10;
   uint64 updated = 15;
+}
+
+message SysStoreDescriptor {
+  uint64 id = 1;
+  string uni_id = 2;
+  uint64 node_id = 3;
+  int64 created = 14;
 }
 
 message WriteProposalRequest {
@@ -115,6 +136,13 @@ message LogKeyRangeRequest {
 message LogKeyRangeResponse {
   repeated Meta items = 9;
   bool next_result_set = 10;
+}
+
+message AuditLog {
+  string id = 1;
+  string name = 2;
+  string content = 3;
+  int64 created = 14;
 }
 
 service KvgoInternal {}

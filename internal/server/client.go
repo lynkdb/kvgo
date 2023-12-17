@@ -265,6 +265,18 @@ func (it *adminClientConn) TableAlter(req *kvapi.TableAlterRequest) *kvapi.Resul
 	return rs
 }
 
+func (it *adminClientConn) Status(req *kvapi.StatusRequest) *kvapi.ResultSet {
+
+	ctx, fc := context.WithTimeout(context.Background(), it.cfg.timeout())
+	defer fc()
+
+	rs, err := it.ac.Status(ctx, req)
+	if err != nil {
+		return newResultSetWithClientError(err.Error())
+	}
+	return rs
+}
+
 func (it *adminClientConn) Close() error {
 	if it.rpcConn != nil {
 		return it.rpcConn.Close()

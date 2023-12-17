@@ -23,15 +23,15 @@ import (
 
 	"github.com/hooto/htoml4g/htoml"
 
-	"github.com/lynkdb/kvgo"
+	"github.com/lynkdb/kvgo/internal/server"
 	"github.com/lynkdb/kvgo/pkg/kvapi"
 )
 
 var (
 	Prefix      string
-	adminClient kvapi.KvgoAdminClient
+	adminClient kvapi.AdminClient
 	mu          sync.RWMutex
-	cfg         kvgo.ClientConfig
+	cfg         server.ClientConfig
 	err         error
 )
 
@@ -43,11 +43,12 @@ func Setup() error {
 		}
 
 		var (
-			confFile = Prefix + "/etc/kvgo-server.conf"
-			srvConf  kvgo.Config
+			confFile = Prefix + "/etc/kvgo-server.toml"
+			srvConf  server.Config
 		)
 
 		if err = htoml.DecodeFromFile(confFile, &srvConf); err != nil {
+			srvConf.Server.Bind = "127.0.0.1:9566"
 			return err
 		}
 

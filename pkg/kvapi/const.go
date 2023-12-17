@@ -73,3 +73,11 @@ const (
 	keyValue_MinKeyLen = 1
 	keyValue_MaxKeyLen = 256
 )
+
+const (
+	KiB = int64(1024)
+	MiB = KiB * 1024
+	GiB = MiB * 1024
+	TiB = GiB * 1024
+	PiB = TiB * 1024
+)

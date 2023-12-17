@@ -16,7 +16,10 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"time"
+
+	"github.com/hooto/hlog4g/hlog"
 
 	"github.com/lynkdb/kvgo/pkg/kvapi"
 	"github.com/lynkdb/kvgo/pkg/storage"
@@ -76,7 +79,9 @@ func (it *tableReplica) logRange(req *kvapi.LogRangeRequest) (*kvapi.LogRangeRes
 		req.UpperLog = 1 << 63
 	}
 
-	if req.LowerLog <= it.logState.RetentionOffset {
+	if req.LowerLog < it.logState.RetentionOffset {
+		testPrintf("log-range out retention, replica %d, req log %d, local log %d",
+			req.ReplicaId, req.LowerLog, it.logState.RetentionOffset)
 		return &kvapi.LogRangeResponse{
 			LogOffset:         it.logState.Offset,
 			LogOffsetOutrange: true,
@@ -92,10 +97,13 @@ func (it *tableReplica) logRange(req *kvapi.LogRangeRequest) (*kvapi.LogRangeRes
 		rs        = &kvapi.LogRangeResponse{}
 	)
 
-	iter := it.store.NewIterator(&storage.IterOptions{
+	iter, err := it.store.NewIterator(&storage.IterOptions{
 		LowerKey: lowerKey,
 		UpperKey: upperKey,
 	})
+	if err != nil {
+		return nil, err
+	}
 	defer iter.Release()
 
 	for ok := iter.SeekToFirst(); ok; ok = iter.Next() {
@@ -133,10 +141,13 @@ func (it *tableReplica) logKeyRangeMeta(req *kvapi.LogKeyRangeRequest) (*kvapi.R
 		rs        = &kvapi.ResultSet{}
 	)
 
-	iter := it.store.NewIterator(&storage.IterOptions{
+	iter, err := it.store.NewIterator(&storage.IterOptions{
 		LowerKey: lowerKey,
 		UpperKey: upperKey,
 	})
+	if err != nil {
+		return nil, err
+	}
 	defer iter.Release()
 
 	for ok := iter.SeekToFirst(); ok && !it.close; ok = iter.Next() {
@@ -352,6 +363,9 @@ func (it *tableReplica) _writeAccept(req *kvapi.WriteProposalRequest) (*kvapi.Me
 
 	delete(it.proposals, string(pp.write.Write.Key))
 
+	it.status.kvWriteKeys.Add(1)
+	it.status.kvWriteSize.Add(int64(writeSize))
+
 	return &kvapi.Meta{
 		Version: cLog,
 		IncrId:  cInc,
@@ -511,7 +525,92 @@ func (it *tableReplica) _deleteAccept(req *kvapi.DeleteProposalRequest) (*kvapi.
 
 	delete(it.proposals, string(pp.delete.Key))
 
+	it.status.kvWriteKeys.Add(1)
+	if meta != nil && meta.Size > 0 {
+		it.status.kvWriteSize.Add(int64(meta.Size))
+	}
+
 	return &kvapi.Meta{
 		Version: cLog,
 	}, nil
+}
+
+func (it *tableReplica) trySplit(shard, next *kvapi.TableMap_Shard) ([]byte, error) {
+
+	rangeSize := func(lower, upper []byte) int64 {
+		rs, err := it.store.SizeOf([]*storage.IterOptions{{
+			LowerKey: lower,
+			UpperKey: append(upper, 0x00),
+		}})
+		if err == nil && len(rs) > 0 {
+			return rs[0]
+		}
+		return 0
+	}
+
+	var (
+		startKey = keyEncode(nsKeyData, shard.LowerKey)
+
+		leftKey  = bytesClone(startKey)
+		rightKey []byte
+
+		repSize  = float64(rangeSize(leftKey, rightKey))
+		midSize  = repSize * shardSplit_CapacityThreshold
+		capRatio = float64(1.0)
+
+		tn     = time.Now()
+		tryNum = 0
+	)
+
+	if next != nil {
+		rightKey = bytesRepeat(keyEncode(nsKeyData, next.LowerKey), 0xff, 48)
+	} else {
+		rightKey = bytesRepeat(keyEncode(nsKeyData, []byte{}), 0xff, 48)
+	}
+
+	for ; tryNum < 1024; tryNum++ {
+
+		offset, ok := middleKey(leftKey, rightKey)
+		if !ok {
+			break
+		}
+
+		s := float64(rangeSize(startKey, offset))
+
+		if s > repSize {
+			repSize = s
+			if repSize < 1024 {
+				repSize = 1024
+			}
+			midSize = repSize * shardSplit_CapacityThreshold
+		}
+
+		capRatio = absFloat64(s-midSize) / repSize
+
+		if capRatio <= shardSplit_CapacityBiasMin {
+			leftKey = offset
+			break
+		} else if s <= midSize {
+			leftKey = offset
+		} else {
+			rightKey = offset
+		}
+	}
+
+	if capRatio > shardSplit_CapacityBiasMax {
+
+		testPrintf("miss s %v", startKey)
+		testPrintf("miss l %v", leftKey)
+		testPrintf("miss r %v", rightKey)
+
+		return nil, fmt.Errorf("try split try %d fail %v", tryNum, capRatio)
+	}
+
+	testPrintf("try shard %d, split hit, key %v, size %d, size-ratio %f, cap-ratio %f, try-n %d, time %v",
+		it.shardId, string(leftKey[1:]), int64(repSize)/(1<<20), midSize/repSize, capRatio, tryNum, time.Since(tn))
+
+	hlog.Printf("info", "try shard split hit, key %v, size %f, cap-ratio %f, try-n %d, time %v",
+		string(leftKey[1:]), midSize/repSize, capRatio, tryNum, time.Since(tn))
+
+	return leftKey[1:], nil
 }

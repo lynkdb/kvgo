@@ -89,7 +89,7 @@ func (it *serviceAdminImpl) TableCreate(
 	}
 
 	tbl := &kvapi.Table{
-		Id:         randHexString(16),
+		Id:         randHexString(8),
 		Name:       req.Name,
 		Engine:     req.Engine,
 		ReplicaNum: req.ReplicaNum,
@@ -108,11 +108,13 @@ func (it *serviceAdminImpl) TableCreate(
 		return newResultSetWithServerError(ss.Error().Error()), nil
 	}
 
-	testPrintf("server %d, table create %s", it.dbServer.pid, req.Name)
+	it.dbServer.auditLogger.Put("admin-api", "table %s, engine %s, replica-num %d, created",
+		tbl.Name, tbl.Engine, tbl.ReplicaNum)
+
 	tm := it.dbServer.tableMapMgr.syncTable(ss.Meta(), tbl)
 
 	if it.dbServer.cfg.Server.IsStandaloneMode() {
-		it.dbServer.jobTableMapRefresh(tm)
+		it.dbServer._jobTableMapSetup(tm)
 	}
 
 	hlog.Printf("info", "table create : %v", tbl)
@@ -175,7 +177,8 @@ func (it *serviceAdminImpl) TableAlter(
 			return newResultSetWithServerError(rsTable.Error().Error()), nil
 		}
 
-		testPrintf("server %d, table create %s", it.dbServer.pid, req.Name)
+		it.dbServer.auditLogger.Put("admin-api", "table %s, replica-num %d, updated",
+			tmap.data.Name, tmap.data.ReplicaNum)
 
 		it.dbServer.tableMapMgr.syncTable(rsTable.Meta(), tmap.data)
 		resultSetAppendWithJsonObject(rs, []byte(req.Name), rsTable.Meta(), tmap.data)
@@ -185,6 +188,24 @@ func (it *serviceAdminImpl) TableAlter(
 
 	hlog.Printf("info", "table alter : %v", tmap.data)
 	// jsonPrint("table alter", tmap.data)
+
+	return rs, nil
+}
+
+func (it *serviceAdminImpl) Status(
+	ctx context.Context,
+	req *kvapi.StatusRequest,
+) (*kvapi.ResultSet, error) {
+
+	if !it.dbServer.cfg.Server.IsStandaloneMode() {
+		return newResultSetWithServerError("runtime mode not setup"), nil
+	}
+
+	if err := it.auth(ctx); err != nil {
+		return newResultSetWithAuthDeny(err.Error()), nil
+	}
+
+	rs := newResultSetOK()
 
 	return rs, nil
 }

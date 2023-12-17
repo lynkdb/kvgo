@@ -30,13 +30,13 @@ import (
 	"github.com/hooto/hlog4g/hlog"
 	"github.com/hooto/hmetrics"
 	"github.com/hooto/htoml4g/htoml"
-	ps_disk "github.com/shirou/gopsutil/v3/disk"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
 	"github.com/lynkdb/kvgo/internal/utils"
 	"github.com/lynkdb/kvgo/pkg/kvapi"
 	"github.com/lynkdb/kvgo/pkg/storage"
+	_ "github.com/lynkdb/kvgo/pkg/storage/pebble"
 )
 
 const (
@@ -47,7 +47,7 @@ var (
 	version = "2.0.0"
 	release = "dev.0"
 
-	Prefix = ""
+	Prefix = "./"
 
 	serverMut sync.Mutex
 
@@ -56,6 +56,8 @@ var (
 
 type dbServer struct {
 	mu  sync.Mutex
+	mum sync.Map
+
 	pid uint64
 
 	cfg     Config
@@ -67,16 +69,15 @@ type dbServer struct {
 
 	dbSystem *tableReplica
 
-	volumes map[string]*ConfigVolume
-	stores  map[string]storage.Conn
+	jobSetupMut sync.Mutex
 
-	tableSetupMux sync.Mutex
-
-	tableMapMgr *tableMapMgr
+	storeMgr *storeManager
 
 	keyMgr *hauth.AccessKeyManager
 
-	sysStatus sysStatus
+	tableMapMgr *tableMapMgr
+
+	auditLogger *auditLogWriter
 
 	once sync.Once
 
@@ -123,15 +124,25 @@ func dbServerSetup(cfgFile string, cfg Config) (*dbServer, error) {
 
 	cfg.Reset()
 
+	storeMgr := newStoreManager()
+
 	srv := &dbServer{
 		pid:         randUint64(),
 		cfg:         cfg,
 		cfgFile:     cfgFile,
 		keyMgr:      hauth.NewAccessKeyManager(),
-		volumes:     map[string]*ConfigVolume{},
-		stores:      map[string]storage.Conn{},
-		tableMapMgr: newTableMapMgr(&cfg),
+		storeMgr:    storeMgr,
+		tableMapMgr: newTableMapMgr(&cfg, storeMgr),
+		auditLogger: &auditLogWriter{
+			dir: Prefix + "/var/logs",
+		},
 	}
+
+	if err := srv.ConfigFlush(); err != nil {
+		return nil, err
+	}
+
+	testPrintf("prefix %s", Prefix)
 
 	{
 		if err := srv.dbSystemSetup(); err != nil {
@@ -140,8 +151,8 @@ func dbServerSetup(cfgFile string, cfg Config) (*dbServer, error) {
 	}
 
 	{
-		if err := srv.dbVolumesSetup(); err != nil {
-			hlog.Printf("error", "kvgo volumes setup error %s", err.Error())
+		if err := srv.dbStoresSetup(); err != nil {
+			hlog.Printf("error", "kvgo stores setup error %s", err.Error())
 			return nil, err
 		}
 	}
@@ -154,13 +165,8 @@ func dbServerSetup(cfgFile string, cfg Config) (*dbServer, error) {
 	}
 
 	{
-		for _, vol := range srv.cfg.Storage.Volumes {
-			st, err := ps_disk.Usage(vol.Mountpoint)
-			if err != nil {
-				continue
-			}
-			used := int64(st.Used) / (1 << 20)
-			srv.sysStatus.syncVolumeStatus(vol.Id, used, int64(st.Total/(1<<20))-used)
+		if err := srv.jobStoreStatusRefresh(); err != nil {
+			hlog.Printf("error", "kvgo job store status refresh error %s", err.Error())
 		}
 	}
 
@@ -209,7 +215,7 @@ func dbServerSetup(cfgFile string, cfg Config) (*dbServer, error) {
 func (it *dbServer) dbSystemSetup() error {
 
 	var (
-		dir  = filepath.Clean(fmt.Sprintf("%s/%s_%s", it.cfg.Storage.DataDirectory, sysTableStoreId, storage.DriverV2))
+		dir  = filepath.Clean(fmt.Sprintf("%s/%08d_%s", it.cfg.Storage.DataDirectory, sysTableStoreId, storage.DriverV2))
 		opts = &storage.Options{
 			WriteBufferSize: 2,
 			BlockCacheSize:  2,
@@ -242,20 +248,21 @@ func (it *dbServer) dbSystemSetup() error {
 		Id: sysTableId,
 		Shards: []*kvapi.TableMap_Shard{
 			{
-				Id: 1,
+				Id:     1,
+				Action: kShardSetup_In,
 				Replicas: []*kvapi.TableMap_Replica{
 					{
 						Id:      2,
 						StoreId: sysTableStoreId,
+						Action:  kReplicaSetup_In,
 					},
 				},
+				Updated: timesec(),
 			},
 		},
 	})
 
-	tm.syncStore(sysTableStoreId, store)
-
-	it.stores[sysTableStoreId] = store
+	it.storeMgr.syncStore(sysTableStoreId, store)
 
 	return nil
 }
@@ -335,54 +342,134 @@ func (it *dbServer) netSetup() error {
 	return nil
 }
 
-func (it *dbServer) dbVolumesSetup() error {
+func (it *dbServer) dbStoresSetup() error {
 
-	vols := []*ConfigVolume{}
+	var (
+		vols = []*ConfigStore{}
+		volm = map[string]*ConfigStore{}
+	)
 
-	for _, vol := range it.cfg.Storage.Volumes {
+	for _, vol := range it.cfg.Storage.Stores {
 		if vol == nil {
 			continue
 		}
 		vol.Mountpoint = filepath.Clean(vol.Mountpoint)
 
-		var item ConfigVolumeSetupMeta
-		err := utils.JsonDecodeFromFile(vol.Mountpoint+"/.kvgo.volume.json", &item)
+		var item ConfigStoreSetupMeta
+		err := utils.JsonDecodeFromFile(vol.Mountpoint+"/.kvgo.store.json", &item)
 		if err != nil {
 			if !os.IsNotExist(err) {
 				return err
 			}
-			item.Id = utils.RandUint64HexString()
+			item.UniId = utils.RandUint64HexString()
 			item.Engine = storage.DefaultDriver
 			item.Created = uint64(time.Now().Unix())
 		}
 		item.Updated = uint64(time.Now().Unix())
 		item.LoadCycleCount += 1
 
-		if err = utils.JsonEncodeToFile(vol.Mountpoint+"/.kvgo.volume.json", &item); err != nil {
+		if err = utils.JsonEncodeToFile(vol.Mountpoint+"/.kvgo.store.json", &item); err != nil {
 			return err
 		}
 
-		if vol.Id == "" {
-			vol.Id = item.Id
+		if vol.UniId == "" {
+			vol.UniId = item.UniId
 		}
 
 		if vol.Engine == "" {
 			vol.Engine = item.Engine
 		}
 
-		if item.Id != vol.Id {
-			return fmt.Errorf("volume (%s) setup fail : id conflict", vol.Id)
+		if item.UniId != vol.UniId {
+			return fmt.Errorf("store (%s) setup fail : id conflict", vol.Mountpoint)
 		}
 
 		vols = append(vols, vol)
-		it.volumes[vol.Id] = vol
+		volm[vol.UniId] = vol
 	}
 
-	if len(vols) > 0 {
-		// jsonPrint("vols", vols)
+	var (
+		offset        = nsSysStore("")
+		cutset        = nsSysStore("z")
+		hitNum uint64 = 0
+		incrId uint64 = 10
+	)
+
+	for !it.close {
+		req := kvapi.NewRangeRequest(offset, cutset).SetLimit(kDatabaseInstanceMax)
+
+		rs := it.dbSystem.Range(req)
+		if rs.NotFound() {
+			break
+		} else if !rs.OK() {
+			return rs.Error()
+		}
+
+		for _, item := range rs.Items {
+
+			hitNum += 1
+
+			var obj kvapi.SysStoreDescriptor
+			if err := item.JsonDecode(&obj); err != nil {
+				return err
+			}
+
+			if incrId < obj.Id {
+				incrId = obj.Id
+			}
+
+			if vol, ok := volm[obj.UniId]; ok {
+				if vol.StoreId > 0 && vol.StoreId != obj.Id {
+					return fmt.Errorf("store (%s) setup fail : id conflict", vol.Mountpoint)
+				}
+				vol.StoreId = obj.Id
+			}
+
+			it.auditLogger.Put("storage", "load store desc %v", obj)
+
+			hlog.Printf("info", "load store %v", obj)
+		}
+
+		if !rs.NextResultSet {
+			break
+		}
 	}
 
-	it.cfg.Storage.Volumes = vols
+	if incrId < hitNum {
+		return errors.New("store init internal error")
+	}
+
+	for _, vol := range vols {
+		//
+		if vol.StoreId == 0 {
+
+			incrId += 1
+
+			store := kvapi.SysStoreDescriptor{
+				Id:      incrId,
+				UniId:   vol.UniId,
+				Created: timesec(),
+			}
+
+			wr := kvapi.NewWriteRequest(nsSysStore(store.UniId), jsonEncode(store))
+			wr.Table = sysTableName
+			wr.CreateOnly = true
+
+			rs := it.dbSystem.Write(wr)
+			if !rs.OK() {
+				return rs.Error()
+			}
+
+			it.auditLogger.Put("storage", "init uni-id %s, id %d, dir %s", store.UniId, store.Id, vol.Mountpoint)
+			vol.StoreId = incrId
+
+			hlog.Printf("warn", "store init %v", store)
+		}
+
+		hlog.Printf("warn", "store load %v", *vol)
+
+		it.storeMgr.setConfig(vol)
+	}
 
 	return nil
 }
@@ -404,12 +491,7 @@ func (it *dbServer) Close() error {
 			tbl.Close()
 		})
 
-		/**
-		for i, store := range it.stores {
-			store.Close()
-			jsonPrint("server try close store", i)
-		}
-		*/
+		it.storeMgr.closeAll()
 	}
 
 	return nil

@@ -15,13 +15,12 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/chzyer/readline"
 
-	"github.com/lynkdb/kvgo"
 	"github.com/lynkdb/kvgo/pkg/kvapi"
+	"github.com/lynkdb/kvgo/pkg/storage"
 )
 
 func TableCreate(l *readline.Instance) (string, error) {
@@ -34,13 +33,13 @@ func TableCreate(l *readline.Instance) (string, error) {
 
 	req := &kvapi.TableCreateRequest{
 		Name:   tableName,
-		Engine: kvgo.StorageEngineV2,
+		Engine: storage.DefaultDriver,
 	}
 
 	rs := adminClient.TableCreate(req)
 	if !rs.OK() {
-		return "", errors.New(rs.Message)
+		return "", rs.Error()
 	}
 
-	return fmt.Sprintf("OK table %s, id %d", tableName, rs.Meta.IncrId), nil
+	return fmt.Sprintf("OK table %s, id %d", tableName, rs.Meta().IncrId), nil
 }

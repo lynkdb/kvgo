@@ -7,4 +7,5 @@ bench/*
 .DS_Store
 go.sum
 bin/
+etc/
 var/
