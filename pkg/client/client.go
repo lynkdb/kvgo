@@ -12,13 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package server
+package client
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"sync"
@@ -31,16 +28,19 @@ import (
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
 
+const (
+	grpcMsgByteMax = 12 << 20
+)
+
 var (
 	rpcClientConns = map[string]*grpc.ClientConn{}
 	rpcClientMu    sync.Mutex
 )
 
 type ClientConfig struct {
-	Addr        string                `toml:"addr" json:"addr"`
-	AccessKey   *hauth.AccessKey      `toml:"access_key" json:"access_key"`
-	AuthTLSCert *ConfigTLSCertificate `toml:"auth_tls_cert" json:"auth_tls_cert"`
-	Options     *kvapi.ClientOptions  `toml:"options,omitempty" json:"options,omitempty"`
+	Addr      string               `toml:"addr" json:"addr"`
+	AccessKey *hauth.AccessKey     `toml:"access_key" json:"access_key"`
+	Options   *kvapi.ClientOptions `toml:"options,omitempty" json:"options,omitempty"`
 
 	mu sync.Mutex        `toml:"-" json:"-"`
 	c  kvapi.Client      `toml:"-" json:"-"`
@@ -69,7 +69,7 @@ func (it *ClientConfig) NewClient() (kvapi.Client, error) {
 
 	if it.c == nil {
 
-		conn, err := rpcClientConnect(it.Addr, it.AccessKey, it.AuthTLSCert, false)
+		conn, err := rpcClientConnect(it.Addr, it.AccessKey, false)
 		if err != nil {
 			return nil, err
 		}
@@ -95,7 +95,7 @@ func (it *ClientConfig) NewAdminClient() (kvapi.AdminClient, error) {
 
 	if it.ac == nil {
 
-		conn, err := rpcClientConnect(it.Addr, it.AccessKey, it.AuthTLSCert, false)
+		conn, err := rpcClientConnect(it.Addr, it.AccessKey, false)
 		if err != nil {
 			return nil, err
 		}
@@ -119,7 +119,7 @@ func (it *ClientConfig) timeout() time.Duration {
 
 // func (it *clientConn) tryConnect(retry bool) error {
 // 	if it.rpcConn == nil {
-// 		conn, err := rpcClientConnect(it.cfg.Addr, it.cfg.AccessKey, it.cfg.AuthTLSCert, true)
+// 		conn, err := rpcClientConnect(it.cfg.Addr, it.cfg.AccessKey, true)
 // 		if err != nil {
 // 			return err
 // 		}
@@ -297,7 +297,7 @@ func (it *adminClientConn) Close() error {
 }
 
 func rpcClientConnect(addr string,
-	key *hauth.AccessKey, cert *ConfigTLSCertificate,
+	key *hauth.AccessKey,
 	forceNew bool) (*grpc.ClientConn, error) {
 
 	if key == nil {
@@ -326,33 +326,7 @@ func rpcClientConnect(addr string,
 		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(grpcMsgByteMax * 2)),
 	}
 
-	if cert == nil {
-
-		dialOptions = append(dialOptions, grpc.WithInsecure())
-
-	} else {
-
-		block, _ := pem.Decode([]byte(cert.ServerCertData))
-		if block == nil || block.Type != "CERTIFICATE" {
-			return nil, errors.New("failed to decode CERTIFICATE")
-		}
-
-		crt, err := x509.ParseCertificate(block.Bytes)
-		if err != nil {
-			return nil, errors.New("failed to parse cert : " + err.Error())
-		}
-
-		certPool := x509.NewCertPool()
-		certPool.AddCert(crt)
-
-		// creds := credentials.NewClientTLSFromCert(certPool, addr)
-		creds := credentials.NewTLS(&tls.Config{
-			ServerName: crt.Subject.CommonName,
-			RootCAs:    certPool,
-		})
-
-		dialOptions = append(dialOptions, grpc.WithTransportCredentials(creds))
-	}
+	dialOptions = append(dialOptions, grpc.WithInsecure())
 
 	c, err := grpc.Dial(addr, dialOptions...)
 	if err != nil {
@@ -362,4 +336,8 @@ func rpcClientConnect(addr string,
 	rpcClientConns[ck] = c
 
 	return c, nil
+}
+
+func newAppCredential(key *hauth.AccessKey) credentials.PerRPCCredentials {
+	return hauth.NewGrpcAppCredential(key)
 }

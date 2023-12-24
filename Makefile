@@ -36,7 +36,7 @@ cli-run: cli
 server-run: server
 	${EXE_SERVER} -logtostderr true
 
-install:
+install: server
 	mkdir -p ${APP_HOME}/bin
 	mkdir -p ${APP_HOME}/etc
 	mkdir -p ${APP_HOME}/var/log
@@ -46,7 +46,7 @@ install:
 	install -m 755 ${EXE_SERVER} ${APP_HOME}/${EXE_SERVER}
 	id -u ${APP_USER} || useradd -d ${APP_HOME} -s /sbin/nologin ${APP_USER}
 	chown -R ${APP_USER}:${APP_USER} ${APP_HOME}
-	install -m 600 init/server/systemd/systemd.service /lib/systemd/system/kvgo-server.service
+	install -m 600 init/server/systemd/systemd.service /lib/systemd/system/kvgo.service
 	systemctl daemon-reload
 
 test:

@@ -26,9 +26,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/lynkdb/kvgo/pkg/storage"
-	_ "github.com/lynkdb/kvgo/pkg/storage/goleveldb"
-	_ "github.com/lynkdb/kvgo/pkg/storage/pebble"
+	"github.com/lynkdb/kvgo/v2/pkg/storage"
+	_ "github.com/lynkdb/kvgo/v2/pkg/storage/goleveldb"
+	_ "github.com/lynkdb/kvgo/v2/pkg/storage/pebble"
 )
 
 /** v2

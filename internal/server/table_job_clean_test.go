@@ -20,15 +20,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lynkdb/kvgo/pkg/kvapi"
-	"github.com/lynkdb/kvgo/pkg/storage"
-	_ "github.com/lynkdb/kvgo/pkg/storage/pebble"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/storage"
+	_ "github.com/lynkdb/kvgo/v2/pkg/storage/pebble"
 )
 
-func Test_TableJob_Clean(t *testing.T) {
+func Test_DatabaseJob_Clean(t *testing.T) {
 
 	const (
-		test_TableJob_Clean_Table = "test_tablejob_clean"
+		test_DatabaseJob_Clean_Database = "test_dbjob_clean"
 	)
 
 	sess, err := test_ServiceApi_RepX_Open("clean")
@@ -38,30 +38,30 @@ func Test_TableJob_Clean(t *testing.T) {
 	defer sess.release()
 
 	{
-		if rs := sess.ac.TableCreate(&kvapi.TableCreateRequest{
-			Name:       test_TableJob_Clean_Table,
+		if rs := sess.ac.DatabaseCreate(&kvapi.DatabaseCreateRequest{
+			Name:       test_DatabaseJob_Clean_Database,
 			Engine:     storage.DefaultDriver,
 			ReplicaNum: 3,
 		}); !rs.OK() {
 			t.Fatal(rs.StatusMessage)
 		} else {
-			t.Logf("table create ok, meta %v", rs.Meta())
+			t.Logf("database create ok, meta %v", rs.Meta())
 		}
 
-		if rs := sess.ac.TableList(&kvapi.TableListRequest{}); !rs.OK() {
+		if rs := sess.ac.DatabaseList(&kvapi.DatabaseListRequest{}); !rs.OK() {
 			t.Fatal(rs.StatusMessage)
 		} else if len(rs.Items) != 2 {
-			t.Fatalf("table list issue %d", len(rs.Items))
+			t.Fatalf("database list issue %d", len(rs.Items))
 		} else {
-			t.Logf("table list ok")
+			t.Logf("database list ok")
 		}
 	}
 
-	sess.c.SetTable(test_TableJob_Clean_Table)
+	sess.c.SetDatabase(test_DatabaseJob_Clean_Database)
 
-	tm := sess.db.tableMapMgr.getByName(test_TableJob_Clean_Table)
+	tm := sess.db.dbMapMgr.getByName(test_DatabaseJob_Clean_Database)
 	if tm == nil {
-		t.Fatalf("setup table fail")
+		t.Fatalf("setup database fail")
 	}
 
 	var shards = tm.lookupByRange([]byte{}, []byte{0xff}, false)
@@ -69,7 +69,7 @@ func Test_TableJob_Clean(t *testing.T) {
 		t.Fatalf("setup shards/replicas fail")
 	}
 
-	replicaClients := []*tableReplica{}
+	replicaClients := []*dbReplica{}
 	for _, rep := range shards[0].replicas {
 		replicaClients = append(replicaClients, rep)
 	}

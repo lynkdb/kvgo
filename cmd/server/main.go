@@ -22,7 +22,7 @@ import (
 
 	"github.com/hooto/hlog4g/hlog"
 
-	"github.com/lynkdb/kvgo/internal/server"
+	"github.com/lynkdb/kvgo/v2/internal/server"
 )
 
 var (

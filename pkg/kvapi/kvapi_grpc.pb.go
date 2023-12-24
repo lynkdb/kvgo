@@ -271,20 +271,22 @@ var Kvgo_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	KvgoAdmin_TableCreate_FullMethodName = "/lynkdb.kvapi.v2.KvgoAdmin/TableCreate"
-	KvgoAdmin_TableAlter_FullMethodName  = "/lynkdb.kvapi.v2.KvgoAdmin/TableAlter"
-	KvgoAdmin_TableList_FullMethodName   = "/lynkdb.kvapi.v2.KvgoAdmin/TableList"
-	KvgoAdmin_Status_FullMethodName      = "/lynkdb.kvapi.v2.KvgoAdmin/Status"
+	KvgoAdmin_DatabaseList_FullMethodName   = "/lynkdb.kvapi.v2.KvgoAdmin/DatabaseList"
+	KvgoAdmin_DatabaseCreate_FullMethodName = "/lynkdb.kvapi.v2.KvgoAdmin/DatabaseCreate"
+	KvgoAdmin_DatabaseUpdate_FullMethodName = "/lynkdb.kvapi.v2.KvgoAdmin/DatabaseUpdate"
+	KvgoAdmin_Status_FullMethodName         = "/lynkdb.kvapi.v2.KvgoAdmin/Status"
+	KvgoAdmin_SysGet_FullMethodName         = "/lynkdb.kvapi.v2.KvgoAdmin/SysGet"
 )
 
 // KvgoAdminClient is the client API for KvgoAdmin service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type KvgoAdminClient interface {
-	TableCreate(ctx context.Context, in *TableCreateRequest, opts ...grpc.CallOption) (*ResultSet, error)
-	TableAlter(ctx context.Context, in *TableAlterRequest, opts ...grpc.CallOption) (*ResultSet, error)
-	TableList(ctx context.Context, in *TableListRequest, opts ...grpc.CallOption) (*ResultSet, error)
+	DatabaseList(ctx context.Context, in *DatabaseListRequest, opts ...grpc.CallOption) (*ResultSet, error)
+	DatabaseCreate(ctx context.Context, in *DatabaseCreateRequest, opts ...grpc.CallOption) (*ResultSet, error)
+	DatabaseUpdate(ctx context.Context, in *DatabaseUpdateRequest, opts ...grpc.CallOption) (*ResultSet, error)
 	Status(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*ResultSet, error)
+	SysGet(ctx context.Context, in *SysGetRequest, opts ...grpc.CallOption) (*ResultSet, error)
 }
 
 type kvgoAdminClient struct {
@@ -295,27 +297,27 @@ func NewKvgoAdminClient(cc grpc.ClientConnInterface) KvgoAdminClient {
 	return &kvgoAdminClient{cc}
 }
 
-func (c *kvgoAdminClient) TableCreate(ctx context.Context, in *TableCreateRequest, opts ...grpc.CallOption) (*ResultSet, error) {
+func (c *kvgoAdminClient) DatabaseList(ctx context.Context, in *DatabaseListRequest, opts ...grpc.CallOption) (*ResultSet, error) {
 	out := new(ResultSet)
-	err := c.cc.Invoke(ctx, KvgoAdmin_TableCreate_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, KvgoAdmin_DatabaseList_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *kvgoAdminClient) TableAlter(ctx context.Context, in *TableAlterRequest, opts ...grpc.CallOption) (*ResultSet, error) {
+func (c *kvgoAdminClient) DatabaseCreate(ctx context.Context, in *DatabaseCreateRequest, opts ...grpc.CallOption) (*ResultSet, error) {
 	out := new(ResultSet)
-	err := c.cc.Invoke(ctx, KvgoAdmin_TableAlter_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, KvgoAdmin_DatabaseCreate_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *kvgoAdminClient) TableList(ctx context.Context, in *TableListRequest, opts ...grpc.CallOption) (*ResultSet, error) {
+func (c *kvgoAdminClient) DatabaseUpdate(ctx context.Context, in *DatabaseUpdateRequest, opts ...grpc.CallOption) (*ResultSet, error) {
 	out := new(ResultSet)
-	err := c.cc.Invoke(ctx, KvgoAdmin_TableList_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, KvgoAdmin_DatabaseUpdate_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -331,14 +333,24 @@ func (c *kvgoAdminClient) Status(ctx context.Context, in *StatusRequest, opts ..
 	return out, nil
 }
 
+func (c *kvgoAdminClient) SysGet(ctx context.Context, in *SysGetRequest, opts ...grpc.CallOption) (*ResultSet, error) {
+	out := new(ResultSet)
+	err := c.cc.Invoke(ctx, KvgoAdmin_SysGet_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // KvgoAdminServer is the server API for KvgoAdmin service.
 // All implementations must embed UnimplementedKvgoAdminServer
 // for forward compatibility
 type KvgoAdminServer interface {
-	TableCreate(context.Context, *TableCreateRequest) (*ResultSet, error)
-	TableAlter(context.Context, *TableAlterRequest) (*ResultSet, error)
-	TableList(context.Context, *TableListRequest) (*ResultSet, error)
+	DatabaseList(context.Context, *DatabaseListRequest) (*ResultSet, error)
+	DatabaseCreate(context.Context, *DatabaseCreateRequest) (*ResultSet, error)
+	DatabaseUpdate(context.Context, *DatabaseUpdateRequest) (*ResultSet, error)
 	Status(context.Context, *StatusRequest) (*ResultSet, error)
+	SysGet(context.Context, *SysGetRequest) (*ResultSet, error)
 	mustEmbedUnimplementedKvgoAdminServer()
 }
 
@@ -346,17 +358,20 @@ type KvgoAdminServer interface {
 type UnimplementedKvgoAdminServer struct {
 }
 
-func (UnimplementedKvgoAdminServer) TableCreate(context.Context, *TableCreateRequest) (*ResultSet, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method TableCreate not implemented")
+func (UnimplementedKvgoAdminServer) DatabaseList(context.Context, *DatabaseListRequest) (*ResultSet, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DatabaseList not implemented")
 }
-func (UnimplementedKvgoAdminServer) TableAlter(context.Context, *TableAlterRequest) (*ResultSet, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method TableAlter not implemented")
+func (UnimplementedKvgoAdminServer) DatabaseCreate(context.Context, *DatabaseCreateRequest) (*ResultSet, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DatabaseCreate not implemented")
 }
-func (UnimplementedKvgoAdminServer) TableList(context.Context, *TableListRequest) (*ResultSet, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method TableList not implemented")
+func (UnimplementedKvgoAdminServer) DatabaseUpdate(context.Context, *DatabaseUpdateRequest) (*ResultSet, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DatabaseUpdate not implemented")
 }
 func (UnimplementedKvgoAdminServer) Status(context.Context, *StatusRequest) (*ResultSet, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
+}
+func (UnimplementedKvgoAdminServer) SysGet(context.Context, *SysGetRequest) (*ResultSet, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SysGet not implemented")
 }
 func (UnimplementedKvgoAdminServer) mustEmbedUnimplementedKvgoAdminServer() {}
 
@@ -371,56 +386,56 @@ func RegisterKvgoAdminServer(s grpc.ServiceRegistrar, srv KvgoAdminServer) {
 	s.RegisterService(&KvgoAdmin_ServiceDesc, srv)
 }
 
-func _KvgoAdmin_TableCreate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(TableCreateRequest)
+func _KvgoAdmin_DatabaseList_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DatabaseListRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(KvgoAdminServer).TableCreate(ctx, in)
+		return srv.(KvgoAdminServer).DatabaseList(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: KvgoAdmin_TableCreate_FullMethodName,
+		FullMethod: KvgoAdmin_DatabaseList_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(KvgoAdminServer).TableCreate(ctx, req.(*TableCreateRequest))
+		return srv.(KvgoAdminServer).DatabaseList(ctx, req.(*DatabaseListRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _KvgoAdmin_TableAlter_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(TableAlterRequest)
+func _KvgoAdmin_DatabaseCreate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DatabaseCreateRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(KvgoAdminServer).TableAlter(ctx, in)
+		return srv.(KvgoAdminServer).DatabaseCreate(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: KvgoAdmin_TableAlter_FullMethodName,
+		FullMethod: KvgoAdmin_DatabaseCreate_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(KvgoAdminServer).TableAlter(ctx, req.(*TableAlterRequest))
+		return srv.(KvgoAdminServer).DatabaseCreate(ctx, req.(*DatabaseCreateRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _KvgoAdmin_TableList_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(TableListRequest)
+func _KvgoAdmin_DatabaseUpdate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DatabaseUpdateRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(KvgoAdminServer).TableList(ctx, in)
+		return srv.(KvgoAdminServer).DatabaseUpdate(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: KvgoAdmin_TableList_FullMethodName,
+		FullMethod: KvgoAdmin_DatabaseUpdate_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(KvgoAdminServer).TableList(ctx, req.(*TableListRequest))
+		return srv.(KvgoAdminServer).DatabaseUpdate(ctx, req.(*DatabaseUpdateRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -443,6 +458,24 @@ func _KvgoAdmin_Status_Handler(srv interface{}, ctx context.Context, dec func(in
 	return interceptor(ctx, in, info, handler)
 }
 
+func _KvgoAdmin_SysGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SysGetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KvgoAdminServer).SysGet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KvgoAdmin_SysGet_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KvgoAdminServer).SysGet(ctx, req.(*SysGetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // KvgoAdmin_ServiceDesc is the grpc.ServiceDesc for KvgoAdmin service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -451,20 +484,24 @@ var KvgoAdmin_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*KvgoAdminServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "TableCreate",
-			Handler:    _KvgoAdmin_TableCreate_Handler,
+			MethodName: "DatabaseList",
+			Handler:    _KvgoAdmin_DatabaseList_Handler,
 		},
 		{
-			MethodName: "TableAlter",
-			Handler:    _KvgoAdmin_TableAlter_Handler,
+			MethodName: "DatabaseCreate",
+			Handler:    _KvgoAdmin_DatabaseCreate_Handler,
 		},
 		{
-			MethodName: "TableList",
-			Handler:    _KvgoAdmin_TableList_Handler,
+			MethodName: "DatabaseUpdate",
+			Handler:    _KvgoAdmin_DatabaseUpdate_Handler,
 		},
 		{
 			MethodName: "Status",
 			Handler:    _KvgoAdmin_Status_Handler,
+		},
+		{
+			MethodName: "SysGet",
+			Handler:    _KvgoAdmin_SysGet_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

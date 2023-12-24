@@ -19,15 +19,15 @@ import (
 	mrand "math/rand"
 	"testing"
 
-	"github.com/lynkdb/kvgo/pkg/kvapi"
-	"github.com/lynkdb/kvgo/pkg/storage"
-	_ "github.com/lynkdb/kvgo/pkg/storage/pebble"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/storage"
+	_ "github.com/lynkdb/kvgo/v2/pkg/storage/pebble"
 )
 
-func Test_TableJob_LogPull(t *testing.T) {
+func Test_DatabaseJob_LogPull(t *testing.T) {
 
 	const (
-		test_TableJob_LogPull_Table = "test_tablejob_logpull"
+		test_DatabaseJob_LogPull_Database = "test_dbjob_logpull"
 	)
 
 	sess, err := test_ServiceApi_RepX_Open("logpull")
@@ -37,30 +37,30 @@ func Test_TableJob_LogPull(t *testing.T) {
 	defer sess.release()
 
 	{
-		if rs := sess.ac.TableCreate(&kvapi.TableCreateRequest{
-			Name:       test_TableJob_LogPull_Table,
+		if rs := sess.ac.DatabaseCreate(&kvapi.DatabaseCreateRequest{
+			Name:       test_DatabaseJob_LogPull_Database,
 			Engine:     storage.DefaultDriver,
 			ReplicaNum: 2,
 		}); !rs.OK() {
 			t.Fatal(rs.StatusMessage)
 		} else {
-			t.Logf("table create ok, meta %v", rs.Meta())
+			t.Logf("database create ok, meta %v", rs.Meta())
 		}
 
-		if rs := sess.ac.TableList(&kvapi.TableListRequest{}); !rs.OK() {
+		if rs := sess.ac.DatabaseList(&kvapi.DatabaseListRequest{}); !rs.OK() {
 			t.Fatal(rs.StatusMessage)
 		} else if len(rs.Items) != 2 {
-			t.Fatalf("table list issue %d", len(rs.Items))
+			t.Fatalf("database list issue %d", len(rs.Items))
 		} else {
-			t.Logf("table list ok")
+			t.Logf("database list ok")
 		}
 	}
 
-	sess.c.SetTable(test_TableJob_LogPull_Table)
+	sess.c.SetDatabase(test_DatabaseJob_LogPull_Database)
 
-	var tm = sess.db.tableMapMgr.getByName(test_TableJob_LogPull_Table)
+	var tm = sess.db.dbMapMgr.getByName(test_DatabaseJob_LogPull_Database)
 	if tm == nil {
-		t.Fatalf("setup table fail")
+		t.Fatalf("setup database fail")
 	}
 
 	var shards = tm.lookupByRange([]byte{}, []byte{0xff}, false)
@@ -68,7 +68,7 @@ func Test_TableJob_LogPull(t *testing.T) {
 		t.Fatalf("setup shards/replicas fail")
 	}
 
-	replicaClients := []*tableReplica{}
+	replicaClients := []*dbReplica{}
 	for _, rep := range shards[0].replicas {
 		replicaClients = append(replicaClients, rep)
 	}
@@ -94,7 +94,7 @@ func Test_TableJob_LogPull(t *testing.T) {
 			Num      int
 		}
 
-		sess.db.jobTableLogPull(true)
+		sess.db.jobDatabaseLogPull(true)
 
 		// Log, TTL test
 		for i, c1 := range replicaClients {

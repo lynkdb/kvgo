@@ -19,7 +19,7 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/lynkdb/kvgo/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
 
 type serviceApiImpl struct {
@@ -35,7 +35,7 @@ func (it *serviceApiImpl) Write(
 	req *kvapi.WriteRequest,
 ) (*kvapi.ResultSet, error) {
 
-	tmap, rs := it.valid(ctx, req.Table)
+	tmap, rs := it.valid(ctx, req.Database)
 	if rs != nil {
 		return rs, nil
 	}
@@ -55,7 +55,7 @@ func (it *serviceApiImpl) Delete(
 	req *kvapi.DeleteRequest,
 ) (*kvapi.ResultSet, error) {
 
-	tmap, rs := it.valid(ctx, req.Table)
+	tmap, rs := it.valid(ctx, req.Database)
 	if rs != nil {
 		return rs, nil
 	}
@@ -75,7 +75,7 @@ func (it *serviceApiImpl) Read(
 	req *kvapi.ReadRequest,
 ) (*kvapi.ResultSet, error) {
 
-	tmap, rs := it.valid(ctx, req.Table)
+	tmap, rs := it.valid(ctx, req.Database)
 	if rs != nil {
 		return rs, nil
 	}
@@ -95,7 +95,7 @@ func (it *serviceApiImpl) Range(
 	req *kvapi.RangeRequest,
 ) (*kvapi.ResultSet, error) {
 
-	tmap, rs := it.valid(ctx, req.Table)
+	tmap, rs := it.valid(ctx, req.Database)
 	if rs != nil {
 		return rs, nil
 	}
@@ -119,7 +119,7 @@ func (it *serviceApiImpl) Batch(
 		return newBatchResponse(kvapi.Status_InvalidArgument, err.Error()), nil
 	}
 
-	if _, rs := it.valid(ctx, breq.Table); rs != nil {
+	if _, rs := it.valid(ctx, breq.Database); rs != nil {
 		return newBatchResponse(kvapi.Status_InvalidArgument, rs.StatusMessage), nil
 	}
 
@@ -162,19 +162,19 @@ func (it *serviceApiImpl) Batch(
 	return &brs, nil
 }
 
-func (it *serviceApiImpl) valid(ctx context.Context, tableName string) (*tableMap, *kvapi.ResultSet) {
+func (it *serviceApiImpl) valid(ctx context.Context, dbName string) (*dbMap, *kvapi.ResultSet) {
 
-	if !kvapi.TableNameRX.MatchString(tableName) {
-		return nil, newResultSetWithClientError("invalid table name " + tableName)
+	if !kvapi.DatabaseNameRX.MatchString(dbName) {
+		return nil, newResultSetWithClientError("invalid database name " + dbName)
 	}
 
 	if s := it.auth(ctx); s != nil {
 		return nil, s
 	}
 
-	tbl := it.dbServer.tableMapMgr.getByName(tableName)
+	tbl := it.dbServer.dbMapMgr.getByName(dbName)
 	if tbl == nil {
-		return nil, newResultSet(kvapi.Status_NotFound, "table not found")
+		return nil, newResultSet(kvapi.Status_NotFound, "database not found")
 	}
 
 	return tbl, nil

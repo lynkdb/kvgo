@@ -23,8 +23,8 @@ import (
 	"github.com/hooto/hlog4g/hlog"
 	ps_disk "github.com/shirou/gopsutil/v3/disk"
 
-	"github.com/lynkdb/kvgo/pkg/kvapi"
-	"github.com/lynkdb/kvgo/pkg/storage"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/storage"
 )
 
 type jobManager struct {
@@ -34,13 +34,11 @@ type jobManager struct {
 
 func (it *dbServer) jobSetup() error {
 
-	if err := it.jobTableListSetup(); err != nil {
+	if err := it.jobDatabaseListSetup(); err != nil {
 		return err
 	}
 
 	go it.jobRun()
-
-	// go it.taskRun()
 
 	return nil
 }
@@ -62,7 +60,7 @@ func (it *dbServer) jobRefresh() error {
 	it.mu.Lock()
 	defer it.mu.Unlock()
 
-	if err := it.jobTableListSetup(); err != nil {
+	if err := it.jobDatabaseListSetup(); err != nil {
 		return err
 	}
 
@@ -80,7 +78,7 @@ func (it *dbServer) jobRefresh() error {
 	return nil
 }
 
-func (it *dbServer) jobTableListSetup() error {
+func (it *dbServer) jobDatabaseListSetup() error {
 
 	if it.close {
 		return nil
@@ -92,8 +90,8 @@ func (it *dbServer) jobTableListSetup() error {
 	}()
 
 	var (
-		offset = nsSysTable("")
-		cutset = nsSysTable("zzzz")
+		offset = nsSysDatabase("")
+		cutset = nsSysDatabase("zzzz")
 	)
 
 	for !it.close {
@@ -108,16 +106,15 @@ func (it *dbServer) jobTableListSetup() error {
 
 		for _, item := range rs.Items {
 
-			var tbl kvapi.Table
+			var tbl kvapi.Database
 			if err := item.JsonDecode(&tbl); err != nil {
 				return err
 			}
 
-			it.tableMapMgr.syncTable(item.Meta, &tbl)
+			it.dbMapMgr.syncDatabase(item.Meta, &tbl)
 
-			if it.uptime == 0 {
-				hlog.Printf("info", "kvgo table %s (%d) started", tbl.Name, tbl.Id)
-				// jsonPrint("table sync", tbl)
+			if it.status.Uptime == 0 {
+				hlog.Printf("info", "kvgo database %s (%d) started", tbl.Name, tbl.Id)
 			}
 
 			offset = item.Key
@@ -128,8 +125,8 @@ func (it *dbServer) jobTableListSetup() error {
 		}
 	}
 
-	offset = nsSysTableMap("")
-	cutset = nsSysTableMap("zzzz")
+	offset = nsSysDatabaseMap("")
+	cutset = nsSysDatabaseMap("zzzz")
 
 	for !it.close {
 		req := kvapi.NewRangeRequest(offset, cutset).SetLimit(kDatabaseInstanceMax)
@@ -143,21 +140,17 @@ func (it *dbServer) jobTableListSetup() error {
 
 		for _, item := range rs.Items {
 
-			var tm kvapi.TableMap
+			var tm kvapi.DatabaseMap
 			if err := item.JsonDecode(&tm); err != nil {
 				return err
 			}
 
-			ptm := it.tableMapMgr.getById(tm.Id)
+			ptm := it.dbMapMgr.getById(tm.Id)
 			if ptm == nil {
 				continue
 			}
 
 			ptm.syncMap(item.Meta, &tm)
-
-			// if it.uptime == 0 {
-			// 	jsonPrint("table-map sync", tm)
-			// }
 
 			offset = item.Key
 		}
@@ -167,21 +160,21 @@ func (it *dbServer) jobTableListSetup() error {
 		}
 	}
 
-	it.tableMapMgr.iter(func(tm *tableMap) {
-		if err := it._jobTableMapSetup(tm); err != nil {
-			hlog.Printf("info", "table setup err %s", err.Error())
+	it.dbMapMgr.initIter(func(tm *dbMap) {
+		if err := it._jobDatabaseMapSetup(tm); err != nil {
+			hlog.Printf("info", "database setup err %s", err.Error())
 		}
 	})
 
 	return nil
 }
 
-func (it *dbServer) _jobTableMapSetup(tm *tableMap) error {
+func (it *dbServer) _jobDatabaseMapSetup(tm *dbMap) error {
 
 	it.jobSetupMut.Lock()
 	defer it.jobSetupMut.Unlock()
 
-	if tm.data.Name == sysTableName {
+	if tm.data.Name == sysDatabaseName {
 		return nil
 	}
 
@@ -196,8 +189,8 @@ func (it *dbServer) _jobTableMapSetup(tm *tableMap) error {
 
 	if tm.mapData == nil {
 
-		r := kvapi.NewReadRequest(nsSysTableMap(tm.data.Id))
-		r.Table = sysTableName
+		r := kvapi.NewReadRequest(nsSysDatabaseMap(tm.data.Id))
+		r.Database = sysDatabaseName
 
 		if rs, err := it.api.Read(nil, r); err != nil {
 			return err
@@ -207,7 +200,7 @@ func (it *dbServer) _jobTableMapSetup(tm *tableMap) error {
 				return errors.New("no data found")
 			}
 
-			var m kvapi.TableMap
+			var m kvapi.DatabaseMap
 			if err := item.JsonDecode(&m); err != nil {
 				return err
 			}
@@ -218,7 +211,7 @@ func (it *dbServer) _jobTableMapSetup(tm *tableMap) error {
 		} else if rs.NotFound() {
 
 			tm.mapMeta = &kvapi.Meta{}
-			tm.mapData = &kvapi.TableMap{
+			tm.mapData = &kvapi.DatabaseMap{
 				Id:      tm.data.Id,
 				Version: 1,
 			}
@@ -237,7 +230,7 @@ func (it *dbServer) _jobTableMapSetup(tm *tableMap) error {
 		if !chg {
 			tm.mapData.Version += 1
 		}
-		tm.mapData.Shards, chg = []*kvapi.TableMap_Shard{
+		tm.mapData.Shards, chg = []*kvapi.DatabaseMap_Shard{
 			{
 				Id:      tm.nextIncr(),
 				Version: tm.mapData.Version,
@@ -270,7 +263,7 @@ func (it *dbServer) _jobTableMapSetup(tm *tableMap) error {
 			if !chg {
 				tm.mapData.Version += 1
 			}
-			rep := &kvapi.TableMap_Replica{
+			rep := &kvapi.DatabaseMap_Replica{
 				Id:      tm.nextIncr(),
 				StoreId: fitStore.Id,
 				Action:  kReplicaSetup_In,
@@ -283,13 +276,13 @@ func (it *dbServer) _jobTableMapSetup(tm *tableMap) error {
 
 	for _, shard := range tm.mapData.Shards {
 
-		ins := []*kvapi.TableMap_Replica{}
+		ins := []*kvapi.DatabaseMap_Replica{}
 
 		for _, rep := range shard.Replicas {
 
 			if kvapi.AttrAllow(rep.Action, kReplicaSetup_Out) &&
 				kvapi.AttrAllow(rep.Action, kReplicaSetup_Remove) {
-				it.auditLogger.Put("tablemap", "shard %d, rep %d, removed", shard.Id, rep.Id)
+				it.auditLogger.Put("dbmap", "shard %d, rep %d, removed", shard.Id, rep.Id)
 				continue
 			}
 
@@ -297,15 +290,15 @@ func (it *dbServer) _jobTableMapSetup(tm *tableMap) error {
 		}
 
 		if len(ins) < len(shard.Replicas) {
-			it.auditLogger.Put("tablemap", "shard %d, replica-cap %d to %d", shard.Id, len(shard.Replicas), len(ins))
+			it.auditLogger.Put("dbmap", "shard %d, replica-cap %d to %d", shard.Id, len(shard.Replicas), len(ins))
 			shard.Updated = timesec()
 			shard.Replicas, chg = ins, true
 		}
 	}
 
 	if chg {
-		wr := kvapi.NewWriteRequest(nsSysTableMap(tm.data.Id), jsonEncode(tm.mapData))
-		wr.Table = sysTableName
+		wr := kvapi.NewWriteRequest(nsSysDatabaseMap(tm.data.Id), jsonEncode(tm.mapData))
+		wr.Database = sysDatabaseName
 		if tm.mapMeta == nil {
 			wr.CreateOnly = true
 		} else {
@@ -320,12 +313,7 @@ func (it *dbServer) _jobTableMapSetup(tm *tableMap) error {
 		}
 
 		// TODO update meta.version
-
-		// jsonPrint("table-map reset", tm.mapData)
 	}
-
-	// jsonPrint("stores", it.stores)
-	// jsonPrint("stores", it.stores)
 
 	var err error
 
@@ -369,7 +357,7 @@ func (it *dbServer) jobStatusMergeSetup() error {
 		it.closegw.Done()
 	}()
 
-	tmStatusRefresh := func(tm *tableMap) {
+	tmStatusRefresh := func(tm *dbMap) {
 
 		for _, shard := range tm.mapData.Shards {
 
@@ -388,7 +376,10 @@ func (it *dbServer) jobStatusMergeSetup() error {
 					continue
 				}
 
-				if len(repInst.status.iterPulls) > 0 {
+				if tm.data.ReplicaNum == 1 {
+					actions[kReplicaStatus_Ready] = 1
+
+				} else if len(repInst.status.iterPulls) > 0 {
 					//
 					for _, v := range repInst.status.iterPulls {
 
@@ -402,8 +393,11 @@ func (it *dbServer) jobStatusMergeSetup() error {
 							actions[kReplicaStatus_Ready] += 1
 						}
 					}
-				} else if tm.data.ReplicaNum == 1 {
-					actions[kReplicaStatus_Ready] = 1
+
+					// TODO
+					if kvapi.AttrAllow(rep.Action, kReplicaSetup_In) {
+						actions[kReplicaStatus_Ready] += 1
+					}
 				}
 
 				if kvapi.AttrAllow(shard.Action, kShardSetup_In) {
@@ -411,6 +405,7 @@ func (it *dbServer) jobStatusMergeSetup() error {
 					if len(actions) == 0 {
 						// testPrintf("shard %d, rep %d, actions %v", shard.Id, rep.Id, actions)
 					}
+					testPrintf("shard %d, rep %d, actions %v", shard.Id, rep.Id, actions)
 
 					if actions[kReplicaStatus_Ready]*2 > int(tm.data.ReplicaNum) {
 
@@ -429,7 +424,7 @@ func (it *dbServer) jobStatusMergeSetup() error {
 		}
 	}
 
-	it.tableMapMgr.iter(func(tm *tableMap) {
+	it.dbMapMgr.iter(func(tm *dbMap) {
 		tmStatusRefresh(tm)
 	})
 
@@ -437,11 +432,11 @@ func (it *dbServer) jobStatusMergeSetup() error {
 }
 
 func (it *dbServer) jobOnce() {
-	go it.jobTableAutoClean()
-	go it.jobTableLogPull(false)
+	go it.jobDatabaseAutoClean()
+	go it.jobDatabaseLogPull(false)
 }
 
-func (it *dbServer) jobTableAutoClean() {
+func (it *dbServer) jobDatabaseAutoClean() {
 
 	it.closegw.Add(1)
 	defer func() {
@@ -461,7 +456,7 @@ func (it *dbServer) jobTableAutoClean() {
 			continue
 		}
 
-		it.tableMapMgr.iter(func(tm *tableMap) {
+		it.dbMapMgr.iter(func(tm *dbMap) {
 			for _, rep := range tm.replicas {
 				if err := rep._jobCleanTTL(); err != nil {
 					hlog.Printf("error", "kvgo job clean ttl err %s", err.Error())
@@ -476,7 +471,7 @@ func (it *dbServer) jobTableAutoClean() {
 	}
 }
 
-func (it *dbServer) jobTableLogPull(force bool) {
+func (it *dbServer) jobDatabaseLogPull(force bool) {
 
 	it.closegw.Add(1)
 	defer func() {
@@ -495,7 +490,7 @@ func (it *dbServer) jobTableLogPull(force bool) {
 		if !force && lastCleanTime+5 > t.Unix() {
 			continue
 		}
-		it.tableMapMgr.iter(func(tm *tableMap) {
+		it.dbMapMgr.iter(func(tm *dbMap) {
 
 			if tm.data.ReplicaNum <= 1 {
 				return
@@ -541,7 +536,7 @@ func (it *dbServer) jobTableLogPull(force bool) {
 
 						err := dstInst._jobLogPull(shard, lowerKey, upperKey, srcInst, dstInst.status.pull(src.Id))
 						if err != nil {
-							hlog.Printf("info", "table %s, shard %d, rep dst/src %d/%d, sync-pull err %s",
+							hlog.Printf("info", "database %s, shard %d, rep dst/src %d/%d, sync-pull err %s",
 								tm.data.Name, shard.Id, dst.Id, src.Id, err.Error())
 						}
 					}
@@ -556,7 +551,7 @@ func (it *dbServer) jobTableLogPull(force bool) {
 	}
 }
 
-func (it *dbServer) mapFlush(tm *tableMap, mapData *kvapi.TableMap, prevVersion uint64) error {
+func (it *dbServer) mapFlush(tm *dbMap, mapData *kvapi.DatabaseMap, prevVersion uint64) error {
 
 	if prevVersion != tm.mapMeta.Version {
 		return errors.New("meta version confict")
@@ -570,8 +565,12 @@ func (it *dbServer) mapFlush(tm *tableMap, mapData *kvapi.TableMap, prevVersion 
 		mapData.Version += 1
 	}
 
-	wr := kvapi.NewWriteRequest(nsSysTableMap(tm.data.Id), jsonEncode(mapData))
-	wr.Table = sysTableName
+	if mapData.IncrId < tm.mapData.IncrId {
+		mapData.IncrId = tm.mapData.IncrId
+	}
+
+	wr := kvapi.NewWriteRequest(nsSysDatabaseMap(tm.data.Id), jsonEncode(mapData))
+	wr.Database = sysDatabaseName
 	wr.PrevVersion = prevVersion
 
 	rs, err := it.api.Write(nil, wr)
@@ -595,7 +594,7 @@ func (it *dbServer) mapFlush(tm *tableMap, mapData *kvapi.TableMap, prevVersion 
 	return nil
 }
 
-func (it *dbServer) _job_replicaRemoveSetup(tm *tableMap, mapData *kvapi.TableMap) (chg bool) {
+func (it *dbServer) _job_replicaRemoveSetup(tm *dbMap, mapData *kvapi.DatabaseMap) (chg bool) {
 
 	for _, shard := range mapData.Shards {
 
@@ -671,11 +670,11 @@ func (it *dbServer) jobKeyMapSetup() error {
 	it.jobSetupMut.Lock()
 	defer it.jobSetupMut.Unlock()
 
-	tableAction := func(tm *tableMap) {
+	dbAction := func(tm *dbMap) {
 
 		var (
 			prevVersion = tm.mapMeta.Version
-			mapData     kvapi.TableMap
+			mapData     kvapi.DatabaseMap
 			chg         bool
 		)
 
@@ -694,7 +693,7 @@ func (it *dbServer) jobKeyMapSetup() error {
 		}
 	}
 
-	it.tableMapMgr.iter(tableAction)
+	it.dbMapMgr.iter(dbAction)
 
 	return nil
 }

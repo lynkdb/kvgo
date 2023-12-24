@@ -17,7 +17,7 @@ package server
 import (
 	"fmt"
 
-	"github.com/lynkdb/kvgo/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
 
 func newResultSet(code uint32, msg string) *kvapi.ResultSet {
@@ -65,10 +65,11 @@ func newBatchResponse(code uint32, msg string) *kvapi.BatchResponse {
 	}
 }
 
-func resultSetAppend(rs *kvapi.ResultSet, key []byte, meta *kvapi.Meta) (*kvapi.KeyValue, error) {
+func resultSetAppend(rs *kvapi.ResultSet, key []byte, meta *kvapi.Meta, val []byte) (*kvapi.KeyValue, error) {
 	item := &kvapi.KeyValue{
-		Key:  key,
-		Meta: meta,
+		Key:   key,
+		Meta:  meta,
+		Value: val,
 	}
 	rs.Items = append(rs.Items, item)
 	return item, nil

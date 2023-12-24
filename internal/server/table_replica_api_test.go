@@ -24,21 +24,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lynkdb/kvgo/internal/server"
-	"github.com/lynkdb/kvgo/pkg/kvapi"
-	"github.com/lynkdb/kvgo/pkg/storage"
-	_ "github.com/lynkdb/kvgo/pkg/storage/pebble"
+	"github.com/lynkdb/kvgo/v2/internal/server"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/storage"
+	_ "github.com/lynkdb/kvgo/v2/pkg/storage/pebble"
 )
 
-func Test_TableReplica_API(t *testing.T) {
+func Test_DatabaseReplica_API(t *testing.T) {
 	//
-	sess, err := test_TableReplica_API_Open(storage.DefaultDriver, 0)
+	sess, err := test_DatabaseReplica_API_Open(storage.DefaultDriver, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer sess.release()
 
-	tbl, err := server.NewTable(sess.db, "0001", "table_api_test", 1, 2, &server.Config{})
+	tbl, err := server.NewDatabase(sess.db, "0001", "db_api_test", 1, 2, &server.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -449,17 +449,17 @@ func Test_TableReplica_API(t *testing.T) {
 	*/
 }
 
-type testTableReplicaApiSession struct {
+type testDatabaseReplicaApiSession struct {
 	dir string
 	db  storage.Conn
 }
 
-func (it *testTableReplicaApiSession) release() {
+func (it *testDatabaseReplicaApiSession) release() {
 	it.db.Close()
 	exec.Command("rm", "-rf", it.dir).Output()
 }
 
-func test_TableReplica_API_Open(drvname string, samples int) (*testTableReplicaApiSession, error) {
+func test_DatabaseReplica_API_Open(drvname string, samples int) (*testDatabaseReplicaApiSession, error) {
 
 	testDir := "/tmp/kvgo-test"
 	if runtime.GOOS == "darwin" {
@@ -468,9 +468,9 @@ func test_TableReplica_API_Open(drvname string, samples int) (*testTableReplicaA
 	}
 
 	if samples > 0 {
-		testDir = filepath.Clean(fmt.Sprintf("%s/table-replica-api-%d", testDir, samples))
+		testDir = filepath.Clean(fmt.Sprintf("%s/db-replica-api-%d", testDir, samples))
 	} else {
-		testDir = filepath.Clean(fmt.Sprintf("%s/table-replica-api", testDir))
+		testDir = filepath.Clean(fmt.Sprintf("%s/db-replica-api", testDir))
 	}
 
 	db, err := storage.Open(drvname, testDir, &storage.Options{
@@ -492,7 +492,7 @@ func test_TableReplica_API_Open(drvname string, samples int) (*testTableReplicaA
 		// }
 	}
 
-	sess := &testTableReplicaApiSession{
+	sess := &testDatabaseReplicaApiSession{
 		dir: testDir,
 		db:  db,
 	}

@@ -24,7 +24,7 @@ import (
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/bloom"
 
-	"github.com/lynkdb/kvgo/pkg/storage"
+	"github.com/lynkdb/kvgo/v2/pkg/storage"
 )
 
 var (

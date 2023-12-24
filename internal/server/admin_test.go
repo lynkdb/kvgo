@@ -23,9 +23,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lynkdb/kvgo/pkg/kvapi"
-	"github.com/lynkdb/kvgo/pkg/storage"
-	_ "github.com/lynkdb/kvgo/pkg/storage/pebble"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/storage"
+	_ "github.com/lynkdb/kvgo/v2/pkg/storage/pebble"
 )
 
 func Test_AdminAPI(t *testing.T) {
@@ -37,41 +37,41 @@ func Test_AdminAPI(t *testing.T) {
 	defer sess.release()
 
 	{
-		if rs := sess.ac.TableCreate(&kvapi.TableCreateRequest{
+		if rs := sess.ac.DatabaseCreate(&kvapi.DatabaseCreateRequest{
 			Name:   "test",
 			Engine: storage.DefaultDriver,
 		}); !rs.OK() && rs.StatusCode != kvapi.Status_Conflict {
 			t.Fatal(rs.StatusMessage)
 		} else {
-			t.Logf("table create ok, meta %v", rs.Meta())
+			t.Logf("database create ok, meta %v", rs.Meta())
 		}
 
-		if rs := sess.ac.TableList(&kvapi.TableListRequest{}); !rs.OK() {
+		if rs := sess.ac.DatabaseList(&kvapi.DatabaseListRequest{}); !rs.OK() {
 			t.Fatal(rs.StatusMessage)
 		} else if len(rs.Items) != 2 {
-			t.Fatalf("table list issue %d", len(rs.Items))
+			t.Fatalf("database list issue %d", len(rs.Items))
 		} else {
-			t.Logf("table list ok")
+			t.Logf("database list ok")
 		}
 	}
 
 	{
 		time.Sleep(1e9)
-		if rs := sess.ac.TableAlter(&kvapi.TableAlterRequest{
+		if rs := sess.ac.DatabaseUpdate(&kvapi.DatabaseUpdateRequest{
 			Name:       "test",
 			ReplicaNum: 2,
 		}); !rs.OK() {
 			t.Fatal(rs.StatusMessage)
 		} else {
-			t.Logf("table alter ok : %v", rs.Meta())
+			t.Logf("database alter ok : %v", rs.Meta())
 		}
 
-		if rs := sess.ac.TableList(&kvapi.TableListRequest{}); !rs.OK() {
+		if rs := sess.ac.DatabaseList(&kvapi.DatabaseListRequest{}); !rs.OK() {
 			t.Fatal(rs.StatusMessage)
 		} else if len(rs.Items) != 2 {
-			t.Fatal("table list issue")
+			t.Fatal("database list issue")
 		} else {
-			t.Logf("table list ok")
+			t.Logf("database list ok")
 		}
 	}
 }

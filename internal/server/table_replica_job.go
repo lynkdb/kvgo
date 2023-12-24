@@ -21,11 +21,11 @@ import (
 
 	"github.com/hooto/hlog4g/hlog"
 
-	"github.com/lynkdb/kvgo/pkg/kvapi"
-	"github.com/lynkdb/kvgo/pkg/storage"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/storage"
 )
 
-func (it *tableReplica) _jobCleanTTL() error {
+func (it *dbReplica) _jobCleanTTL() error {
 
 	var (
 		tn           = time.Now().UnixNano() / 1e6
@@ -80,10 +80,10 @@ func (it *tableReplica) _jobCleanTTL() error {
 
 		if batch.Len() >= 10000 {
 
-			hlog.Printf("info", "table %s, ttl clean %d, stats %d/%d", it.tableName, batch.Len(), statsKeys, statsRawKeys)
+			hlog.Printf("info", "database %s, ttl clean %d, stats %d/%d", it.dbName, batch.Len(), statsKeys, statsRawKeys)
 
 			if ss := batch.Apply(nil); !ss.OK() {
-				hlog.Printf("info", "table %s, ttl clean fail %s", it.tableName, ss.Error().Error())
+				hlog.Printf("info", "database %s, ttl clean fail %s", it.dbName, ss.Error().Error())
 				return ss.Error()
 			}
 			batch.Clear()
@@ -91,9 +91,9 @@ func (it *tableReplica) _jobCleanTTL() error {
 	}
 
 	if batch.Len() > 0 {
-		hlog.Printf("info", "table %s, ttl clean %d, stats %d/%d", it.tableName, batch.Len(), statsKeys, statsRawKeys)
+		hlog.Printf("info", "database %s, ttl clean %d, stats %d/%d", it.dbName, batch.Len(), statsKeys, statsRawKeys)
 		if ss := batch.Apply(nil); !ss.OK() {
-			hlog.Printf("info", "table %s, ttl clean fail %s", it.tableName, ss.Error().Error())
+			hlog.Printf("info", "database %s, ttl clean fail %s", it.dbName, ss.Error().Error())
 			return ss.Error()
 		}
 	}
@@ -101,7 +101,7 @@ func (it *tableReplica) _jobCleanTTL() error {
 	return nil
 }
 
-func (it *tableReplica) _jobCleanLog() error {
+func (it *dbReplica) _jobCleanLog() error {
 
 	var (
 		tn        = time.Now()
@@ -146,10 +146,10 @@ func (it *tableReplica) _jobCleanLog() error {
 
 		if batch.Len() >= 10000 {
 
-			hlog.Printf("info", "table %s, ttl clean %d, stats %d", it.tableName, batch.Len(), statsKeys)
+			hlog.Printf("info", "database %s, ttl clean %d, stats %d", it.dbName, batch.Len(), statsKeys)
 
 			if ss := batch.Apply(nil); !ss.OK() {
-				hlog.Printf("info", "table %s, ttl clean fail %s", it.tableName, ss.Error().Error())
+				hlog.Printf("info", "database %s, ttl clean fail %s", it.dbName, ss.Error().Error())
 				return ss.Error()
 			}
 			batch.Clear()
@@ -157,9 +157,9 @@ func (it *tableReplica) _jobCleanLog() error {
 	}
 
 	if batch.Len() > 0 {
-		hlog.Printf("info", "table %s, ttl clean %d, stats %d", it.tableName, batch.Len(), statsKeys)
+		hlog.Printf("info", "database %s, ttl clean %d, stats %d", it.dbName, batch.Len(), statsKeys)
 		if ss := batch.Apply(nil); !ss.OK() {
-			hlog.Printf("info", "table %s, ttl clean fail %s", it.tableName, ss.Error().Error())
+			hlog.Printf("info", "database %s, ttl clean fail %s", it.dbName, ss.Error().Error())
 			return ss.Error()
 		}
 	}
@@ -172,13 +172,13 @@ func (it *tableReplica) _jobCleanLog() error {
 	return err
 }
 
-func (it *tableReplica) _jobLogPull(
-	shard *kvapi.TableMap_Shard,
+func (it *dbReplica) _jobLogPull(
+	shard *kvapi.DatabaseMap_Shard,
 	lowerKey, upperKey []byte,
-	src *tableReplica,
+	src *dbReplica,
 	sts *dbReplicaStatusItem) error {
 	//
-	if it.tableId != src.tableId ||
+	if it.dbId != src.dbId ||
 		it.shardId != src.shardId ||
 		it.replicaId == src.replicaId {
 		return nil
@@ -216,8 +216,8 @@ func (it *tableReplica) _jobLogPull(
 		if err = jsonDecode(rs.Bytes(), &logPullState); err != nil {
 			return err
 		}
-		hlog.Printf("info", "table %s, shard %d, replica %d <- %d, offset %d",
-			it.tableId, it.shardId, it.replicaId, src.replicaId, logPullState.SrcLogOffset)
+		hlog.Printf("debug", "database %s, shard %d, replica %d <- %d, offset %d",
+			it.dbId, it.shardId, it.replicaId, src.replicaId, logPullState.SrcLogOffset)
 
 		// jsonPrint("logpull offset", logPullState)
 	}
@@ -310,8 +310,8 @@ func (it *tableReplica) _jobLogPull(
 			if rs0 := it.store.Put(nsPullKey, jsonEncode(&logPullState), nil); !rs0.OK() {
 				return rs0.Error()
 			}
-			hlog.Printf("info", "table %s, shard %d, replica %d < %d, offset %d",
-				it.tableId, it.shardId, it.replicaId, src.replicaId, logPullState.SrcLogOffset)
+			hlog.Printf("debug", "database %s, shard %d, replica %d < %d, offset %d",
+				it.dbId, it.shardId, it.replicaId, src.replicaId, logPullState.SrcLogOffset)
 			// testPrintf("logpull delta fetch %d flush %d", fetchNum, flushNum)
 		}
 
@@ -394,8 +394,8 @@ func (it *tableReplica) _jobLogPull(
 			if rs0 := it.store.Put(nsPullKey, jsonEncode(&logPullState), nil); !rs0.OK() {
 				return rs0.Error()
 			}
-			hlog.Printf("info", "table %s, shard %d, replica %d < %d, offset %v",
-				it.tableId, it.shardId, it.replicaId, src.replicaId, logPullState.SrcKeyOffset)
+			hlog.Printf("info", "database %s, shard %d, replica %d < %d, offset %v",
+				it.dbId, it.shardId, it.replicaId, src.replicaId, logPullState.SrcKeyOffset)
 			testPrintf("logpull full fetch %d flush %d", fetchNum, flushNum)
 		}
 

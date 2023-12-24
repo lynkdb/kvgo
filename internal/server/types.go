@@ -23,13 +23,13 @@ type logPullReplicaState struct {
 	FullScan     bool   `json:"full_scan,omitempty"`
 }
 
-type tableReplicaLogState struct {
+type dbReplicaLogState struct {
 	RetentionOffset uint64 `json:retention_offset"`
 	Offset          uint64 `json:"offset"`
 	Cutset          uint64 `json:"cutset"`
 }
 
-type tableReplicaIncrState struct {
+type dbReplicaIncrState struct {
 	Namespace string `json:"namespace"`
 	Offset    uint64 `json:"offset"`
 	Cutset    uint64 `json:"cutset"`

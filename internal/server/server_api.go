@@ -19,7 +19,7 @@ import (
 	mrand "math/rand"
 	"time"
 
-	"github.com/lynkdb/kvgo/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
 
 type pQueItem struct {
@@ -27,7 +27,7 @@ type pQueItem struct {
 	incrId     uint64
 }
 
-func (it *dbServer) apiWrite(req *kvapi.WriteRequest, selectShard *tableMapSelectShard) *kvapi.ResultSet {
+func (it *dbServer) apiWrite(req *kvapi.WriteRequest, selectShard *dbMapSelectShard) *kvapi.ResultSet {
 
 	if selectShard == nil {
 		return newResultSetWithServerError("server not ready : shard init")
@@ -98,7 +98,7 @@ func (it *dbServer) apiWrite(req *kvapi.WriteRequest, selectShard *tableMapSelec
 				IncrId:  meta.IncrId,
 				Updated: meta.Updated,
 				// Created: meta.Created,
-			})
+			}, nil)
 			return rs
 		}
 
@@ -139,7 +139,7 @@ func (it *dbServer) apiWrite(req *kvapi.WriteRequest, selectShard *tableMapSelec
 
 	for _, trep := range selectShard.replicas {
 
-		go func(trep *tableReplica, req *kvapi.WriteProposalRequest) {
+		go func(trep *dbReplica, req *kvapi.WriteProposalRequest) {
 
 			pMeta, err := trep._writePrepare(req)
 
@@ -203,7 +203,7 @@ func (it *dbServer) apiWrite(req *kvapi.WriteRequest, selectShard *tableMapSelec
 	}
 
 	for _, trep := range selectShard.replicas {
-		go func(trep *tableReplica, req *kvapi.WriteProposalRequest) {
+		go func(trep *dbReplica, req *kvapi.WriteProposalRequest) {
 
 			aMeta, err := trep._writeAccept(req)
 
@@ -246,12 +246,12 @@ func (it *dbServer) apiWrite(req *kvapi.WriteRequest, selectShard *tableMapSelec
 		Version: pLog,
 		IncrId:  pInc,
 		Updated: req.Meta.Updated,
-	})
+	}, nil)
 
 	return rs
 }
 
-func (it *dbServer) apiDelete(req *kvapi.DeleteRequest, selectShard *tableMapSelectShard) *kvapi.ResultSet {
+func (it *dbServer) apiDelete(req *kvapi.DeleteRequest, selectShard *dbMapSelectShard) *kvapi.ResultSet {
 
 	if selectShard == nil {
 		return newResultSetWithServerError("server not ready : shard init")
@@ -318,7 +318,7 @@ func (it *dbServer) apiDelete(req *kvapi.DeleteRequest, selectShard *tableMapSel
 
 	for _, trep := range selectShard.replicas {
 
-		go func(trep *tableReplica, req *kvapi.DeleteProposalRequest) {
+		go func(trep *dbReplica, req *kvapi.DeleteProposalRequest) {
 
 			pMeta, err := trep._deletePrepare(req)
 
@@ -380,7 +380,7 @@ func (it *dbServer) apiDelete(req *kvapi.DeleteRequest, selectShard *tableMapSel
 	}
 
 	for _, trep := range selectShard.replicas {
-		go func(trep *tableReplica, req *kvapi.DeleteProposalRequest) {
+		go func(trep *dbReplica, req *kvapi.DeleteProposalRequest) {
 
 			aMeta, err := trep._deleteAccept(req)
 
@@ -421,12 +421,12 @@ func (it *dbServer) apiDelete(req *kvapi.DeleteRequest, selectShard *tableMapSel
 	rs := newResultSetOK()
 	resultSetAppend(rs, req.Key, &kvapi.Meta{
 		Version: pLog,
-	})
+	}, nil)
 
 	return rs
 }
 
-func (it *dbServer) apiReadShard(req *kvapi.ReadRequest, selectShard *tableMapSelectShard) *kvapi.ResultSet {
+func (it *dbServer) apiReadShard(req *kvapi.ReadRequest, selectShard *dbMapSelectShard) *kvapi.ResultSet {
 	if selectShard == nil {
 		return newResultSetWithServerError("server not ready : shard init")
 	}
@@ -462,7 +462,7 @@ func (it *dbServer) apiReadShard(req *kvapi.ReadRequest, selectShard *tableMapSe
 	return rs
 }
 
-func (it *dbServer) apiRead(req *kvapi.ReadRequest, selectShards []*tableMapSelectShard) *kvapi.ResultSet {
+func (it *dbServer) apiRead(req *kvapi.ReadRequest, selectShards []*dbMapSelectShard) *kvapi.ResultSet {
 
 	if len(selectShards) == 0 {
 		return newResultSetWithServerError("server not ready : shard init")
@@ -516,7 +516,7 @@ func (it *dbServer) apiRead(req *kvapi.ReadRequest, selectShards []*tableMapSele
 	return rs
 }
 
-func (it *dbServer) apiRange(req *kvapi.RangeRequest, selectShards []*tableMapSelectShard) *kvapi.ResultSet {
+func (it *dbServer) apiRange(req *kvapi.RangeRequest, selectShards []*dbMapSelectShard) *kvapi.ResultSet {
 
 	if len(selectShards) == 0 {
 		return newResultSetWithServerError("server not ready : shard init")

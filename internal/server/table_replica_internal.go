@@ -21,11 +21,11 @@ import (
 
 	"github.com/hooto/hlog4g/hlog"
 
-	"github.com/lynkdb/kvgo/pkg/kvapi"
-	"github.com/lynkdb/kvgo/pkg/storage"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/storage"
 )
 
-func (it *tableReplica) getMeta(key []byte) (*kvapi.Meta, error) {
+func (it *dbReplica) getMeta(key []byte) (*kvapi.Meta, error) {
 
 	ss := it.store.Get(keyEncode(nsKeyMeta, key), nil)
 
@@ -40,7 +40,7 @@ func (it *tableReplica) getMeta(key []byte) (*kvapi.Meta, error) {
 	return meta, err
 }
 
-func (it *tableReplica) getRawMeta(nsKey byte, key []byte) (*kvapi.Meta, error) {
+func (it *dbReplica) getRawMeta(nsKey byte, key []byte) (*kvapi.Meta, error) {
 
 	ss := it.store.Get(keyEncode(nsKey, key), nil)
 
@@ -55,7 +55,7 @@ func (it *tableReplica) getRawMeta(nsKey byte, key []byte) (*kvapi.Meta, error) 
 	return meta, err
 }
 
-func (it *tableReplica) getData(key []byte) (*kvapi.KeyValue, error) {
+func (it *dbReplica) getData(key []byte) (*kvapi.KeyValue, error) {
 
 	ss := it.store.Get(keyEncode(nsKeyData, key), nil)
 
@@ -73,7 +73,7 @@ func (it *tableReplica) getData(key []byte) (*kvapi.KeyValue, error) {
 	return kv, err
 }
 
-func (it *tableReplica) logRange(req *kvapi.LogRangeRequest) (*kvapi.LogRangeResponse, error) {
+func (it *dbReplica) logRange(req *kvapi.LogRangeRequest) (*kvapi.LogRangeResponse, error) {
 
 	if req.UpperLog <= req.LowerLog {
 		req.UpperLog = 1 << 63
@@ -130,7 +130,7 @@ func (it *tableReplica) logRange(req *kvapi.LogRangeRequest) (*kvapi.LogRangeRes
 	return rs, nil
 }
 
-func (it *tableReplica) logKeyRangeMeta(req *kvapi.LogKeyRangeRequest) (*kvapi.ResultSet, error) {
+func (it *dbReplica) logKeyRangeMeta(req *kvapi.LogKeyRangeRequest) (*kvapi.ResultSet, error) {
 
 	var (
 		lowerKey  = keyEncode(nsKeyMeta, req.LowerKey)
@@ -179,7 +179,7 @@ func (it *tableReplica) logKeyRangeMeta(req *kvapi.LogKeyRangeRequest) (*kvapi.R
 	return rs, nil
 }
 
-func (it *tableReplica) _writePrepare(req *kvapi.WriteProposalRequest) (*kvapi.Meta, error) {
+func (it *dbReplica) _writePrepare(req *kvapi.WriteProposalRequest) (*kvapi.Meta, error) {
 
 	if it.cfg.Server.MetricsEnable {
 		t0 := time.Now()
@@ -240,7 +240,7 @@ func (it *tableReplica) _writePrepare(req *kvapi.WriteProposalRequest) (*kvapi.M
 	}, nil
 }
 
-func (it *tableReplica) _writeAccept(req *kvapi.WriteProposalRequest) (*kvapi.Meta, error) {
+func (it *dbReplica) _writeAccept(req *kvapi.WriteProposalRequest) (*kvapi.Meta, error) {
 
 	if it.cfg.Server.MetricsEnable {
 		t0 := time.Now()
@@ -372,7 +372,7 @@ func (it *tableReplica) _writeAccept(req *kvapi.WriteProposalRequest) (*kvapi.Me
 	}, nil
 }
 
-func (it *tableReplica) _deletePrepare(req *kvapi.DeleteProposalRequest) (*kvapi.Meta, error) {
+func (it *dbReplica) _deletePrepare(req *kvapi.DeleteProposalRequest) (*kvapi.Meta, error) {
 
 	if it.cfg.Server.MetricsEnable {
 		t0 := time.Now()
@@ -420,7 +420,7 @@ func (it *tableReplica) _deletePrepare(req *kvapi.DeleteProposalRequest) (*kvapi
 	}, nil
 }
 
-func (it *tableReplica) _deleteAccept(req *kvapi.DeleteProposalRequest) (*kvapi.Meta, error) {
+func (it *dbReplica) _deleteAccept(req *kvapi.DeleteProposalRequest) (*kvapi.Meta, error) {
 
 	if it.cfg.Server.MetricsEnable {
 		t0 := time.Now()
@@ -535,7 +535,7 @@ func (it *tableReplica) _deleteAccept(req *kvapi.DeleteProposalRequest) (*kvapi.
 	}, nil
 }
 
-func (it *tableReplica) trySplit(shard, next *kvapi.TableMap_Shard) ([]byte, error) {
+func (it *dbReplica) trySplit(shard, next *kvapi.DatabaseMap_Shard) ([]byte, error) {
 
 	rangeSize := func(lower, upper []byte) int64 {
 		rs, err := it.store.SizeOf([]*storage.IterOptions{{
@@ -554,8 +554,6 @@ func (it *tableReplica) trySplit(shard, next *kvapi.TableMap_Shard) ([]byte, err
 		leftKey  = bytesClone(startKey)
 		rightKey []byte
 
-		repSize  = float64(rangeSize(leftKey, rightKey))
-		midSize  = repSize * shardSplit_CapacityThreshold
 		capRatio = float64(1.0)
 
 		tn     = time.Now()
@@ -567,6 +565,11 @@ func (it *tableReplica) trySplit(shard, next *kvapi.TableMap_Shard) ([]byte, err
 	} else {
 		rightKey = bytesRepeat(keyEncode(nsKeyData, []byte{}), 0xff, 48)
 	}
+
+	var (
+		repSize = float64(rangeSize(leftKey, rightKey))
+		midSize = repSize * shardSplit_CapacityThreshold
+	)
 
 	for ; tryNum < 1024; tryNum++ {
 

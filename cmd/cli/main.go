@@ -18,12 +18,11 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"os"
 	"strings"
 
 	"github.com/chzyer/readline"
 
-	"github.com/lynkdb/kvgo/internal/cli"
+	"github.com/lynkdb/kvgo/v2/internal/cli"
 )
 
 func filterInput(r rune) (rune, bool) {
@@ -36,8 +35,7 @@ func filterInput(r rune) (rune, bool) {
 }
 
 func resetPrompt(l *readline.Instance) {
-	instanceName := ""
-	l.SetPrompt("\033[31mkvgo cli " + instanceName + ": \033[0m")
+	l.SetPrompt("kvgo cli : ")
 }
 
 var (
@@ -78,28 +76,7 @@ func main() {
 			break
 		}
 
-		var (
-			lineStr = strings.TrimSpace(line)
-			// lineArr = strings.Split(line, " ")
-			out string
-		)
-
-		switch {
-		case lineStr == "table create":
-			out, err = cli.TableCreate(l)
-
-		case lineStr == "status":
-			out, err = cli.Status(nil)
-
-		case lineStr == "help", lineStr == "h":
-			out, err = cmdHelp()
-
-		case lineStr == "quit", lineStr == "exit":
-			os.Exit(0)
-
-		default:
-			err = fmt.Errorf("unknown cmd %s\n", lineStr)
-		}
+		out, err := cli.Invoke(strings.TrimSpace(line), l)
 
 		if err != nil {
 			fmt.Println("Error:", err)
@@ -107,12 +84,4 @@ func main() {
 			fmt.Println(out)
 		}
 	}
-}
-
-func cmdHelp() (string, error) {
-	return `kvgo-cli usage:
-  status
-  help
-  quit
-`, nil
 }

@@ -39,7 +39,7 @@ func NewSystemAccessKey() *hauth.AccessKey {
 	key.Roles = []string{"sa"}
 	key.Scopes = []*hauth.ScopeFilter{
 		{
-			Name:  AuthScopeTable,
+			Name:  AuthScopeDatabase,
 			Value: "*",
 		},
 	}

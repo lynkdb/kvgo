@@ -23,12 +23,16 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
 
 type auditLogWriter struct {
 	mu  sync.Mutex
 	dir string
 	fp  *os.File
+
+	kv *dbReplica
 }
 
 type auditLogEntry struct {
@@ -93,6 +97,10 @@ func (w *auditLogWriter) write(bs []byte) {
 			w.fp.Sync()
 			w.fp = nil
 		}
+	}
+
+	if w.kv != nil {
+		w.kv.Write(kvapi.NewWriteRequest(nsSysAuditLog(true), bs))
 	}
 }
 

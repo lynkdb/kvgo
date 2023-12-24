@@ -21,16 +21,17 @@ type Client interface {
 	Range(req *RangeRequest) *ResultSet
 	Batch(req *BatchRequest) *BatchResponse
 
-	SetTable(name string) Client
+	SetDatabase(name string) Client
 
 	Close() error
 }
 
 type AdminClient interface {
-	TableCreate(req *TableCreateRequest) *ResultSet
-	TableAlter(req *TableAlterRequest) *ResultSet
-	TableList(req *TableListRequest) *ResultSet
+	DatabaseList(req *DatabaseListRequest) *ResultSet
+	DatabaseCreate(req *DatabaseCreateRequest) *ResultSet
+	DatabaseUpdate(req *DatabaseUpdateRequest) *ResultSet
 	Status(req *StatusRequest) *ResultSet
+	SysGet(req *SysGetRequest) *ResultSet
 	Close() error
 }
 

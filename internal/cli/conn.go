@@ -19,18 +19,16 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"sync"
 
 	"github.com/hooto/htoml4g/htoml"
 
-	"github.com/lynkdb/kvgo/internal/server"
-	"github.com/lynkdb/kvgo/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/internal/server"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
 
 var (
 	Prefix      string
 	adminClient kvapi.AdminClient
-	mu          sync.RWMutex
 	cfg         server.ClientConfig
 	err         error
 )
@@ -39,7 +37,7 @@ func Setup() error {
 
 	{
 		if Prefix, err = filepath.Abs(filepath.Dir(os.Args[0]) + "/.."); err != nil {
-			Prefix = "/opt/lynkdb/kvgo"
+			Prefix = "/opt/lynkdb/kvgo/v2"
 		}
 
 		var (

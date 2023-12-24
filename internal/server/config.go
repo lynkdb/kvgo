@@ -20,7 +20,7 @@ import (
 	"strings"
 
 	hauth "github.com/hooto/hauth/go/hauth/v1"
-	"github.com/lynkdb/kvgo/pkg/storage"
+	"github.com/lynkdb/kvgo/v2/pkg/storage"
 )
 
 type Config struct {
@@ -111,10 +111,10 @@ type ConfigCluster struct {
 
 // type ConfigReplicaOfNode struct {
 // 	*ClientConfig
-// 	TableMaps []*ConfigReplicaTableMap `toml:"table_maps" json:"table_maps"`
+// 	DatabaseMaps []*ConfigReplicaDatabaseMap `toml:"table_maps" json:"table_maps"`
 // }
 //
-// type ConfigReplicaTableMap struct {
+// type ConfigReplicaDatabaseMap struct {
 // 	From string `toml:"from" json:"from"`
 // 	To   string `toml:"to" json:"to"`
 // }
@@ -181,6 +181,14 @@ func (it *Config) Reset() *Config {
 
 	if it.Storage.Engine == "" {
 		it.Storage.Engine = storage.DriverV2
+	}
+
+	if it.Server.ID == "" {
+		it.Server.ID = randHexString(16)
+	}
+
+	if it.Server.RuntimeMode == "" {
+		it.Server.RuntimeMode = StandaloneMode
 	}
 
 	if it.Performance.WriteBufferSize < 2 {

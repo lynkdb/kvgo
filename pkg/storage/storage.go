@@ -143,9 +143,17 @@ type Conn interface {
 	// SizeOf calculates approximate sizes of the given key ranges.
 	SizeOf(args []*IterOptions) ([]int64, error)
 
+	// Info
+	// Info() *Info
+
 	// Close closes the DB. This will also releases any outstanding snapshot,
 	// abort any in-flight compaction and discard open transaction.
 	Close() error
+}
+
+type Info struct {
+	Spec   string `json:"spec"`
+	Status string `json:"status"`
 }
 
 // Iterator is the interface that wraps iterator methods.

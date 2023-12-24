@@ -35,7 +35,7 @@ import (
 
 	"github.com/cespare/xxhash"
 
-	"github.com/lynkdb/kvgo/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
 
 var (
@@ -217,6 +217,10 @@ func batchResultDataSize(rs *kvapi.BatchResponse) int64 {
 
 func timeNow() time.Time {
 	return time.Now()
+}
+
+func timens() int64 {
+	return (time.Now().UnixNano())
 }
 
 func timeus() int64 {

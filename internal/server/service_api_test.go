@@ -24,10 +24,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lynkdb/kvgo/internal/server"
-	"github.com/lynkdb/kvgo/pkg/kvapi"
-	"github.com/lynkdb/kvgo/pkg/storage"
-	_ "github.com/lynkdb/kvgo/pkg/storage/pebble"
+	"github.com/lynkdb/kvgo/v2/internal/server"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/storage"
+	_ "github.com/lynkdb/kvgo/v2/pkg/storage/pebble"
 )
 
 func Test_ServiceApi_Base(t *testing.T) {
@@ -38,7 +38,7 @@ func Test_ServiceApi_Base(t *testing.T) {
 	}
 	defer sess.release()
 
-	tbl, err := server.NewTable(sess.db, "0002", "api_test", 1, 2, &server.Config{})
+	tbl, err := server.NewDatabase(sess.db, "0002", "api_test", 1, 2, &server.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}

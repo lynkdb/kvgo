@@ -23,17 +23,17 @@ import (
 
 	"github.com/hooto/hlog4g/hlog"
 
-	"github.com/lynkdb/kvgo/pkg/kvapi"
-	"github.com/lynkdb/kvgo/pkg/storage"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/storage"
 )
 
-type tableReplica struct {
+type dbReplica struct {
 	mu sync.RWMutex
 
 	inited bool
 
-	tableId   string
-	tableName string
+	dbId   string
+	dbName string
 
 	shardId   uint64
 	replicaId uint64
@@ -43,14 +43,14 @@ type tableReplica struct {
 	store storage.Conn
 
 	incrMu     sync.RWMutex
-	incrStates map[string]*tableReplicaIncrState
+	incrStates map[string]*dbReplicaIncrState
 
 	verMu     sync.RWMutex
 	verOffset uint64
 	verCutset uint64
 
 	logMu    sync.RWMutex
-	logState tableReplicaLogState
+	logState dbReplicaLogState
 
 	taskMut sync.Map
 
@@ -111,40 +111,40 @@ type proposalx struct {
 }
 
 var (
-	tableReplicaMut sync.Mutex
-	tableReplicaSet = map[string]*tableReplica{}
+	dbReplicaMut sync.Mutex
+	dbReplicaSet = map[string]*dbReplica{}
 )
 
-func NewTable(
+func NewDatabase(
 	store storage.Conn,
-	tableId, tableName string,
+	dbId, dbName string,
 	shardId, replicaId uint64,
 	cfg *Config,
-) (*tableReplica, error) {
+) (*dbReplica, error) {
 
 	if cfg == nil {
 		panic("config not setup")
 	}
 
-	tableReplicaMut.Lock()
-	defer tableReplicaMut.Unlock()
+	dbReplicaMut.Lock()
+	defer dbReplicaMut.Unlock()
 
-	k := fmt.Sprintf("%s.%d", tableId, replicaId)
-	if tableId == sysTableId {
+	k := fmt.Sprintf("%s.%d", dbId, replicaId)
+	if dbId == sysDatabaseId {
 		k = cfg.Storage.DataDirectory
 	}
 
-	dt, ok := tableReplicaSet[k]
+	dt, ok := dbReplicaSet[k]
 	if ok {
 		return dt, nil
 	}
 
-	dt = &tableReplica{
+	dt = &dbReplica{
 		store:      store,
-		tableName:  tableName,
+		dbName:  dbName,
 		shardId:    shardId,
 		replicaId:  replicaId,
-		incrStates: map[string]*tableReplicaIncrState{},
+		incrStates: map[string]*dbReplicaIncrState{},
 		proposals:  map[string]*proposalx{},
 		cfg:        cfg,
 	}
@@ -152,13 +152,13 @@ func NewTable(
 	dt.cfg.Reset()
 
 	if rs := dt.store.Get(keySysInstanceId, nil); rs.OK() {
-		dt.tableId = string(rs.Bytes())
-		if dt.tableId != tableId {
-			return nil, errors.New("table id conflict")
+		dt.dbId = string(rs.Bytes())
+		if dt.dbId != dbId {
+			return nil, errors.New("database id conflict")
 		}
 	} else if rs.NotFound() {
-		dt.tableId = tableId
-		rs = dt.store.Put(keySysInstanceId, []byte(dt.tableId), &storage.WriteOptions{
+		dt.dbId = dbId
+		rs = dt.store.Put(keySysInstanceId, []byte(dt.dbId), &storage.WriteOptions{
 			Sync: true,
 		})
 	} else if !rs.OK() {
@@ -169,12 +169,12 @@ func NewTable(
 		return nil, err
 	}
 
-	tableReplicaSet[k] = dt
+	dbReplicaSet[k] = dt
 
 	return dt, nil
 }
 
-func (it *tableReplica) init() error {
+func (it *dbReplica) init() error {
 
 	var err error
 
@@ -209,7 +209,7 @@ func (it *tableReplica) init() error {
 		defer iter.Release()
 
 		for ok := iter.SeekToFirst(); ok; ok = iter.Next() {
-			var item tableReplicaIncrState
+			var item dbReplicaIncrState
 			if err := jsonDecode(iter.Value(), &item); err != nil {
 				return err
 			}
@@ -220,7 +220,7 @@ func (it *tableReplica) init() error {
 	return nil
 }
 
-func (it *tableReplica) versionSync(incr, set uint64) (uint64, error) {
+func (it *dbReplica) versionSync(incr, set uint64) (uint64, error) {
 
 	it.verMu.Lock()
 	defer it.verMu.Unlock()
@@ -272,8 +272,8 @@ func (it *tableReplica) versionSync(incr, set uint64) (uint64, error) {
 				return 0, ss.Error()
 			}
 
-			hlog.Printf("debug", "table %s, reset version to %d~%d",
-				it.tableName, it.verOffset+incr, cutset)
+			hlog.Printf("debug", "database %s, reset version to %d~%d",
+				it.dbName, it.verOffset+incr, cutset)
 
 			it.verCutset = cutset
 		}
@@ -284,7 +284,7 @@ func (it *tableReplica) versionSync(incr, set uint64) (uint64, error) {
 	return it.verOffset, nil
 }
 
-func (it *tableReplica) logSync(incr, reten uint64) (uint64, error) {
+func (it *dbReplica) logSync(incr, reten uint64) (uint64, error) {
 
 	// it.logMu.Lock()
 	// defer it.logMu.Unlock()
@@ -331,8 +331,8 @@ func (it *tableReplica) logSync(incr, reten uint64) (uint64, error) {
 		}
 		it.logState.Cutset = logStateNew.Cutset
 
-		hlog.Printf("debug", "table %s, reset log-id to %d~%d",
-			it.tableName, it.logState.Offset+incr, it.logState.Cutset)
+		hlog.Printf("debug", "database %s, reset log-id to %d~%d",
+			it.dbName, it.logState.Offset+incr, it.logState.Cutset)
 	}
 
 	it.logState.Offset += incr
@@ -340,7 +340,7 @@ func (it *tableReplica) logSync(incr, reten uint64) (uint64, error) {
 	return it.logState.Offset, nil
 }
 
-func (it *tableReplica) incrSync(ns string, incr, set uint64) (uint64, error) {
+func (it *dbReplica) incrSync(ns string, incr, set uint64) (uint64, error) {
 
 	it.incrMu.Lock()
 	defer it.incrMu.Unlock()
@@ -352,12 +352,12 @@ func (it *tableReplica) incrSync(ns string, incr, set uint64) (uint64, error) {
 	incrState := it.incrStates[ns]
 
 	if incrState == nil {
-		incrState = &tableReplicaIncrState{
+		incrState = &dbReplicaIncrState{
 			Namespace: ns,
 		}
 		it.incrStates[ns] = incrState
 
-		var item tableReplicaIncrState
+		var item dbReplicaIncrState
 		if rs := it.store.Get(keySysIncrCutset(ns), nil); rs.NotFound() {
 		} else if !rs.OK() {
 			return 0, rs.Error()
@@ -387,7 +387,7 @@ func (it *tableReplica) incrSync(ns string, incr, set uint64) (uint64, error) {
 
 			cutset := incrState.Offset + incr + 100
 
-			if rs := it.store.Put(keySysIncrCutset(ns), jsonEncode(&tableReplicaIncrState{
+			if rs := it.store.Put(keySysIncrCutset(ns), jsonEncode(&dbReplicaIncrState{
 				Namespace: incrState.Namespace,
 				Offset:    incrState.Offset,
 				Cutset:    cutset,
@@ -406,7 +406,7 @@ func (it *tableReplica) incrSync(ns string, incr, set uint64) (uint64, error) {
 	return incrState.Offset, nil
 }
 
-func (it *tableReplica) Close() error {
+func (it *dbReplica) Close() error {
 
 	if it.close || it.store == nil {
 		return nil
@@ -428,8 +428,8 @@ func (it *tableReplica) Close() error {
 				}); !rs.OK() {
 					hlog.Printf("info", "db error %s", rs.ErrorMessage())
 				} else {
-					hlog.Printf("info", "kvgo table %s, flush incr ns:%s offset %d",
-						it.tableName, ns, incrState.Offset)
+					hlog.Printf("info", "kvgo database %s, flush incr ns:%s offset %d",
+						it.dbName, ns, incrState.Offset)
 				}
 			}
 		}
@@ -449,7 +449,7 @@ func (it *tableReplica) Close() error {
 				}); !rs.OK() {
 				hlog.Printf("info", "db error %s", rs.ErrorMessage())
 			} else {
-				hlog.Printf("info", "kvgo table %s, flush log-id offset %d", it.tableName, it.verCutset)
+				hlog.Printf("info", "kvgo database %s, flush log-id offset %d", it.dbName, it.verCutset)
 			}
 		}
 	}

@@ -17,7 +17,7 @@ package server
 import (
 	"sort"
 
-	"github.com/lynkdb/kvgo/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
 
 const jobRebalanceName = "job-rebalance"
@@ -39,7 +39,7 @@ func (it *dbServer) jobReplicaRebalanceSetup(force bool) error {
 		vs = it.storeMgr.stats(jobRebalanceName)
 	)
 
-	rebalanceCheck := func(tm *tableMap, mapData *kvapi.TableMap) (chg bool) {
+	rebalanceCheck := func(tm *dbMap, mapData *kvapi.DatabaseMap) (chg bool) {
 
 		chgVersion := mapData.Version + 1
 
@@ -122,11 +122,11 @@ func (it *dbServer) jobReplicaRebalanceSetup(force bool) error {
 	}
 
 	type rebalanceEntry struct {
-		shard      *kvapi.TableMap_Shard
-		dstReplica *kvapi.TableMap_Replica
+		shard      *kvapi.DatabaseMap_Shard
+		dstReplica *kvapi.DatabaseMap_Replica
 	}
 
-	rebalanceSchedule := func(tm *tableMap, mapData *kvapi.TableMap) (*rebalanceEntry, bool) {
+	rebalanceSchedule := func(tm *dbMap, mapData *kvapi.DatabaseMap) (*rebalanceEntry, bool) {
 
 		if len(vs.Items) < 2 {
 			return nil, false
@@ -152,12 +152,12 @@ func (it *dbServer) jobReplicaRebalanceSetup(force bool) error {
 
 		var (
 			hitStore   = vs.Items[len(vs.Items)-1]
-			hitShard   *kvapi.TableMap_Shard
-			srcReplica *kvapi.TableMap_Replica
+			hitShard   *kvapi.DatabaseMap_Shard
+			srcReplica *kvapi.DatabaseMap_Replica
 			tn         = timesec()
 		)
 
-		storeContains := func(shard *kvapi.TableMap_Shard, storeId uint64) bool {
+		storeContains := func(shard *kvapi.DatabaseMap_Shard, storeId uint64) bool {
 			for _, rep := range shard.Replicas {
 				if rep.StoreId == storeId {
 					return true
@@ -187,7 +187,7 @@ func (it *dbServer) jobReplicaRebalanceSetup(force bool) error {
 
 			if ss.avgSize < shardSplit_CapacitySize_Min ||
 				ss.avgSize > shardSplit_CapacitySize_Max {
-				// continue
+				continue
 			}
 
 			for _, rep := range shard.Replicas {
@@ -211,7 +211,7 @@ func (it *dbServer) jobReplicaRebalanceSetup(force bool) error {
 
 		mapData.Version += 1
 
-		dstReplica := &kvapi.TableMap_Replica{
+		dstReplica := &kvapi.DatabaseMap_Replica{
 			Id:      tm.nextIncr(),
 			Prev:    srcReplica.Id,
 			StoreId: vs.Items[0].status.Id,
@@ -233,14 +233,14 @@ func (it *dbServer) jobReplicaRebalanceSetup(force bool) error {
 		}, true
 	}
 
-	tableAction := func(tm *tableMap) {
+	dbAction := func(tm *dbMap) {
 
 		it.jobSetupMut.Lock()
 		defer it.jobSetupMut.Unlock()
 
 		var (
 			prevVersion = tm.mapMeta.Version
-			mapData     kvapi.TableMap
+			mapData     kvapi.DatabaseMap
 			chg         bool
 		)
 
@@ -268,7 +268,7 @@ func (it *dbServer) jobReplicaRebalanceSetup(force bool) error {
 			return
 		}
 
-		trep, err := NewTable(store, tm.data.Id, tm.data.Name, reEntry.shard.Id, reEntry.dstReplica.Id, tm.cfg)
+		trep, err := NewDatabase(store, tm.data.Id, tm.data.Name, reEntry.shard.Id, reEntry.dstReplica.Id, tm.cfg)
 		if err != nil {
 			return
 		}
@@ -279,7 +279,7 @@ func (it *dbServer) jobReplicaRebalanceSetup(force bool) error {
 		// jsonPrint("rebalance stores", vs)
 	}
 
-	it.tableMapMgr.iter(tableAction)
+	it.dbMapMgr.iter(dbAction)
 
 	return nil
 }

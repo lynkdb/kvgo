@@ -19,7 +19,7 @@ import (
 )
 
 var (
-	TableNameRX = regexp.MustCompile("^[a-z]{1}[a-z0-9\\-\\_\\/\\:\\.]{3,63}$")
+	DatabaseNameRX = regexp.MustCompile("^[a-z]{1}[a-z0-9\\-\\_\\/\\:\\.]{3,63}$")
 
 	IncrNamespaceRX = regexp.MustCompile("^[a-z]{1}[a-z0-9_]{3,31}$")
 )

@@ -20,7 +20,7 @@ import (
 
 	"github.com/hooto/hlog4g/hlog"
 
-	"github.com/lynkdb/kvgo/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
 
 func (it *dbServer) jobShardSplitSetup() error {
@@ -35,19 +35,19 @@ func (it *dbServer) jobShardSplitSetup() error {
 	}()
 
 	type replicaItem struct {
-		rep  *tableReplica
+		rep  *dbReplica
 		size int64
 		dist int64
 	}
 
 	type shardItem struct {
-		shard    *kvapi.TableMap_Shard
-		next     *kvapi.TableMap_Shard
+		shard    *kvapi.DatabaseMap_Shard
+		next     *kvapi.DatabaseMap_Shard
 		sizeAvg  int64
 		replicas []*replicaItem
 	}
 
-	splitInCheck := func(tm *tableMap, shard *kvapi.TableMap_Shard) bool {
+	splitInCheck := func(tm *dbMap, shard *kvapi.DatabaseMap_Shard) bool {
 
 		if !kvapi.AttrAllow(shard.Action, kShardSetup_SplitIn) {
 			return false
@@ -72,12 +72,12 @@ func (it *dbServer) jobShardSplitSetup() error {
 		shard.Action = kvapi.AttrRemove(shard.Action, kShardSetup_SplitIn)
 		shard.Updated = timesec()
 
-		it.auditLogger.Put("split", "table %s, shard %d, split-in done", tm.data.Name, shard.Id)
+		it.auditLogger.Put("split", "database %s, shard %d, split-in done", tm.data.Name, shard.Id)
 
 		return true
 	}
 
-	splitOutCheck := func(tm *tableMap, shard *kvapi.TableMap_Shard) bool {
+	splitOutCheck := func(tm *dbMap, shard *kvapi.DatabaseMap_Shard) bool {
 
 		if !kvapi.AttrAllow(shard.Action, kShardSetup_SplitOut) {
 			return false
@@ -106,12 +106,12 @@ func (it *dbServer) jobShardSplitSetup() error {
 		shard.Action = kvapi.AttrRemove(shard.Action, kShardSetup_SplitOut)
 		shard.Updated = timesec()
 
-		it.auditLogger.Put("split", "table %s, shard %d, split-out done", tm.data.Name, shard.Id)
+		it.auditLogger.Put("split", "database %s, shard %d, split-out done", tm.data.Name, shard.Id)
 
 		return true
 	}
 
-	splitAction := func(tm *tableMap, shard *shardItem) *kvapi.TableMap_Shard {
+	splitAction := func(tm *dbMap, shard *shardItem) *kvapi.DatabaseMap_Shard {
 
 		for _, v := range shard.replicas {
 			v.dist = absInt64(shard.sizeAvg - v.size)
@@ -130,13 +130,13 @@ func (it *dbServer) jobShardSplitSetup() error {
 		it.jobSetupMut.Lock()
 		defer it.jobSetupMut.Unlock()
 
-		var mapData kvapi.TableMap
+		var mapData kvapi.DatabaseMap
 		if err := objectClone(tm.mapData, &mapData); err != nil {
 			testPrintf("spit err %v", err)
 			return nil
 		}
 
-		var lowerShard *kvapi.TableMap_Shard
+		var lowerShard *kvapi.DatabaseMap_Shard
 		for _, v := range mapData.Shards {
 			if v.Id == shard.shard.Id {
 				lowerShard = v
@@ -148,9 +148,13 @@ func (it *dbServer) jobShardSplitSetup() error {
 			return nil
 		}
 
+		if bytes.Compare(mk, lowerShard.LowerKey) <= 0 {
+			return nil
+		}
+
 		mapData.Version += 1
 
-		upperShard := &kvapi.TableMap_Shard{
+		upperShard := &kvapi.DatabaseMap_Shard{
 			Id:       tm.nextIncr(),
 			Prev:     lowerShard.Id,
 			Version:  mapData.Version,
@@ -159,7 +163,7 @@ func (it *dbServer) jobShardSplitSetup() error {
 			Updated:  timesec(),
 		}
 		for _, rep := range lowerShard.Replicas {
-			upperShard.Replicas = append(upperShard.Replicas, &kvapi.TableMap_Replica{
+			upperShard.Replicas = append(upperShard.Replicas, &kvapi.DatabaseMap_Replica{
 				Id:      tm.nextIncr(),
 				StoreId: rep.StoreId,
 				Action:  kReplicaSetup_In,
@@ -177,8 +181,12 @@ func (it *dbServer) jobShardSplitSetup() error {
 			return bytes.Compare(mapData.Shards[i].LowerKey, mapData.Shards[j].LowerKey) < 0
 		})
 
-		wr := kvapi.NewWriteRequest(nsSysTableMap(tm.data.Id), jsonEncode(mapData))
-		wr.Table = sysTableName
+		if mapData.IncrId < tm.mapData.IncrId {
+			mapData.IncrId = tm.mapData.IncrId
+		}
+
+		wr := kvapi.NewWriteRequest(nsSysDatabaseMap(tm.data.Id), jsonEncode(mapData))
+		wr.Database = sysDatabaseName
 		wr.PrevVersion = tm.mapMeta.Version
 
 		rs, err := it.api.Write(nil, wr)
@@ -208,7 +216,7 @@ func (it *dbServer) jobShardSplitSetup() error {
 					continue
 				}
 
-				trep, err := NewTable(store, tm.data.Id, tm.data.Name, upperShard.Id, rep.Id, tm.cfg)
+				trep, err := NewDatabase(store, tm.data.Id, tm.data.Name, upperShard.Id, rep.Id, tm.cfg)
 				if err != nil {
 					continue
 				}
@@ -219,10 +227,10 @@ func (it *dbServer) jobShardSplitSetup() error {
 				tm.syncStatusReplica(rep.Id, kReplicaStatus_In)
 			}
 
-			hlog.Printf("error", "job updated, table %s, version %d, shards %d",
+			hlog.Printf("error", "job updated, database %s, version %d, shards %d",
 				tm.data.Name, shard.shard.Version, len(mapData.Shards))
 
-			it.auditLogger.Put("split", "table %s, shard %d to %d, split start",
+			it.auditLogger.Put("split", "database %s, shard %d to %d, split start",
 				tm.data.Name, lowerShard.Id, upperShard.Id)
 
 		} else {
@@ -232,7 +240,7 @@ func (it *dbServer) jobShardSplitSetup() error {
 		return upperShard
 	}
 
-	tableAction := func(tm *tableMap) {
+	dbAction := func(tm *dbMap) {
 
 		var (
 			shardItems = []*shardItem{}
@@ -242,7 +250,7 @@ func (it *dbServer) jobShardSplitSetup() error {
 		for i, shard := range tm.mapData.Shards {
 
 			if len(shard.Replicas) != int(tm.data.ReplicaNum) {
-				testPrintf("shard %d %d %d", shard.Id, len(shard.Replicas), tm.data.ReplicaNum)
+				// testPrintf("shard %d %d %d", shard.Id, len(shard.Replicas), tm.data.ReplicaNum)
 				continue
 			}
 
@@ -316,7 +324,7 @@ func (it *dbServer) jobShardSplitSetup() error {
 		splitAction(tm, shardItems[0])
 	}
 
-	it.tableMapMgr.iter(tableAction)
+	it.dbMapMgr.iter(dbAction)
 
 	return nil
 }

@@ -17,12 +17,12 @@ package server
 import (
 	"errors"
 
-	"github.com/lynkdb/kvgo/pkg/kvapi"
-	"github.com/lynkdb/kvgo/pkg/storage"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/storage"
 )
 
-func (it *tableReplica) _task_deleteRange(ds *dbServer,
-	shard *kvapi.TableMap_Shard, lowerKey, upperKey []byte,
+func (it *dbReplica) _task_deleteRange(ds *dbServer,
+	shard *kvapi.DatabaseMap_Shard, lowerKey, upperKey []byte,
 ) error {
 	if it.close || it.store == nil {
 		return errors.New("logic deny")
@@ -60,16 +60,16 @@ func (it *tableReplica) _task_deleteRange(ds *dbServer,
 		}
 	}
 
-	ds.auditLogger.Put("range-delete", "table %s:%s, shard %d, rep %d, key-range deleted",
-		it.tableName, it.tableId, shard.Id, it.replicaId)
+	ds.auditLogger.Put("range-delete", "database %s:%s, shard %d, rep %d, key-range deleted",
+		it.dbName, it.dbId, shard.Id, it.replicaId)
 
 	it.status.storageUsed.mapVersion = 0
 
 	return nil
 }
 
-func (it *tableReplica) taskStatusRefresh(
-	shard *kvapi.TableMap_Shard, lowerKey, upperKey []byte, forceRefresh bool,
+func (it *dbReplica) taskStatusRefresh(
+	shard *kvapi.DatabaseMap_Shard, lowerKey, upperKey []byte, forceRefresh bool,
 ) error {
 	if it.close || it.store == nil {
 		return nil
@@ -91,8 +91,8 @@ func (it *tableReplica) taskStatusRefresh(
 			it.status.kvWriteSize.Load() < (shardSplit_CapacitySize_Min/2) {
 			// testPrintf("replica %d, version diff %v, sec %d, kv-write-size %d %d",
 			// 	it.replicaId,
-			// 	it.syncStatus.MapVersion == shard.Version,
-			// 	tn-it.syncStatus.Updated,
+			// 	it.status.storageUsed.mapVersion == shard.Version,
+			// 	tn-it.status.storageUsed.updated,
 			// 	it.status.kvWriteKeys.Load(), it.status.kvWriteSize.Load()/(1<<20))
 			return nil
 		}
@@ -112,13 +112,14 @@ func (it *tableReplica) taskStatusRefresh(
 			},
 		})
 		if err != nil {
+			testPrintf("size of %v", err)
 			return err
 		}
 
-		// testPrintf("replica status refresh : rep %d:%d ver %d+, write-size %d db-size %d, key %v",
-		// 	shard.shardId, it.replicaId, int64(shard.mapVersion)-int64(it.syncStatus.MapVersion),
-		// 	it.status.kvWriteSize.Load()/(1<<20), rs[0]/(1<<20),
-		// 	string(lowerKey))
+		testPrintf("replica status refresh : rep %d:%d ver %d+, write-size %d db-size %d, key %v",
+			shard.Id, it.replicaId, int64(shard.Version)-int64(it.status.storageUsed.mapVersion),
+			it.status.kvWriteSize.Load()/(1<<20), rs[0]/(1<<20),
+			string(lowerKey))
 
 		it.status.storageUsed.mapVersion = shard.Version
 		it.status.storageUsed.updated = tn

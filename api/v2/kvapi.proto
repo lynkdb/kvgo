@@ -63,7 +63,7 @@ message Meta {
 }
 
 message WriteRequest {
-  string table = 1;
+  string database = 1;
 
   bytes key = 2;
   bytes value = 3;
@@ -82,7 +82,7 @@ message WriteRequest {
 }
 
 message DeleteRequest {
-  string table = 1;
+  string database = 1;
 
   bytes key = 2;
 
@@ -96,13 +96,13 @@ message DeleteRequest {
 }
 
 message ReadRequest {
-  string table = 1;
+  string database = 1;
   repeated bytes keys = 2;
   uint64 attrs = 5;
 }
 
 message RangeRequest {
-  string table = 1;
+  string database = 1;
   bytes lower_key = 2;
   bytes upper_key = 3;
   uint64 attrs = 5;
@@ -120,7 +120,7 @@ message RequestUnion {
 }
 
 message BatchRequest {
-  string table = 1;
+  string database = 1;
   repeated RequestUnion items = 9;
 }
 
@@ -155,37 +155,46 @@ service Kvgo {
   rpc Batch(BatchRequest) returns (BatchResponse) {}
 }
 
-message Table {
+message Database {
   string id = 1;
   string name = 2;
   string engine = 3;
   uint32 replica_num = 4;
+  string desc = 5;
 }
 
-message TableCreateRequest {
+message DatabaseListRequest {}
+
+message DatabaseCreateRequest {
   string name = 2;
   string engine = 3;
   uint32 replica_num = 4;
+  string desc = 5;
   map<string, string> options = 9;
 }
 
-message TableAlterRequest {
+message DatabaseUpdateRequest {
   string name = 2;
   string engine = 3;
   uint32 replica_num = 4;
+  string desc = 5;
 }
 
-message TableListRequest {}
-
-message TableListResponse {
-  repeated Table items = 9;
+message DatabaseListResponse {
+  repeated Database items = 9;
 }
 
 message StatusRequest {}
 
+message SysGetRequest {
+  string name = 1;
+  int64 limit = 2;
+}
+
 service KvgoAdmin {
-  rpc TableCreate(TableCreateRequest) returns (ResultSet) {}
-  rpc TableAlter(TableAlterRequest) returns (ResultSet) {}
-  rpc TableList(TableListRequest) returns (ResultSet) {}
+  rpc DatabaseList(DatabaseListRequest) returns (ResultSet) {}
+  rpc DatabaseCreate(DatabaseCreateRequest) returns (ResultSet) {}
+  rpc DatabaseUpdate(DatabaseUpdateRequest) returns (ResultSet) {}
   rpc Status(StatusRequest) returns (ResultSet) {}
+  rpc SysGet(SysGetRequest) returns (ResultSet) {}
 }

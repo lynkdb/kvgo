@@ -206,29 +206,29 @@ func (it *BatchRequest) Valid() error {
 			return errors.New("request empty")
 		}
 
-		reqTable := ""
+		reqDatabase := ""
 
 		switch req.Value.(type) {
 		case *RequestUnion_Write:
-			reqTable = req.Value.(*RequestUnion_Write).Write.Table
+			reqDatabase = req.Value.(*RequestUnion_Write).Write.Database
 
 		case *RequestUnion_Delete:
-			reqTable = req.Value.(*RequestUnion_Delete).Delete.Table
+			reqDatabase = req.Value.(*RequestUnion_Delete).Delete.Database
 
 		case *RequestUnion_Read:
-			reqTable = req.Value.(*RequestUnion_Read).Read.Table
+			reqDatabase = req.Value.(*RequestUnion_Read).Read.Database
 
 		case *RequestUnion_Range:
-			reqTable = req.Value.(*RequestUnion_Range).Range.Table
+			reqDatabase = req.Value.(*RequestUnion_Range).Range.Database
 
 		default:
 			return errors.New("invalid request type")
 		}
 
-		if it.Table == "" && reqTable != "" {
-			it.Table = reqTable
-		} else if reqTable != "" && it.Table != reqTable {
-			return errors.New("all subrequests can only operate on the same table")
+		if it.Database == "" && reqDatabase != "" {
+			it.Database = reqDatabase
+		} else if reqDatabase != "" && it.Database != reqDatabase {
+			return errors.New("all subrequests can only operate on the same database")
 		}
 	}
 

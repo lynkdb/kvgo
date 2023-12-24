@@ -21,12 +21,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lynkdb/kvgo/pkg/kvapi"
-	"github.com/lynkdb/kvgo/pkg/storage"
-	_ "github.com/lynkdb/kvgo/pkg/storage/pebble"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/storage"
+	_ "github.com/lynkdb/kvgo/v2/pkg/storage/pebble"
 )
 
-func Test_TableReplica_Task(t *testing.T) {
+func Test_DatabaseReplica_Task(t *testing.T) {
 
 	// reset global params for test only
 	{
@@ -39,7 +39,7 @@ func Test_TableReplica_Task(t *testing.T) {
 	}
 
 	const (
-		test_TableReplica_Task = "test_tablereplica_task"
+		test_DatabaseReplica_Task = "test_db_replica_task"
 	)
 
 	//
@@ -50,32 +50,32 @@ func Test_TableReplica_Task(t *testing.T) {
 	defer sess.release()
 
 	{
-		if rs := sess.ac.TableCreate(&kvapi.TableCreateRequest{
-			Name:       test_TableReplica_Task,
+		if rs := sess.ac.DatabaseCreate(&kvapi.DatabaseCreateRequest{
+			Name:       test_DatabaseReplica_Task,
 			Engine:     storage.DefaultDriver,
 			ReplicaNum: 3,
 		}); !rs.OK() {
 			t.Fatal(rs.StatusMessage)
 		} else {
-			t.Logf("table create ok, meta %v", rs.Meta())
+			t.Logf("database create ok, meta %v", rs.Meta())
 		}
 	}
 
-	sess.c.SetTable(test_TableReplica_Task)
+	sess.c.SetDatabase(test_DatabaseReplica_Task)
 
 	statusRefresh := func(r int) {
 		// force update status
 		sess.db.taskReplicaListRefresh(true)
 
 		// check db size
-		var tm = sess.db.tableMapMgr.getByName(test_TableReplica_Task)
+		var tm = sess.db.dbMapMgr.getByName(test_DatabaseReplica_Task)
 		if tm == nil {
-			t.Fatalf("setup table fail")
+			t.Fatalf("setup database fail")
 		}
 
 		tn := timesec()
 
-		tm.iterStatusDisplay(func(shard *kvapi.TableMap_Shard, shardStatus string, repStatus []string) {
+		tm.iterStatusDisplay(func(shard *kvapi.DatabaseMap_Shard, shardStatus string, repStatus []string) {
 			t.Logf("#%d, shard % 4d %s %ds, replica status [%s], key %v",
 				r, shard.Id, shardStatus, tn-shard.Updated,
 				strings.Join(repStatus, "] ["), shard.LowerKey)
@@ -121,9 +121,9 @@ func Test_TableReplica_Task(t *testing.T) {
 			sess.db.taskReplicaListRefresh(true)
 
 			// check db size
-			var tm = sess.db.tableMapMgr.getByName(test_TableReplica_Task)
+			var tm = sess.db.dbMapMgr.getByName(test_DatabaseReplica_Task)
 			if tm == nil {
-				t.Fatalf("setup table fail")
+				t.Fatalf("setup database fail")
 			}
 
 			var shards = tm.lookupByRange([]byte{}, []byte{0xff}, false)

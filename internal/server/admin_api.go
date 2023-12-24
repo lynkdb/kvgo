@@ -16,12 +16,14 @@ package server
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/hooto/hlog4g/hlog"
 	"google.golang.org/grpc"
 
-	"github.com/lynkdb/kvgo/pkg/kvapi"
-	"github.com/lynkdb/kvgo/pkg/storage"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/storage"
 )
 
 type serviceAdminImpl struct {
@@ -32,9 +34,9 @@ type serviceAdminImpl struct {
 
 var _ kvapi.KvgoAdminServer = &serviceAdminImpl{}
 
-func (it *serviceAdminImpl) TableList(
+func (it *serviceAdminImpl) DatabaseList(
 	ctx context.Context,
-	req *kvapi.TableListRequest,
+	req *kvapi.DatabaseListRequest,
 ) (*kvapi.ResultSet, error) {
 
 	if !it.dbServer.cfg.Server.IsStandaloneMode() {
@@ -47,7 +49,7 @@ func (it *serviceAdminImpl) TableList(
 
 	rs := newResultSetOK()
 
-	it.dbServer.tableMapMgr.iter(func(tbl *tableMap) {
+	it.dbServer.dbMapMgr.iter(func(tbl *dbMap) {
 		if tbl.data != nil {
 			resultSetAppendWithJsonObject(rs, []byte(tbl.data.Name), tbl.meta, tbl.data)
 		}
@@ -56,18 +58,18 @@ func (it *serviceAdminImpl) TableList(
 	return rs, nil
 }
 
-func (it *serviceAdminImpl) TableCreate(
+func (it *serviceAdminImpl) DatabaseCreate(
 	ctx context.Context,
-	req *kvapi.TableCreateRequest,
+	req *kvapi.DatabaseCreateRequest,
 ) (*kvapi.ResultSet, error) {
 
-	if !kvapi.TableNameRX.MatchString(req.Name) ||
-		req.Name == sysTableName {
-		return newResultSetWithClientError("invalid table name"), nil
+	if !kvapi.DatabaseNameRX.MatchString(req.Name) ||
+		req.Name == sysDatabaseName {
+		return newResultSetWithClientError("invalid database name"), nil
 	}
 
 	if req.Engine != storage.DefaultDriver {
-		return newResultSetWithClientError("invalid table engine " + req.Engine), nil
+		return newResultSetWithClientError("invalid database engine " + req.Engine), nil
 	}
 
 	if !it.dbServer.cfg.Server.IsStandaloneMode() {
@@ -78,8 +80,8 @@ func (it *serviceAdminImpl) TableCreate(
 		return newResultSetWithAuthDeny(err.Error()), nil
 	}
 
-	if tbl := it.dbServer.tableMapMgr.getByName(req.Name); tbl != nil {
-		return newResultSetWithConflict("table already exist " + req.Name), nil
+	if tbl := it.dbServer.dbMapMgr.getByName(req.Name); tbl != nil {
+		return newResultSetWithConflict("database already exist " + req.Name), nil
 	}
 
 	if req.ReplicaNum < 1 {
@@ -88,15 +90,16 @@ func (it *serviceAdminImpl) TableCreate(
 		req.ReplicaNum = maxReplicaCap
 	}
 
-	tbl := &kvapi.Table{
+	tbl := &kvapi.Database{
 		Id:         randHexString(8),
 		Name:       req.Name,
 		Engine:     req.Engine,
 		ReplicaNum: req.ReplicaNum,
+		Desc:       req.Desc,
 	}
 
-	wr := kvapi.NewWriteRequest(nsSysTable(tbl.Id), jsonEncode(tbl))
-	wr.Table = sysTableName
+	wr := kvapi.NewWriteRequest(nsSysDatabase(tbl.Id), jsonEncode(tbl))
+	wr.Database = sysDatabaseName
 	wr.CreateOnly = true
 	wr.Attrs |= kvapi.Write_Attrs_Sync
 
@@ -108,17 +111,16 @@ func (it *serviceAdminImpl) TableCreate(
 		return newResultSetWithServerError(ss.Error().Error()), nil
 	}
 
-	it.dbServer.auditLogger.Put("admin-api", "table %s, engine %s, replica-num %d, created",
+	it.dbServer.auditLogger.Put("admin-api", "database %s, engine %s, replica-num %d, created",
 		tbl.Name, tbl.Engine, tbl.ReplicaNum)
 
-	tm := it.dbServer.tableMapMgr.syncTable(ss.Meta(), tbl)
+	tm := it.dbServer.dbMapMgr.syncDatabase(ss.Meta(), tbl)
 
 	if it.dbServer.cfg.Server.IsStandaloneMode() {
-		it.dbServer._jobTableMapSetup(tm)
+		it.dbServer._jobDatabaseMapSetup(tm)
 	}
 
-	hlog.Printf("info", "table create : %v", tbl)
-	// jsonPrint("table create", tbl)
+	hlog.Printf("info", "database create : %v", tbl)
 
 	rs := newResultSetOK()
 	resultSetAppendWithJsonObject(rs, []byte(req.Name), ss.Meta(), tbl)
@@ -126,14 +128,14 @@ func (it *serviceAdminImpl) TableCreate(
 	return rs, nil
 }
 
-func (it *serviceAdminImpl) TableAlter(
+func (it *serviceAdminImpl) DatabaseUpdate(
 	ctx context.Context,
-	req *kvapi.TableAlterRequest,
+	req *kvapi.DatabaseUpdateRequest,
 ) (*kvapi.ResultSet, error) {
 
-	if !kvapi.TableNameRX.MatchString(req.Name) ||
-		req.Name == sysTableName {
-		return newResultSetWithClientError("invalid table name"), nil
+	if !kvapi.DatabaseNameRX.MatchString(req.Name) ||
+		req.Name == sysDatabaseName {
+		return newResultSetWithClientError("invalid database name"), nil
 	}
 
 	if !it.dbServer.cfg.Server.IsStandaloneMode() {
@@ -144,9 +146,9 @@ func (it *serviceAdminImpl) TableAlter(
 		return newResultSetWithAuthDeny(err.Error()), nil
 	}
 
-	tmap := it.dbServer.tableMapMgr.getByName(req.Name)
+	tmap := it.dbServer.dbMapMgr.getByName(req.Name)
 	if tmap == nil || tmap.meta == nil {
-		return newResultSetWithNotFound("table not found"), nil
+		return newResultSetWithNotFound("database not found"), nil
 	}
 
 	chg := false
@@ -160,34 +162,38 @@ func (it *serviceAdminImpl) TableAlter(
 		}
 	}
 
+	req.Desc = strings.TrimSpace(req.Desc)
+	if req.Desc != "" && req.Desc != tmap.data.Desc {
+		tmap.data.Desc, chg = req.Desc, true
+	}
+
 	rs := newResultSetOK()
 
 	if chg {
-		wr := kvapi.NewWriteRequest(nsSysTable(tmap.data.Id), jsonEncode(tmap.data))
-		wr.Table = sysTableName
+		wr := kvapi.NewWriteRequest(nsSysDatabase(tmap.data.Id), jsonEncode(tmap.data))
+		wr.Database = sysDatabaseName
 		wr.PrevVersion = tmap.meta.Version
 		wr.Attrs |= kvapi.Write_Attrs_Sync
 
-		rsTable, err := it.dbServer.api.Write(ctx, wr)
+		rsDatabase, err := it.dbServer.api.Write(ctx, wr)
 		if err != nil {
 			return newResultSetWithServerError(err.Error()), nil
 		}
 
-		if !rsTable.OK() {
-			return newResultSetWithServerError(rsTable.Error().Error()), nil
+		if !rsDatabase.OK() {
+			return newResultSetWithServerError(rsDatabase.Error().Error()), nil
 		}
 
-		it.dbServer.auditLogger.Put("admin-api", "table %s, replica-num %d, updated",
+		it.dbServer.auditLogger.Put("admin-api", "database %s, replica-num %d, updated",
 			tmap.data.Name, tmap.data.ReplicaNum)
 
-		it.dbServer.tableMapMgr.syncTable(rsTable.Meta(), tmap.data)
-		resultSetAppendWithJsonObject(rs, []byte(req.Name), rsTable.Meta(), tmap.data)
+		it.dbServer.dbMapMgr.syncDatabase(rsDatabase.Meta(), tmap.data)
+		resultSetAppendWithJsonObject(rs, []byte(req.Name), rsDatabase.Meta(), tmap.data)
 	} else {
 		resultSetAppendWithJsonObject(rs, []byte(req.Name), tmap.meta, tmap.data)
 	}
 
-	hlog.Printf("info", "table alter : %v", tmap.data)
-	// jsonPrint("table alter", tmap.data)
+	hlog.Printf("info", "database update : %v", tmap.data)
 
 	return rs, nil
 }
@@ -206,6 +212,65 @@ func (it *serviceAdminImpl) Status(
 	}
 
 	rs := newResultSetOK()
+
+	resultSetAppendWithJsonObject(rs, []byte("server/config"), &kvapi.Meta{}, it.dbServer.cfg)
+
+	resultSetAppendWithJsonObject(rs, []byte("server/status"), &kvapi.Meta{}, it.dbServer.status)
+
+	resultSetAppendWithJsonObject(rs, []byte("store/status"), &kvapi.Meta{}, it.dbServer.storeMgr.status)
+
+	it.dbServer.dbMapMgr.iter(func(tm *dbMap) {
+		resultSetAppendWithJsonObject(rs, []byte("db/"+tm.data.Name+"/spec"), &kvapi.Meta{}, tm.data)
+		resultSetAppendWithJsonObject(rs, []byte("db/"+tm.data.Name+"/map"), &kvapi.Meta{}, tm.mapData)
+		resultSetAppendWithJsonObject(rs, []byte("db/"+tm.data.Name+"/status"), &kvapi.Meta{}, tm.status)
+	})
+
+	return rs, nil
+}
+
+func (it *serviceAdminImpl) SysGet(
+	ctx context.Context,
+	req *kvapi.SysGetRequest,
+) (*kvapi.ResultSet, error) {
+
+	if !it.dbServer.cfg.Server.IsStandaloneMode() {
+		return newResultSetWithServerError("runtime mode not setup"), nil
+	}
+
+	if err := it.auth(ctx); err != nil {
+		return newResultSetWithAuthDeny(err.Error()), nil
+	}
+
+	if len(req.Name) == 0 {
+		return newResultSetWithClientError("name not found"), nil
+	}
+
+	if req.Limit == 0 {
+		req.Limit = 10
+	} else if req.Limit <= 0 {
+		req.Limit = 1
+	} else if req.Limit > 1000 {
+		req.Limit = 1000
+	}
+
+	rs := newResultSetOK()
+
+	switch req.Name {
+	case "auditlog":
+		ds := it.dbServer.dbSystem.Range(&kvapi.RangeRequest{
+			LowerKey: nsSysAuditLog(false),
+			UpperKey: nsSysAuditLog(true),
+			Revert:   true,
+			Limit:    req.Limit,
+		})
+		if ds.OK() {
+			for _, item := range ds.Items {
+				resultSetAppend(rs, []byte(string(item.Key)), &kvapi.Meta{}, item.Value)
+			}
+		}
+	default:
+		return nil, fmt.Errorf("name (%s) not match", req.Name)
+	}
 
 	return rs, nil
 }

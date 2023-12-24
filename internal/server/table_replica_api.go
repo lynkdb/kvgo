@@ -18,15 +18,15 @@ import (
 	"bytes"
 	"time"
 
-	"github.com/lynkdb/kvgo/pkg/kvapi"
-	"github.com/lynkdb/kvgo/pkg/storage"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/storage"
 )
 
-func (it *tableReplica) Write(req *kvapi.WriteRequest) *kvapi.ResultSet {
+func (it *dbReplica) Write(req *kvapi.WriteRequest) *kvapi.ResultSet {
 	return it.write(req, 0)
 }
 
-func (it *tableReplica) write(req *kvapi.WriteRequest, cLog uint64) *kvapi.ResultSet {
+func (it *dbReplica) write(req *kvapi.WriteRequest, cLog uint64) *kvapi.ResultSet {
 
 	var (
 		t0 = time.Now()
@@ -89,7 +89,7 @@ func (it *tableReplica) write(req *kvapi.WriteRequest, cLog uint64) *kvapi.Resul
 				IncrId:  meta.IncrId,
 				Updated: meta.Updated,
 				// Created: meta.Created,
-			})
+			}, nil)
 			return rs
 		}
 
@@ -226,12 +226,12 @@ func (it *tableReplica) write(req *kvapi.WriteRequest, cLog uint64) *kvapi.Resul
 		Version: cLog,
 		IncrId:  req.Meta.IncrId,
 		Updated: req.Meta.Updated,
-	})
+	}, nil)
 
 	return rs
 }
 
-func (it *tableReplica) Delete(req *kvapi.DeleteRequest) *kvapi.ResultSet {
+func (it *dbReplica) Delete(req *kvapi.DeleteRequest) *kvapi.ResultSet {
 
 	var (
 		t0 = time.Now()
@@ -348,12 +348,12 @@ func (it *tableReplica) Delete(req *kvapi.DeleteRequest) *kvapi.ResultSet {
 		Version: cLog,
 		Updated: updated,
 		Attrs:   req.Attrs,
-	})
+	}, nil)
 
 	return rs
 }
 
-func (it *tableReplica) Read(req *kvapi.ReadRequest) *kvapi.ResultSet {
+func (it *dbReplica) Read(req *kvapi.ReadRequest) *kvapi.ResultSet {
 
 	var (
 		rs = newResultSetOK()
@@ -426,7 +426,7 @@ func (it *tableReplica) Read(req *kvapi.ReadRequest) *kvapi.ResultSet {
 	return rs
 }
 
-func (it *tableReplica) Range(req *kvapi.RangeRequest) *kvapi.ResultSet {
+func (it *dbReplica) Range(req *kvapi.RangeRequest) *kvapi.ResultSet {
 
 	var (
 		t0       = time.Now()
@@ -548,7 +548,7 @@ func (it *tableReplica) Range(req *kvapi.RangeRequest) *kvapi.ResultSet {
 	return rs
 }
 
-func (it *tableReplica) Batch(breq *kvapi.BatchRequest) *kvapi.BatchResponse {
+func (it *dbReplica) Batch(breq *kvapi.BatchRequest) *kvapi.BatchResponse {
 
 	var (
 		t0  = time.Now()
@@ -562,7 +562,7 @@ func (it *tableReplica) Batch(breq *kvapi.BatchRequest) *kvapi.BatchResponse {
 		}()
 	}
 
-	breq.Table = it.tableName
+	breq.Database = it.dbName
 	if err := breq.Valid(); err != nil {
 		brs.StatusCode, brs.StatusMessage = kvapi.Status_InvalidArgument, err.Error()
 		return brs
@@ -605,7 +605,7 @@ func (it *tableReplica) Batch(breq *kvapi.BatchRequest) *kvapi.BatchResponse {
 }
 
 // debug api
-func (it *tableReplica) RawRange(req *kvapi.RangeRequest) ([]*kvapi.RawKeyValue, error) {
+func (it *dbReplica) RawRange(req *kvapi.RangeRequest) ([]*kvapi.RawKeyValue, error) {
 
 	var (
 		lowerKey  = bytesClone(req.LowerKey)
@@ -692,6 +692,6 @@ func (it *tableReplica) RawRange(req *kvapi.RangeRequest) ([]*kvapi.RawKeyValue,
 	return items, nil
 }
 
-func (it *tableReplica) SetTable(name string) kvapi.Client {
+func (it *dbReplica) SetDatabase(name string) kvapi.Client {
 	return it
 }

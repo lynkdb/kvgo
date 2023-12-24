@@ -15,16 +15,30 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 
-	// "github.com/olekukonko/tablewriter"
 	"github.com/chzyer/readline"
+	"github.com/olekukonko/tablewriter"
 
-	"github.com/lynkdb/kvgo/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
 
-func Status(l *readline.Instance) (string, error) {
+func init() {
+	register(new(cmdInfo))
+	register(new(cmdSysGet))
+}
+
+type cmdInfo struct{}
+
+func (cmdInfo) Spec() baseCommandSpec {
+	return baseCommandSpec{
+		Path: "info",
+	}
+}
+
+func (cmdInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
 
 	req := &kvapi.StatusRequest{}
 
@@ -33,10 +47,94 @@ func Status(l *readline.Instance) (string, error) {
 		return "", rs.Error()
 	}
 
-	js, _ := json.MarshalIndent(rs, "", "  ")
-	fmt.Println(string(js))
+	if len(rs.Items) == 0 {
+		return "", fmt.Errorf("no response")
+	}
 
-	return "", nil
+	var (
+		tbuf  bytes.Buffer
+		table = tablewriter.NewWriter(&tbuf)
+	)
+
+	table.SetHeader([]string{"Section", "Detail"})
+
+	table.SetRowLine(true)
+	table.SetAutoWrapText(false)
+
+	for _, kv := range rs.Items {
+
+		var buf bytes.Buffer
+		json.Indent(&buf, kv.Value, "", "  ")
+
+		table.Append([]string{
+			string(kv.Key),
+			buf.String(),
+		})
+	}
+
+	table.Render()
+
+	return tbuf.String(), nil
+}
+
+type cmdSysGet struct{}
+
+func (cmdSysGet) Spec() baseCommandSpec {
+	return baseCommandSpec{
+		Path: "sys get",
+	}
+}
+
+func (cmdSysGet) Action(fg flagSet, l *readline.Instance) (string, error) {
+
+	req := &kvapi.SysGetRequest{
+		Name:  fg.path,
+		Limit: 10,
+	}
+
+	if req.Name == "" {
+		return "", fmt.Errorf("no <name> found")
+	}
+
+	if fg.Value("limit").Int64() > 0 {
+		req.Limit = fg.Value("limit").Int64()
+	}
+
+	fmt.Println(fg.path, req)
+
+	rs := adminClient.SysGet(req)
+	if !rs.OK() {
+		return "", rs.Error()
+	}
+
+	if len(rs.Items) == 0 {
+		return "", fmt.Errorf("no response")
+	}
+
+	var (
+		tbuf  bytes.Buffer
+		table = tablewriter.NewWriter(&tbuf)
+	)
+
+	table.SetHeader([]string{"Key", "Value"})
+
+	table.SetRowLine(true)
+	table.SetAutoWrapText(false)
+
+	for _, kv := range rs.Items {
+
+		var buf bytes.Buffer
+		json.Indent(&buf, kv.Value, "", "  ")
+
+		table.Append([]string{
+			string(kv.Key),
+			buf.String(),
+		})
+	}
+
+	table.Render()
+
+	return tbuf.String(), nil
 }
 
 /**

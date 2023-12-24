@@ -30,13 +30,14 @@ import (
 	"github.com/hooto/hlog4g/hlog"
 	"github.com/hooto/hmetrics"
 	"github.com/hooto/htoml4g/htoml"
+	ps_cpu "github.com/shirou/gopsutil/v3/cpu"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	"github.com/lynkdb/kvgo/internal/utils"
-	"github.com/lynkdb/kvgo/pkg/kvapi"
-	"github.com/lynkdb/kvgo/pkg/storage"
-	_ "github.com/lynkdb/kvgo/pkg/storage/pebble"
+	"github.com/lynkdb/kvgo/v2/internal/utils"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/storage"
+	_ "github.com/lynkdb/kvgo/v2/pkg/storage/pebble"
 )
 
 const (
@@ -67,7 +68,7 @@ type dbServer struct {
 	apiAdmin     *serviceAdminImpl
 	api          *serviceApiImpl
 
-	dbSystem *tableReplica
+	dbSystem *dbReplica
 
 	jobSetupMut sync.Mutex
 
@@ -75,16 +76,29 @@ type dbServer struct {
 
 	keyMgr *hauth.AccessKeyManager
 
-	tableMapMgr *tableMapMgr
+	dbMapMgr *dbMapMgr
 
 	auditLogger *auditLogWriter
 
 	once sync.Once
 
-	uptime int64
+	status dbServerStatus
 	close  bool
 
 	closegw sync.WaitGroup
+}
+
+type dbServerStatus struct {
+	Uptime  int64        `json:"uptime"`
+	Version string       `json:"version"`
+	Release string       `json:"release"`
+	CpuInfo cpuInfoStats `json:"cpu_info"`
+}
+
+type cpuInfoStats struct {
+	Cores     int32  `json:"cores"`
+	ModelName string `json:"model_name"`
+	Mhz       int32  `json:"mhz"`
 }
 
 func Setup(ver, rel string) (*dbServer, error) {
@@ -127,15 +141,28 @@ func dbServerSetup(cfgFile string, cfg Config) (*dbServer, error) {
 	storeMgr := newStoreManager()
 
 	srv := &dbServer{
-		pid:         randUint64(),
-		cfg:         cfg,
-		cfgFile:     cfgFile,
-		keyMgr:      hauth.NewAccessKeyManager(),
-		storeMgr:    storeMgr,
-		tableMapMgr: newTableMapMgr(&cfg, storeMgr),
+		pid:      randUint64(),
+		cfg:      cfg,
+		cfgFile:  cfgFile,
+		keyMgr:   hauth.NewAccessKeyManager(),
+		storeMgr: storeMgr,
+		dbMapMgr: newDatabaseMapMgr(&cfg, storeMgr),
 		auditLogger: &auditLogWriter{
-			dir: Prefix + "/var/logs",
+			dir: Prefix + "/var/log",
 		},
+		status: dbServerStatus{
+			Uptime:  time.Now().Unix(),
+			Version: version,
+			Release: release,
+		},
+	}
+
+	if cs, err := ps_cpu.Info(); err == nil && len(cs) > 0 {
+		srv.status.CpuInfo = cpuInfoStats{
+			ModelName: cs[0].ModelName,
+			Cores:     cs[0].Cores,
+			Mhz:       int32(cs[0].Mhz),
+		}
 	}
 
 	if err := srv.ConfigFlush(); err != nil {
@@ -148,12 +175,24 @@ func dbServerSetup(cfgFile string, cfg Config) (*dbServer, error) {
 		if err := srv.dbSystemSetup(); err != nil {
 			return nil, err
 		}
+
+		srv.auditLogger.kv = srv.dbSystem
 	}
 
 	{
 		if err := srv.dbStoresSetup(); err != nil {
 			hlog.Printf("error", "kvgo stores setup error %s", err.Error())
 			return nil, err
+		}
+	}
+
+	{
+		srv.apiAdmin = &serviceAdminImpl{
+			dbServer: srv,
+		}
+
+		srv.api = &serviceApiImpl{
+			dbServer: srv,
 		}
 	}
 
@@ -205,9 +244,11 @@ func dbServerSetup(cfgFile string, cfg Config) (*dbServer, error) {
 		return nil, err
 	}
 
-	srv.uptime = time.Now().Unix()
+	srv.auditLogger.Put("server-start", srv.status)
 
 	go srv.once.Do(srv.jobOnce)
+
+	go srv.taskRun()
 
 	return srv, nil
 }
@@ -215,7 +256,7 @@ func dbServerSetup(cfgFile string, cfg Config) (*dbServer, error) {
 func (it *dbServer) dbSystemSetup() error {
 
 	var (
-		dir  = filepath.Clean(fmt.Sprintf("%s/%08d_%s", it.cfg.Storage.DataDirectory, sysTableStoreId, storage.DriverV2))
+		dir  = filepath.Clean(fmt.Sprintf("%s/%08d_%s", it.cfg.Storage.DataDirectory, sysDatabaseStoreId, storage.DriverV2))
 		opts = &storage.Options{
 			WriteBufferSize: 2,
 			BlockCacheSize:  2,
@@ -232,28 +273,28 @@ func (it *dbServer) dbSystemSetup() error {
 		return err
 	}
 
-	tdb, err := NewTable(store, sysTableId, sysTableName, 1, 2, &it.cfg)
+	tdb, err := NewDatabase(store, sysDatabaseId, sysDatabaseName, 1, 2, &it.cfg)
 	if err != nil {
 		return err
 	}
 	it.dbSystem = tdb
 
-	tm := it.tableMapMgr.syncTable(&kvapi.Meta{}, &kvapi.Table{
-		Id:         sysTableId,
-		Name:       sysTableName,
+	tm := it.dbMapMgr.syncDatabase(&kvapi.Meta{}, &kvapi.Database{
+		Id:         sysDatabaseId,
+		Name:       sysDatabaseName,
 		ReplicaNum: 1,
 	})
 
-	tm.syncMap(&kvapi.Meta{}, &kvapi.TableMap{
-		Id: sysTableId,
-		Shards: []*kvapi.TableMap_Shard{
+	tm.syncMap(&kvapi.Meta{}, &kvapi.DatabaseMap{
+		Id: sysDatabaseId,
+		Shards: []*kvapi.DatabaseMap_Shard{
 			{
 				Id:     1,
 				Action: kShardSetup_In,
-				Replicas: []*kvapi.TableMap_Replica{
+				Replicas: []*kvapi.DatabaseMap_Replica{
 					{
 						Id:      2,
-						StoreId: sysTableStoreId,
+						StoreId: sysDatabaseStoreId,
 						Action:  kReplicaSetup_In,
 					},
 				},
@@ -262,7 +303,7 @@ func (it *dbServer) dbSystemSetup() error {
 		},
 	})
 
-	it.storeMgr.syncStore(sysTableStoreId, store)
+	it.storeMgr.syncStore(sysDatabaseStoreId, store)
 
 	return nil
 }
@@ -322,14 +363,22 @@ func (it *dbServer) netSetup() error {
 
 	grpcServer := grpc.NewServer(serverOptions...)
 
-	it.apiAdmin = &serviceAdminImpl{
-		rpcServer: grpcServer,
-		dbServer:  it,
+	if it.apiAdmin == nil {
+		it.apiAdmin = &serviceAdminImpl{
+			rpcServer: grpcServer,
+			dbServer:  it,
+		}
+	} else {
+		it.apiAdmin.rpcServer = grpcServer
 	}
 
-	it.api = &serviceApiImpl{
-		rpcServer: grpcServer,
-		dbServer:  it,
+	if it.api == nil {
+		it.api = &serviceApiImpl{
+			rpcServer: grpcServer,
+			dbServer:  it,
+		}
+	} else {
+		it.api.rpcServer = grpcServer
 	}
 
 	kvapi.RegisterKvgoAdminServer(grpcServer, it.apiAdmin)
@@ -435,9 +484,13 @@ func (it *dbServer) dbStoresSetup() error {
 		}
 	}
 
+	jsonPrint("vols", vols)
+
 	if incrId < hitNum {
 		return errors.New("store init internal error")
 	}
+
+	jsonPrint("vols", vols)
 
 	for _, vol := range vols {
 		//
@@ -452,7 +505,7 @@ func (it *dbServer) dbStoresSetup() error {
 			}
 
 			wr := kvapi.NewWriteRequest(nsSysStore(store.UniId), jsonEncode(store))
-			wr.Table = sysTableName
+			wr.Database = sysDatabaseName
 			wr.CreateOnly = true
 
 			rs := it.dbSystem.Write(wr)
@@ -468,6 +521,7 @@ func (it *dbServer) dbStoresSetup() error {
 
 		hlog.Printf("warn", "store load %v", *vol)
 
+		jsonPrint("vol set config", vol)
 		it.storeMgr.setConfig(vol)
 	}
 
@@ -487,7 +541,7 @@ func (it *dbServer) Close() error {
 
 		it.grpcListener.Close()
 
-		it.tableMapMgr.iter(func(tbl *tableMap) {
+		it.dbMapMgr.iter(func(tbl *dbMap) {
 			tbl.Close()
 		})
 

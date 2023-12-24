@@ -19,7 +19,7 @@ import (
 
 	"github.com/hooto/hlog4g/hlog"
 
-	"github.com/lynkdb/kvgo/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
 
 func (it *dbServer) taskRun() {
@@ -55,7 +55,7 @@ func (it *dbServer) taskReplicaListRefresh(forceRefresh bool) error {
 		it.closegw.Done()
 	}()
 
-	it.tableMapMgr.iter(func(tm *tableMap) {
+	it.dbMapMgr.iter(func(tm *dbMap) {
 
 		//
 		if tm.meta == nil || tm.data == nil || tm.data.ReplicaNum < 1 ||
@@ -73,7 +73,7 @@ func (it *dbServer) taskReplicaListRefresh(forceRefresh bool) error {
 	return nil
 }
 
-func (it *dbServer) _task_statusRefresh(tm *tableMap, mapData *kvapi.TableMap, forceRefresh bool) {
+func (it *dbServer) _task_statusRefresh(tm *dbMap, mapData *kvapi.DatabaseMap, forceRefresh bool) {
 
 	for i := 0; i < len(mapData.Shards); i++ {
 
@@ -99,7 +99,7 @@ func (it *dbServer) _task_statusRefresh(tm *tableMap, mapData *kvapi.TableMap, f
 	}
 }
 
-func (it *dbServer) _task_replicaRemove(tm *tableMap, mapData *kvapi.TableMap) {
+func (it *dbServer) _task_replicaRemove(tm *dbMap, mapData *kvapi.DatabaseMap) {
 
 	for i := 0; i < len(mapData.Shards); i++ {
 

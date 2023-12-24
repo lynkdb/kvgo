@@ -23,7 +23,7 @@ import (
 
 	hauth "github.com/hooto/hauth/go/hauth/v1"
 
-	"github.com/lynkdb/kvgo/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
 
 var (
@@ -57,9 +57,9 @@ var (
 )
 
 const (
-	sysTableId             = "00000001"
-	sysTableName           = "system"
-	sysTableStoreId uint64 = 1
+	sysDatabaseId             = "00000001"
+	sysDatabaseName           = "system"
+	sysDatabaseStoreId uint64 = 1
 )
 
 const (
@@ -73,7 +73,7 @@ const (
 )
 
 var (
-	shardSplit_CapacitySize_Def int64 = 64 << 30
+	shardSplit_CapacitySize_Def int64 = 8 << 30
 	shardSplit_CapacitySize_Min int64 = 512 << 20
 	shardSplit_CapacitySize_Max int64 = 128 << 30
 )
@@ -87,7 +87,7 @@ const (
 var (
 	replicaRebalance_StoreCapacityThreshold = float64(0.25)
 
-	replicaRemoveFromTableMapDelaySeconds int64 = 60
+	replicaRemoveFromDatabaseMapDelaySeconds int64 = 60
 )
 
 const (
@@ -225,25 +225,32 @@ func keySysLogPullOffset(dstReplicaId, srcReplicaId uint64) []byte {
 }
 
 func nsSysStore(uniId string) []byte {
-	return []byte("sys:store:" + uniId)
+	return []byte("sys/store/" + uniId)
 }
 
-func nsSysTable(id string) []byte {
-	return []byte("sys:table:" + id)
+func nsSysDatabase(id string) []byte {
+	return []byte("sys/dbspec/" + id)
 }
 
-func nsSysTableMap(id string) []byte {
-	return []byte("sys:tablemap:" + id)
+func nsSysDatabaseMap(id string) []byte {
+	return []byte("sys/dbmap/" + id)
+}
+
+func nsSysAuditLog(b bool) []byte {
+	if !b {
+		return []byte("sys/auditlog/")
+	}
+	return []byte("sys/auditlog/" + uint64ToHexString(uint64(timens())))
 }
 
 var (
-	authPermSysAll     = "sys/all"
-	authPermTableList  = "table/list"
-	authPermTableRead  = "table/read"
-	authPermTableWrite = "table/write"
-	AuthScopeTable     = "kvgo/table"
-	defaultScopes      = []string{
-		AuthScopeTable,
+	authPermSysAll        = "sys/all"
+	authPermDatabaseList  = "db/list"
+	authPermDatabaseRead  = "db/read"
+	authPermDatabaseWrite = "db/write"
+	AuthScopeDatabase     = "kvgo/db"
+	defaultScopes         = []string{
+		AuthScopeDatabase,
 	}
 	defaultRoles = []*hauth.Role{
 		{
@@ -251,18 +258,18 @@ var (
 			Title: "System Administrator",
 			Permissions: []string{
 				authPermSysAll,
-				authPermTableList,
-				authPermTableRead,
-				authPermTableWrite,
+				authPermDatabaseList,
+				authPermDatabaseRead,
+				authPermDatabaseWrite,
 			},
 		},
 		{
 			Name:  "client",
 			Title: "General Client",
 			Permissions: []string{
-				authPermTableList,
-				authPermTableRead,
-				authPermTableWrite,
+				authPermDatabaseList,
+				authPermDatabaseRead,
+				authPermDatabaseWrite,
 			},
 		},
 	}

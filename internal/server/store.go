@@ -18,8 +18,8 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/lynkdb/kvgo/pkg/kvapi"
-	"github.com/lynkdb/kvgo/pkg/storage"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/storage"
 )
 
 type storeManager struct {
@@ -32,9 +32,11 @@ type storeManager struct {
 }
 
 type storeStatusManager struct {
+	Items []*kvapi.SysStoreStatus `json:"items"`
+
 	version uint64
 	vers    map[string]uint64
-	items   map[string]*kvapi.SysStoreStatus
+	hset    map[string]*kvapi.SysStoreStatus
 }
 
 func newStoreManager() *storeManager {
@@ -100,18 +102,19 @@ func (it *storeManager) syncStatus(uniId string, id uint64, used, free int64) {
 	it.mu.Lock()
 	defer it.mu.Unlock()
 
-	if it.status.items == nil {
-		it.status.items = map[string]*kvapi.SysStoreStatus{}
+	if it.status.hset == nil {
+		it.status.hset = map[string]*kvapi.SysStoreStatus{}
 		it.status.vers = map[string]uint64{}
 	}
 
-	s, ok := it.status.items[uniId]
+	s, ok := it.status.hset[uniId]
 	if !ok {
 		s = &kvapi.SysStoreStatus{
 			Id:    id,
 			UniId: uniId,
 		}
-		it.status.items[uniId] = s
+		it.status.hset[uniId] = s
+		it.status.Items = append(it.status.Items, s)
 	}
 	s.CapacityUsed = uint64(used)
 	s.CapacityFree = uint64(free)
@@ -122,7 +125,7 @@ func (it *storeManager) lookupFitStore(deny map[uint64]bool) *kvapi.SysStoreStat
 	it.mu.Lock()
 	defer it.mu.Unlock()
 	fitStores := []*kvapi.SysStoreStatus{}
-	for _, vs := range it.status.items {
+	for _, vs := range it.status.Items {
 		if len(deny) == 0 || !deny[vs.Id] {
 			fitStores = append(fitStores, vs)
 		}
@@ -147,14 +150,10 @@ func (it *storeManager) closeAll() error {
 }
 
 func (it *storeManager) statusIter(fn func(s *kvapi.SysStoreStatus)) int {
-	it.mu.Lock()
-	defer it.mu.Unlock()
-	if it.status.items != nil {
-		for _, s := range it.status.items {
-			fn(s)
-		}
+	for _, s := range it.status.Items {
+		fn(s)
 	}
-	return len(it.status.items)
+	return len(it.status.Items)
 }
 
 type storeStats struct {
@@ -177,7 +176,7 @@ func (it *storeManager) stats(name string) *storeStats {
 	it.mu.Lock()
 	defer it.mu.Unlock()
 	st := &storeStats{
-		CapNum: len(it.status.items),
+		CapNum: len(it.status.Items),
 	}
 	if st.CapNum > 0 {
 		if v, ok := it.status.vers[name]; ok {
@@ -186,7 +185,7 @@ func (it *storeManager) stats(name string) *storeStats {
 			}
 		}
 		it.status.vers[name] = it.status.version
-		for _, v := range it.status.items {
+		for _, v := range it.status.Items {
 			cap := float64(v.CapacityFree + v.CapacityUsed)
 			if cap < 1024 { // 1 GB
 				continue

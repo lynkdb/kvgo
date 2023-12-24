@@ -12,34 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package cli
+package client
 
 import (
-	"fmt"
-
-	"github.com/chzyer/readline"
-
-	"github.com/lynkdb/kvgo/pkg/kvapi"
-	"github.com/lynkdb/kvgo/pkg/storage"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
 
-func TableCreate(l *readline.Instance) (string, error) {
-
-	l.SetPrompt("table name: ")
-	tableName, err := l.Readline()
-	if err != nil {
-		return "", err
+func newResultSet(code uint32, msg string) *kvapi.ResultSet {
+	return &kvapi.ResultSet{
+		StatusCode:    code,
+		StatusMessage: msg,
 	}
+}
 
-	req := &kvapi.TableCreateRequest{
-		Name:   tableName,
-		Engine: storage.DefaultDriver,
-	}
-
-	rs := adminClient.TableCreate(req)
-	if !rs.OK() {
-		return "", rs.Error()
-	}
-
-	return fmt.Sprintf("OK table %s, id %d", tableName, rs.Meta().IncrId), nil
+func newResultSetWithClientError(msg string) *kvapi.ResultSet {
+	return newResultSet(kvapi.Status_InvalidArgument, msg)
 }
