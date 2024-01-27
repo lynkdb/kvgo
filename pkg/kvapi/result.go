@@ -15,6 +15,7 @@
 package kvapi
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 )
@@ -57,6 +58,15 @@ func (it *ResultSet) JsonDecode(o interface{}) error {
 		return it.Items[0].JsonDecode(o)
 	}
 	return errors.New("no data found")
+}
+
+func (it *ResultSet) Lookup(key []byte) *KeyValue {
+	for _, v := range it.Items {
+		if bytes.Compare(key, v.Key) == 0 {
+			return v
+		}
+	}
+	return &KeyValue{}
 }
 
 func (it *BatchResponse) OK() bool {

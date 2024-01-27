@@ -75,6 +75,13 @@ func (it *dbServer) jobRefresh() error {
 
 	if err := it.jobReplicaRebalanceSetup(false); err != nil {
 	}
+
+	if err := it.jobShardMergeSetup(false); err != nil {
+	}
+
+	if err := it.jobDatabasePing(); err != nil {
+	}
+
 	return nil
 }
 
@@ -145,6 +152,16 @@ func (it *dbServer) jobDatabaseListSetup() error {
 				return err
 			}
 
+			// 227
+			{
+				for i, shard := range tm.Shards {
+					if shard.Id == 227 {
+						tm.Shards = append(tm.Shards[:i], tm.Shards[i+1:]...)
+						break
+					}
+				}
+			}
+
 			ptm := it.dbMapMgr.getById(tm.Id)
 			if ptm == nil {
 				continue
@@ -184,6 +201,7 @@ func (it *dbServer) _jobDatabaseMapSetup(tm *dbMap) error {
 	}
 
 	var (
+		tn  = timesec()
 		chg = false
 	)
 
@@ -274,7 +292,7 @@ func (it *dbServer) _jobDatabaseMapSetup(tm *dbMap) error {
 		}
 	}
 
-	for _, shard := range tm.mapData.Shards {
+	for i, shard := range tm.mapData.Shards {
 
 		ins := []*kvapi.DatabaseMap_Replica{}
 
@@ -293,6 +311,17 @@ func (it *dbServer) _jobDatabaseMapSetup(tm *dbMap) error {
 			it.auditLogger.Put("dbmap", "shard %d, replica-cap %d to %d", shard.Id, len(shard.Replicas), len(ins))
 			shard.Updated = timesec()
 			shard.Replicas, chg = ins, true
+		}
+
+		if !chg &&
+			kvapi.AttrAllow(shard.Action, kShardSetup_Out) &&
+			shard.Updated+kShardOutRemove_JobIntervalSeconds < tn {
+			tm.mapData.Version += 1
+			tm.mapData.Updated = timesec()
+			tm.mapData.Shards = append(tm.mapData.Shards[:i], tm.mapData.Shards[i+1:]...)
+			chg = true
+			it.auditLogger.Put("dbmap", "shard %d, out-removed", shard.Id)
+			break
 		}
 	}
 
@@ -357,6 +386,8 @@ func (it *dbServer) jobStatusMergeSetup() error {
 		it.closegw.Done()
 	}()
 
+	storeReplicaBounds := map[uint64]int64{}
+
 	tmStatusRefresh := func(tm *dbMap) {
 
 		for _, shard := range tm.mapData.Shards {
@@ -366,10 +397,16 @@ func (it *dbServer) jobStatusMergeSetup() error {
 			//
 			for _, rep := range shard.Replicas {
 
+				if _, ok := storeReplicaBounds[rep.StoreId]; !ok {
+					storeReplicaBounds[rep.StoreId] = 1
+				} else {
+					storeReplicaBounds[rep.StoreId] += 1
+				}
+
 				var (
-					repInst   = tm.replica(rep.Id)
-					repStatus = tm.statusReplica(rep.Id)
-					actions   = map[uint64]int{}
+					repInst = tm.replica(rep.Id)
+					// repStatus = tm.statusReplica(rep.Id)
+					actions = map[uint64]int{}
 				)
 
 				if repInst == nil {
@@ -379,9 +416,9 @@ func (it *dbServer) jobStatusMergeSetup() error {
 				if tm.data.ReplicaNum == 1 {
 					actions[kReplicaStatus_Ready] = 1
 
-				} else if len(repInst.status.iterPulls) > 0 {
+				} else if len(repInst.localStatus.iterPulls) > 0 {
 					//
-					for _, v := range repInst.status.iterPulls {
+					for _, v := range repInst.localStatus.iterPulls {
 
 						if v.mapVersion != shardVersion {
 							continue
@@ -405,17 +442,20 @@ func (it *dbServer) jobStatusMergeSetup() error {
 					if len(actions) == 0 {
 						// testPrintf("shard %d, rep %d, actions %v", shard.Id, rep.Id, actions)
 					}
-					testPrintf("shard %d, rep %d, actions %v", shard.Id, rep.Id, actions)
 
 					if actions[kReplicaStatus_Ready]*2 > int(tm.data.ReplicaNum) {
 
-						repInst.status.action |= kReplicaStatus_Ready
-						repInst.status.mapVersion = shardVersion
-						repInst.status.updated = timesec()
+						repInst.localStatus.action.attr |= kReplicaStatus_Ready
+						repInst.localStatus.action.mapVersion = shardVersion
+						repInst.localStatus.action.updated = timesec()
 
-						repStatus.Action |= kReplicaStatus_Ready
-						repStatus.MapVersion = shardVersion
-						repStatus.Updated = timesec()
+						tm.setReplicaStatus(rep.Id, func(s *kvapi.DatabaseMapStatus_Replica) {
+							s.Action |= kReplicaStatus_Ready
+							s.MapVersion = shardVersion
+							s.Used = repInst.localStatus.storageUsed.value
+							s.Updated = timesec()
+						})
+
 					} else if kvapi.AttrAllow(rep.Action, kReplicaSetup_Remove) {
 						//
 					}
@@ -426,6 +466,14 @@ func (it *dbServer) jobStatusMergeSetup() error {
 
 	it.dbMapMgr.iter(func(tm *dbMap) {
 		tmStatusRefresh(tm)
+	})
+
+	it.storeMgr.iterSetStatus(func(s *kvapi.SysStoreStatus) {
+		if num, ok := storeReplicaBounds[s.Id]; ok {
+			s.ReplicaBounds = num
+		} else {
+			s.ReplicaBounds = 0
+		}
 	})
 
 	return nil
@@ -534,7 +582,7 @@ func (it *dbServer) jobDatabaseLogPull(force bool) {
 							continue
 						}
 
-						err := dstInst._jobLogPull(shard, lowerKey, upperKey, srcInst, dstInst.status.pull(src.Id))
+						err := dstInst._jobLogPull(tm, shard, lowerKey, upperKey, srcInst, dstInst.localStatus.pull(src.Id))
 						if err != nil {
 							hlog.Printf("info", "database %s, shard %d, rep dst/src %d/%d, sync-pull err %s",
 								tm.data.Name, shard.Id, dst.Id, src.Id, err.Error())
@@ -612,7 +660,7 @@ func (it *dbServer) _job_replicaRemoveSetup(tm *dbMap, mapData *kvapi.DatabaseMa
 			if repInst == nil {
 				continue
 			}
-			if !kvapi.AttrAllow(repInst.status.action, kReplicaStatus_Remove) {
+			if !kvapi.AttrAllow(repInst.localStatus.action.attr, kReplicaStatus_Remove) {
 				continue
 			}
 
@@ -634,7 +682,7 @@ func (it *dbServer) _job_replicaRemoveSetup(tm *dbMap, mapData *kvapi.DatabaseMa
 			if repInst == nil {
 				continue
 			}
-			if !kvapi.AttrAllow(repInst.status.action, kReplicaStatus_Ready) {
+			if !kvapi.AttrAllow(repInst.localStatus.action.attr, kReplicaStatus_Ready) {
 				continue
 			}
 			ok += 1
@@ -698,6 +746,10 @@ func (it *dbServer) jobKeyMapSetup() error {
 	return nil
 }
 
+var (
+	storeLocalTestResetSize = map[uint64]int64{}
+)
+
 func (it *dbServer) jobStoreStatusRefresh() error {
 
 	const name = "jobStoreStatusRefresh"
@@ -715,25 +767,83 @@ func (it *dbServer) jobStoreStatusRefresh() error {
 	defer it.storeMgr.updateStatusVersion()
 
 	for _, vol := range it.cfg.Storage.Stores {
+
 		if vol.StoreId == 0 {
 			continue
 		}
+
 		st, err := ps_disk.Usage(vol.Mountpoint)
 		if err != nil {
 			hlog.Printf("warn", "job store status refresh err %s", err.Error())
 			continue
 		}
+
 		var (
 			used  = int64(st.Used) / (1 << 20)
 			total = int64(st.Total) / (1 << 20)
 		)
+
 		if testLocalMode {
-			used = int64(float64(used) * (0.5 + randFloat64(0.5)))
+			// used = int64(float64(used) * (0.8 + randFloat64(0.2)))
+			reset, ok := storeLocalTestResetSize[vol.StoreId]
+			if !ok {
+				reset = randInt64(128)
+				storeLocalTestResetSize[vol.StoreId] = reset
+				testPrintf("store %s, reset free %d MB", vol.Mountpoint, reset)
+			}
+			used += reset
 		}
-		it.storeMgr.syncStatus(vol.UniId, vol.StoreId, used, total-used)
+
+		// if vol.UniId == "4cf421f1a5ca2e9a" && used > 6e6 {
+		// 	used -= 6e6
+		// }
+
+		it.storeMgr.setStatus(vol.UniId, vol.StoreId, func(s *kvapi.SysStoreStatus) {
+			s.CapacityUsed = used
+			s.CapacityFree = total - used
+			s.Updated = timesec()
+			s.Options["fstype"] = st.Fstype
+		})
 
 		// testPrintf("store %s, used %d GB", vol.Mountpoint, used/(1<<10))
 	}
+
+	return nil
+}
+
+func (it *dbServer) jobDatabasePing() error {
+
+	if it.close {
+		return nil
+	}
+
+	it.closegw.Add(1)
+	defer func() {
+		it.closegw.Done()
+	}()
+
+	it.dbMapMgr.initIter(func(tm *dbMap) {
+
+		var (
+			key = []byte("_magic_ping_key")
+			val = randBytes(100)
+		)
+
+		wr := kvapi.NewWriteRequest(key, val)
+		wr.Database = tm.data.Name
+
+		// wr.SetTTL(60e3)
+
+		rs, err := it.api.Write(nil, wr)
+		if err != nil {
+			return
+		}
+		if !rs.OK() {
+			return
+		}
+
+		// testPrintf("ping ok %s", tm.data.Name)
+	})
 
 	return nil
 }

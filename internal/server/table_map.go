@@ -129,20 +129,20 @@ func (it *dbMap) iterStatusDisplay(fn func(
 	it.mu.RLock()
 	defer it.mu.RUnlock()
 	for _, shard := range it.mapData.Shards {
-		status := []string{}
+		as := []string{}
 		for _, rep := range shard.Replicas {
 			if repInst := it.replica(rep.Id); repInst != nil {
-				status = append(status, fmt.Sprintf("#%d %s %s %dM %ds", rep.Id,
-					replicaActionDisplay(rep.Action), replicaActionDisplay(repInst.status.action),
-					repInst.status.storageUsed.value/(1<<20),
-					timesec()-repInst.status.storageUsed.updated,
+				as = append(as, fmt.Sprintf("#%d %s %s %dM %ds", rep.Id,
+					ReplicaActionDisplay(rep.Action), ReplicaActionDisplay(repInst.localStatus.action.attr),
+					repInst.localStatus.storageUsed.value,
+					timesec()-repInst.localStatus.storageUsed.updated,
 				))
 			} else {
-				status = append(status, fmt.Sprintf("#%d %s %s %d -1", rep.Id,
-					replicaActionDisplay(rep.Action), replicaActionDisplay(0), 0))
+				as = append(as, fmt.Sprintf("#%d %s %s %d -1", rep.Id,
+					ReplicaActionDisplay(rep.Action), ReplicaActionDisplay(0), 0))
 			}
 		}
-		fn(shard, shardActionDisplay(shard.Action), status)
+		fn(shard, ShardActionDisplay(shard.Action), as)
 	}
 }
 
@@ -259,6 +259,14 @@ func (it *dbMap) nextIncr() uint64 {
 	return it.mapData.IncrId
 }
 
+func (it *dbMap) shardSize() int64 {
+	if it.data.ShardSize >= kShardSplit_CapacitySize_Min &&
+		it.data.ShardSize <= kShardSplit_CapacitySize_Max {
+		return it.data.ShardSize
+	}
+	return kShardSplit_CapacitySize_Def
+}
+
 func (it *dbMap) getStore(id uint64) (store storage.Conn) {
 	return it.storeMgr.store(id)
 }
@@ -272,6 +280,7 @@ func (it *dbMap) syncMap(meta *kvapi.Meta, data *kvapi.DatabaseMap) {
 	if it.mapMeta == nil || meta.Version > it.mapMeta.Version {
 		it.mapMeta = meta
 		it.mapData = data
+		// jsonPrint("map", data)
 	}
 }
 
@@ -357,18 +366,23 @@ func (it *dbMap) lookupByKey(key []byte) *dbMapSelectShard {
 		hit = it.mapData.Shards[0]
 	} else {
 		for i, shard := range it.mapData.Shards {
+			if !kvapi.AttrAllow(shard.Action, kShardSetup_In) {
+				continue
+			}
 			if bytes.Compare(key, shard.LowerKey) < 0 {
 				continue
 			}
-			if i+1 < len(it.mapData.Shards) {
-				next := it.mapData.Shards[i+1]
-				if len(next.LowerKey) == 0 || bytes.Compare(key, next.LowerKey) < 0 {
+			hit = shard
+			for j := i + 1; j < len(it.mapData.Shards); j++ {
+				next := it.mapData.Shards[j]
+				if !kvapi.AttrAllow(next.Action, kShardSetup_In) {
+					continue
+				}
+				if bytes.Compare(key, next.LowerKey) >= 0 {
 					hit = shard
+				} else {
 					break
 				}
-			} else {
-				hit = shard
-				break
 			}
 		}
 	}
@@ -402,13 +416,21 @@ func (it *dbMap) lookupByKeys(keys [][]byte) []*dbMapSelectShard {
 	} else {
 		for i, shard := range it.mapData.Shards {
 
+			if !kvapi.AttrAllow(shard.Action, kShardSetup_In) {
+				continue
+			}
+
 			var (
 				next        *kvapi.DatabaseMap_Shard
 				selectShard *dbMapSelectShard
 			)
 
-			if i+1 < len(it.mapData.Shards) {
-				next = it.mapData.Shards[i+1]
+			for j := i + 1; j < len(it.mapData.Shards); j++ {
+				if !kvapi.AttrAllow(it.mapData.Shards[j].Action, kShardSetup_In) {
+					continue
+				}
+				next = it.mapData.Shards[j]
+				break
 			}
 
 			for _, key := range keys {
@@ -461,13 +483,21 @@ func (it *dbMap) lookupByRange(lowerKey, upperKey []byte, rev bool) []*dbMapSele
 
 		for i, shard := range it.mapData.Shards {
 
+			if !kvapi.AttrAllow(shard.Action, kShardSetup_In) {
+				continue
+			}
+
 			var (
 				next        *kvapi.DatabaseMap_Shard
 				selectShard *dbMapSelectShard
 			)
 
-			if i+1 < len(it.mapData.Shards) {
-				next = it.mapData.Shards[i+1]
+			for j := i + 1; j < len(it.mapData.Shards); j++ {
+				if !kvapi.AttrAllow(it.mapData.Shards[j].Action, kShardSetup_In) {
+					continue
+				}
+				next = it.mapData.Shards[j]
+				break
 			}
 
 			if len(selectShards) == 0 {
@@ -504,6 +534,36 @@ func (it *dbMap) lookupByRange(lowerKey, upperKey []byte, rev bool) []*dbMapSele
 	}
 
 	return selectShards
+}
+
+func dbMapShardIter(mapData *kvapi.DatabaseMap, fn func(prev, curr, next *kvapi.DatabaseMap_Shard)) {
+
+	var shards []*kvapi.DatabaseMap_Shard
+
+	for _, shard := range mapData.Shards {
+
+		if !kvapi.AttrAllow(shard.Action, kShardSetup_In) {
+			continue
+		}
+
+		shards = append(shards, shard)
+	}
+
+	for i, shard := range shards {
+		if i == 0 {
+			if i+1 < len(shards) {
+				fn(nil, shard, shards[i+1])
+			} else {
+				fn(nil, shard, nil)
+			}
+		} else {
+			if i+1 < len(shards) {
+				fn(shards[i-1], shard, shards[i+1])
+			} else {
+				fn(shards[i-1], shard, nil)
+			}
+		}
+	}
 }
 
 type dbMap_ShardStatus struct {
@@ -545,6 +605,20 @@ func (it *dbMap) syncStatusReplica(repId, action uint64) *kvapi.DatabaseMapStatu
 	return rep
 }
 
+func (it *dbMap) setReplicaStatus(repId uint64, fn func(*kvapi.DatabaseMapStatus_Replica)) {
+	it.stmut.Lock()
+	defer it.stmut.Unlock()
+	if it.status.Replicas == nil {
+		it.status.Replicas = map[uint64]*kvapi.DatabaseMapStatus_Replica{}
+	}
+	rep, ok := it.status.Replicas[repId]
+	if !ok {
+		rep = &kvapi.DatabaseMapStatus_Replica{}
+		it.status.Replicas[repId] = rep
+	}
+	fn(rep)
+}
+
 func (it *dbMap) statusReplica(repId uint64) *kvapi.DatabaseMapStatus_Replica {
 	it.stmut.Lock()
 	defer it.stmut.Unlock()
@@ -559,6 +633,22 @@ func (it *dbMap) statusReplica(repId uint64) *kvapi.DatabaseMapStatus_Replica {
 		it.status.Replicas[repId] = rep
 	}
 	return rep
+}
+
+func (it *dbMap) shardReplicaStatusList(shard *kvapi.DatabaseMap_Shard) map[uint64]*kvapi.DatabaseMapStatus_Replica {
+	it.stmut.Lock()
+	defer it.stmut.Unlock()
+	if it.status.Replicas == nil {
+		it.status.Replicas = map[uint64]*kvapi.DatabaseMapStatus_Replica{}
+	}
+	reps := map[uint64]*kvapi.DatabaseMapStatus_Replica{}
+	for _, rep := range shard.Replicas {
+		rs, ok := it.status.Replicas[rep.Id]
+		if ok {
+			reps[rep.Id] = rs
+		}
+	}
+	return reps
 }
 
 func (it *dbMap) Close() error {

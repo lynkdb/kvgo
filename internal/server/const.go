@@ -16,6 +16,8 @@ package server
 
 import (
 	"fmt"
+	"os"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -69,25 +71,42 @@ const (
 const (
 	writeProposalTTL int64 = 5000
 
-	logRetentionMilliseconds int64 = 86400 * 2 * 1e3
-)
-
-var (
-	shardSplit_CapacitySize_Def int64 = 8 << 30
-	shardSplit_CapacitySize_Min int64 = 512 << 20
-	shardSplit_CapacitySize_Max int64 = 128 << 30
+	kLogRetentionSeconds int64 = 3600
 )
 
 const (
-	shardSplit_CapacityThreshold = float64(0.5)
-	shardSplit_CapacityBiasMax   = float64(0.1)
-	shardSplit_CapacityBiasMin   = float64(0.01)
+	kSysStatus_TaskIntervalSeconds int64 = 10
 )
 
 var (
-	replicaRebalance_StoreCapacityThreshold = float64(0.25)
+	// unit in MiB
+	kShardSplit_CapacitySize_Min int64 = 64
+	kShardSplit_CapacitySize_Max int64 = 512 << 10
+	kShardSplit_CapacitySize_Def int64 = 8 << 10
 
-	replicaRemoveFromDatabaseMapDelaySeconds int64 = 60
+	// unit in Bytes
+	kShardSplit_CapacitySize_Fresh int64 = 16 << 20
+
+	//
+	kShardSplit_JobIntervalSeconds int64 = 5
+
+	//
+	kShardMerge_JobIntervalSeconds int64 = 15
+
+	//
+	kShardOutRemove_JobIntervalSeconds int64 = 10
+)
+
+const (
+	kShardSplit_CapacityThreshold = float64(0.5)
+	kShardSplit_CapacityBiasMax   = float64(0.1)
+	kShardSplit_CapacityBiasMin   = float64(0.01)
+)
+
+var (
+	kReplicaRebalance_StoreCapacityThreshold = float64(0.05)
+
+	kReplicaRebalance_JobIntervalSeconds int64 = 10
 )
 
 const (
@@ -101,15 +120,11 @@ const (
 )
 
 const (
-	kReplicaStatus_In  uint64 = 1 << 8
+	// kReplicaStatus_In  uint64 = 1 << 8
 	kReplicaStatus_Out uint64 = 1 << 9
 
 	kReplicaStatus_Ready  uint64 = 1 << 10
 	kReplicaStatus_Remove uint64 = 1 << 11
-)
-
-const (
-	kJob_ShardResetIntervalSeconds int64 = 60
 )
 
 var (
@@ -121,14 +136,55 @@ var (
 		kReplicaSetup_Remove:  "Remove",
 	}
 	kReplicaStatusMap = map[uint64]string{
-		kReplicaStatus_In:     "In",
+		// kReplicaStatus_In:     "In",
 		kReplicaStatus_Out:    "Out",
 		kReplicaStatus_Ready:  "Ready",
 		kReplicaStatus_Remove: "Remove",
 	}
 )
 
-func replicaActionDisplay(v uint64) string {
+var debugModeRX = regexp.MustCompile(`\/go\-build([0-9]{1,20})\/`)
+
+func init() {
+	if testLocalMode || debugModeRX.MatchString(os.Args[0]) {
+		//
+		testLocalMode = true
+
+		// test split
+		if false {
+			kShardSplit_CapacitySize_Min = 32
+			kShardSplit_CapacitySize_Max = 256
+			kShardSplit_CapacitySize_Def = 32
+		}
+
+		// test merge
+		if true {
+			kShardSplit_CapacitySize_Min = 32
+			kShardSplit_CapacitySize_Max = 256
+			kShardSplit_CapacitySize_Def = 256
+		}
+
+		// test rebalance
+		if false {
+			kShardSplit_CapacitySize_Min = 256
+			kShardSplit_CapacitySize_Max = 1 << 10
+			kShardSplit_CapacitySize_Def = 1 << 10
+		}
+
+		//
+		kShardSplit_CapacitySize_Fresh = 8 << 20
+
+		//
+		kShardSplit_JobIntervalSeconds = 5
+		kShardMerge_JobIntervalSeconds = 5
+
+		kReplicaRebalance_JobIntervalSeconds = 5
+
+		testPrintf("enable local mode")
+	}
+}
+
+func ReplicaActionDisplay(v uint64) string {
 	var arr []string
 	for a, s := range kReplicaSetupMap {
 		if kvapi.AttrAllow(v, a) {
@@ -157,10 +213,13 @@ const (
 	kShardSetup_SplitOut uint64 = 1 << 5
 
 	kShardSetup_Rebalance uint64 = 1 << 6
+
+	kShardSetup_MergeIn  uint64 = 1 << 7
+	kShardSetup_MergeOut uint64 = 1 << 8
 )
 
 const (
-	kShardStatus_In uint64 = 1 << 8
+// kShardStatus_In uint64 = 1 << 8
 )
 
 var (
@@ -170,13 +229,15 @@ var (
 		kShardSetup_SplitIn:   "SplitIn",
 		kShardSetup_SplitOut:  "SplitOut",
 		kShardSetup_Rebalance: "Rebalance",
+		kShardSetup_MergeIn:   "MergeIn",
+		kShardSetup_MergeOut:  "MergeOut",
 	}
 	kShardStatusMap = map[uint64]string{
-		kShardStatus_In: "In",
+		// kShardStatus_In: "In",
 	}
 )
 
-func shardActionDisplay(v uint64) string {
+func ShardActionDisplay(v uint64) string {
 	var arr []string
 	for a, s := range kShardSetupMap {
 		if kvapi.AttrAllow(v, a) {
@@ -191,6 +252,9 @@ func shardActionDisplay(v uint64) string {
 	if len(arr) == 0 {
 		return "UnSpec"
 	}
+	sort.Slice(arr, func(i, j int) bool {
+		return strings.Compare(arr[i], arr[j]) < 0
+	})
 	return strings.Join(arr, ",")
 }
 
@@ -204,16 +268,17 @@ func keyEncode(ns byte, key []byte) []byte {
 	return append([]byte{ns}, key...)
 }
 
-func keyExpireEncode(replicaId uint64, expired int64, key []byte) []byte {
-	k := append(append([]byte{nsKeyTtl}, uint64ToBytes(replicaId)...), uint64ToBytes(uint64(expired))...)
+func keyExpireEncode(expired int64, key []byte) []byte {
+	k := append([]byte{nsKeyTtl}, uint64ToBytes(uint64(expired))...)
 	if len(key) == 0 {
 		return k
 	}
 	return append(k, uint64ToBytes(xxhash.Sum64(key))...)
 }
 
-func keyLogEncode(replicaId, logVersion uint64) []byte {
-	return append(append([]byte{nsKeyLog}, uint64ToBytes(replicaId)...), uint64ToBytes(logVersion)...)
+func keyLogEncode(logVersion, replicaId, _ uint64) []byte {
+	// return append(append([]byte{nsKeyLog}, uint64ToBytes(logVersion)...), uint64ToBytes(replicaId)...)
+	return append([]byte{nsKeyLog}, uint64ToBytes(logVersion)...)
 }
 
 func keySysIncrCutset(ns string) []byte {

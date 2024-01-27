@@ -63,7 +63,7 @@ func (it *dbReplica) _task_deleteRange(ds *dbServer,
 	ds.auditLogger.Put("range-delete", "database %s:%s, shard %d, rep %d, key-range deleted",
 		it.dbName, it.dbId, shard.Id, it.replicaId)
 
-	it.status.storageUsed.mapVersion = 0
+	it.localStatus.storageUsed.mapVersion = 0
 
 	return nil
 }
@@ -85,20 +85,24 @@ func (it *dbReplica) taskStatusRefresh(
 
 	refreshStorageUsed := func() error {
 
-		if !forceRefresh &&
-			it.status.storageUsed.mapVersion == shard.Version &&
-			it.status.storageUsed.updated+dbReplicaStatusRefreshIntervalSecond > tn &&
-			it.status.kvWriteSize.Load() < (shardSplit_CapacitySize_Min/2) {
+		if (kvapi.AttrAllow(shard.Action, kShardSetup_SplitIn) ||
+			kvapi.AttrAllow(shard.Action, kShardSetup_SplitOut) ||
+			kvapi.AttrAllow(shard.Action, kShardSetup_Rebalance)) && absInt64(tn-it.localStatus.storageUsed.updated) > 60 {
+			//
+		} else if !forceRefresh &&
+			it.localStatus.storageUsed.mapVersion == shard.Version &&
+			it.localStatus.storageUsed.updated+dbReplicaStatusRefreshIntervalSecond > tn &&
+			it.localStatus.kvWriteSize.Load() < kShardSplit_CapacitySize_Fresh {
 			// testPrintf("replica %d, version diff %v, sec %d, kv-write-size %d %d",
 			// 	it.replicaId,
-			// 	it.status.storageUsed.mapVersion == shard.Version,
-			// 	tn-it.status.storageUsed.updated,
-			// 	it.status.kvWriteKeys.Load(), it.status.kvWriteSize.Load()/(1<<20))
+			// 	it.localStatus.storageUsed.mapVersion == shard.Version,
+			// 	tn-it.localStatus.storageUsed.updated,
+			// 	it.localStatus.kvWriteKeys.Load(), it.localStatus.kvWriteSize.Load()/(1<<20))
 			return nil
 		}
 
 		// testPrintf("replica %d, kv-write-size %d %d",
-		// 	it.replicaId, it.status.kvWriteKeys.Load(), it.status.kvWriteSize.Load()/(1<<20))
+		// 	it.replicaId, it.localStatus.kvWriteKeys.Load(), it.localStatus.kvWriteSize.Load()/(1<<20))
 
 		var (
 			lowerKey = bytesClone(lowerKey)
@@ -117,17 +121,16 @@ func (it *dbReplica) taskStatusRefresh(
 		}
 
 		testPrintf("replica status refresh : rep %d:%d ver %d+, write-size %d db-size %d, key %v",
-			shard.Id, it.replicaId, int64(shard.Version)-int64(it.status.storageUsed.mapVersion),
-			it.status.kvWriteSize.Load()/(1<<20), rs[0]/(1<<20),
+			shard.Id, it.replicaId, int64(shard.Version)-int64(it.localStatus.storageUsed.mapVersion),
+			it.localStatus.kvWriteSize.Load()/(1<<20), rs[0]/(1<<20),
 			string(lowerKey))
 
-		it.status.storageUsed.mapVersion = shard.Version
-		it.status.storageUsed.updated = tn
+		it.localStatus.storageUsed.value = rs[0] / (1 << 20)
+		it.localStatus.storageUsed.mapVersion = shard.Version
+		it.localStatus.storageUsed.updated = tn
 
-		it.status.storageUsed.value = rs[0]
-
-		it.status.kvWriteKeys.Store(0)
-		it.status.kvWriteSize.Store(0)
+		it.localStatus.kvWriteKeys.Store(0)
+		it.localStatus.kvWriteSize.Store(0)
 
 		return nil
 	}

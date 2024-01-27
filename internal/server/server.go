@@ -82,9 +82,10 @@ type dbServer struct {
 
 	once sync.Once
 
-	status dbServerStatus
-	close  bool
+	status         dbServerStatus
+	localSysStatus *kvapi.SysNodeStatus
 
+	close   bool
 	closegw sync.WaitGroup
 }
 
@@ -154,6 +155,9 @@ func dbServerSetup(cfgFile string, cfg Config) (*dbServer, error) {
 			Uptime:  time.Now().Unix(),
 			Version: version,
 			Release: release,
+		},
+		localSysStatus: &kvapi.SysNodeStatus{
+			Caps: map[string]*kvapi.SysCapacity{},
 		},
 	}
 

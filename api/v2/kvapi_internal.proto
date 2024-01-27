@@ -29,6 +29,7 @@ message LogMeta {
   int64 created = 5;
   int32 size = 6;
   bytes key = 7;
+  uint64 replica_id = 8;
 }
 
 message RawKeyValue {
@@ -52,9 +53,24 @@ message DatabaseMap {
     repeated Replica replicas = 9;
     int64 updated = 15;
   }
+  enum JobType {
+    UnSpec = 0;
+    Split = 1;
+    Merge = 2;
+    Rebalance = 3;
+  }
+  message JobDescriptor {
+    string id = 1;
+    uint64 version = 2;
+    JobType type = 3;
+    repeated uint64 shard_ids = 4;
+    map<uint64, uint64> replica_moves = 5;
+    int64 updated = 15;
+  }
   string id = 1;
   uint64 version = 2;
   repeated Shard shards = 9;
+  repeated JobDescriptor jobs = 10;
   uint64 incr_id = 13;
   int64 updated = 15;
 }
@@ -82,10 +98,27 @@ message SysNode {
 message SysStoreStatus {
   uint64 id = 1;
   string uni_id = 2;
-  uint64 capacity_used = 8;
-  uint64 capacity_free = 9;
-  uint64 load_cycle_count = 10;
-  uint64 updated = 15;
+  int64 capacity_used = 8;
+  int64 capacity_free = 9;
+  int64 load_cycle_count = 10;
+  int64 replica_bounds = 11;
+  map<string, string> options = 14;
+  int64 updated = 15;
+}
+
+message SysNodeStatus {
+  string id = 1;
+  string addr = 2;
+  string version = 3;
+  int64 uptime = 8;
+  map<string, SysCapacity> caps = 9;
+  int64 updated = 15;
+}
+
+message SysCapacity {
+  int64 use = 1;
+  int64 min = 2;
+  int64 max = 3;
 }
 
 message SysStoreDescriptor {

@@ -48,6 +48,7 @@ install: server
 	chown -R ${APP_USER}:${APP_USER} ${APP_HOME}
 	install -m 600 init/server/systemd/systemd.service /lib/systemd/system/kvgo.service
 	systemctl daemon-reload
+	systemctl restart kvgo
 
 test:
 	go test -count=1 .
@@ -57,14 +58,12 @@ code-stats:
 	find ./internal -type f -name "*.go" -not -path "*_test2.go" -not -path "*.pb.go" | xargs wc -l|sort -n
 
 api:
-	# go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-	go install github.com/golang/protobuf/protoc-gen-go
-	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc
-	go install github.com/hooto/htoml4g/cmd/htoml-tag-fix
+	##  go install github.com/golang/protobuf/protoc-gen-go
+	##  go install google.golang.org/grpc/cmd/protoc-gen-go-grpc
+	##  go install github.com/hooto/htoml4g/cmd/htoml-tag-fix
 	$(PROTOC_CMD) $(PROTOC_ARGS)
 	$(HTOML_TAG_FIX_CMD) $(HTOML_TAG_FIX_ARGS)
 
 clean:
 	rm -f ${EXE_SERVER}
-
 

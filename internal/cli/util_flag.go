@@ -117,5 +117,4 @@ func (bx flagValue) Float64() float64 {
 		}
 	}
 	return 0
-
 }

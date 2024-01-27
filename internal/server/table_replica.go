@@ -61,7 +61,7 @@ type dbReplica struct {
 	proposals  map[string]*proposalx
 	proposalMu sync.RWMutex
 
-	status dbReplicaStatus
+	localStatus dbReplicaStatus
 
 	close bool
 }
@@ -69,24 +69,34 @@ type dbReplica struct {
 type dbReplicaStatusItem struct {
 	mapVersion uint64
 	value      int64
+	attr       uint64
 	updated    int64
 }
 
 type dbReplicaStatus struct {
 	mu sync.Mutex
 
-	mapVersion uint64
-	action     uint64
-	updated    int64
-
 	kvWriteKeys atomic.Int64
 	kvWriteSize atomic.Int64
 
+	action      dbReplicaStatusItem
 	storageUsed dbReplicaStatusItem
 
 	pulls     map[uint64]*dbReplicaStatusItem
 	iterPulls []*dbReplicaStatusItem
 }
+
+type proposalx struct {
+	id      uint64
+	write   *kvapi.WriteProposalRequest
+	delete  *kvapi.DeleteProposalRequest
+	expired int64
+}
+
+var (
+	dbReplicaMut sync.Mutex
+	dbReplicaSet = map[string]*dbReplica{}
+)
 
 func (it *dbReplicaStatus) pull(id uint64) *dbReplicaStatusItem {
 	it.mu.Lock()
@@ -102,18 +112,6 @@ func (it *dbReplicaStatus) pull(id uint64) *dbReplicaStatusItem {
 	}
 	return item
 }
-
-type proposalx struct {
-	id      uint64
-	write   *kvapi.WriteProposalRequest
-	delete  *kvapi.DeleteProposalRequest
-	expired int64
-}
-
-var (
-	dbReplicaMut sync.Mutex
-	dbReplicaSet = map[string]*dbReplica{}
-)
 
 func NewDatabase(
 	store storage.Conn,
@@ -141,7 +139,7 @@ func NewDatabase(
 
 	dt = &dbReplica{
 		store:      store,
-		dbName:  dbName,
+		dbName:     dbName,
 		shardId:    shardId,
 		replicaId:  replicaId,
 		incrStates: map[string]*dbReplicaIncrState{},

@@ -89,8 +89,8 @@ func (it *dbReplica) logRange(req *kvapi.LogRangeRequest) (*kvapi.LogRangeRespon
 	}
 
 	var (
-		lowerKey  = keyLogEncode(req.ReplicaId, req.LowerLog)
-		upperKey  = keyLogEncode(req.ReplicaId, req.UpperLog)
+		lowerKey  = keyLogEncode(req.LowerLog, req.ReplicaId, 0)
+		upperKey  = keyLogEncode(req.UpperLog, req.ReplicaId, 0)
 		limitNum  = 10000
 		limitSize = 2 << 20
 		readSize  int
@@ -112,14 +112,19 @@ func (it *dbReplica) logRange(req *kvapi.LogRangeRequest) (*kvapi.LogRangeRespon
 			rs.NextResultSet = true
 			break
 		}
-		readSize += len(iter.Value())
 
 		item, err := kvapi.LogDecode(bytesClone(iter.Value()))
 		if err != nil {
 			continue
 		}
+		if item.ReplicaId != req.ReplicaId {
+			continue
+		}
 
-		rs.Items = append(rs.Items, item)
+		readSize += len(iter.Value())
+		if len(item.Key) <= 512 {
+			rs.Items = append(rs.Items, item)
+		}
 
 		if len(rs.Items) >= limitNum || readSize >= limitSize {
 			rs.NextResultSet = true
@@ -165,10 +170,14 @@ func (it *dbReplica) logKeyRangeMeta(req *kvapi.LogKeyRangeRequest) (*kvapi.Resu
 		readSize += len(iter.Key())
 		readSize += len(iter.Value())
 
-		rs.Items = append(rs.Items, &kvapi.KeyValue{
+		item := &kvapi.KeyValue{
 			Key:  bytesClone(iter.Key())[1:],
 			Meta: meta,
-		})
+		}
+
+		if len(item.Key) <= 512 {
+			rs.Items = append(rs.Items, item)
+		}
 
 		if len(rs.Items) >= limitNum || readSize >= limitSize {
 			rs.NextResultSet = true
@@ -326,18 +335,18 @@ func (it *dbReplica) _writeAccept(req *kvapi.WriteProposalRequest) (*kvapi.Meta,
 			return nil, err
 		}
 
-		bsLogMeta, err := pp.write.Write.LogEncode(logId)
+		bsLogMeta, err := pp.write.Write.LogEncode(logId, it.replicaId)
 		if err != nil {
 			return nil, err
 		}
 
 		if cLogOn && !it.cfg.Feature.WriteLogDisable {
-			batch.Put(keyLogEncode(it.replicaId, logId), bsLogMeta)
+			batch.Put(keyLogEncode(logId, it.replicaId, 0), bsLogMeta)
 			writeSize += len(bsLogMeta)
 		}
 
 		if pp.write.Write.Meta.Expired > 0 {
-			batch.Put(keyExpireEncode(it.replicaId, pp.write.Write.Meta.Expired, pp.write.Write.Key), bsLogMeta)
+			batch.Put(keyExpireEncode(pp.write.Write.Meta.Expired, pp.write.Write.Key), bsLogMeta)
 			writeSize += len(bsLogMeta)
 		}
 	}
@@ -363,8 +372,8 @@ func (it *dbReplica) _writeAccept(req *kvapi.WriteProposalRequest) (*kvapi.Meta,
 
 	delete(it.proposals, string(pp.write.Write.Key))
 
-	it.status.kvWriteKeys.Add(1)
-	it.status.kvWriteSize.Add(int64(writeSize))
+	it.localStatus.kvWriteKeys.Add(1)
+	it.localStatus.kvWriteSize.Add(int64(writeSize))
 
 	return &kvapi.Meta{
 		Version: cLog,
@@ -498,12 +507,12 @@ func (it *dbReplica) _deleteAccept(req *kvapi.DeleteProposalRequest) (*kvapi.Met
 			return nil, err
 		}
 
-		bsLogMeta, err := pp.delete.LogEncode(logId, cLog)
+		bsLogMeta, err := pp.delete.LogEncode(logId, cLog, it.replicaId)
 		if err != nil {
 			return nil, err
 		}
 
-		batch.Put(keyLogEncode(it.replicaId, logId), bsLogMeta)
+		batch.Put(keyLogEncode(logId, it.replicaId, 0), bsLogMeta)
 		if it.cfg.Server.MetricsEnable {
 			metricCounter.Add(metricStorageSize, "Key.Delete", float64(len(bsLogMeta)))
 		}
@@ -525,9 +534,9 @@ func (it *dbReplica) _deleteAccept(req *kvapi.DeleteProposalRequest) (*kvapi.Met
 
 	delete(it.proposals, string(pp.delete.Key))
 
-	it.status.kvWriteKeys.Add(1)
+	it.localStatus.kvWriteKeys.Add(1)
 	if meta != nil && meta.Size > 0 {
-		it.status.kvWriteSize.Add(int64(meta.Size))
+		it.localStatus.kvWriteSize.Add(int64(meta.Size))
 	}
 
 	return &kvapi.Meta{
@@ -535,7 +544,7 @@ func (it *dbReplica) _deleteAccept(req *kvapi.DeleteProposalRequest) (*kvapi.Met
 	}, nil
 }
 
-func (it *dbReplica) trySplit(shard, next *kvapi.DatabaseMap_Shard) ([]byte, error) {
+func (it *dbReplica) trySplit(shard, next *kvapi.DatabaseMap_Shard, avgSize int64) ([]byte, error) {
 
 	rangeSize := func(lower, upper []byte) int64 {
 		rs, err := it.store.SizeOf([]*storage.IterOptions{{
@@ -568,8 +577,17 @@ func (it *dbReplica) trySplit(shard, next *kvapi.DatabaseMap_Shard) ([]byte, err
 
 	var (
 		repSize = float64(rangeSize(leftKey, rightKey))
-		midSize = repSize * shardSplit_CapacityThreshold
+		midSize = repSize * kShardSplit_CapacityThreshold
 	)
+
+	avgSize = avgSize << 20
+	if d := absFloat64(repSize-float64(avgSize)) / float64(avgSize); d > 0.1 {
+
+		hlog.Printf("info", "try shard split deny, size %d, avg-size %d, diff %.4f, time %v",
+			int64(repSize)/(1<<20), avgSize/(1<<20), d, time.Since(tn))
+
+		return nil, errors.New("size issue, try next ...")
+	}
 
 	for ; tryNum < 1024; tryNum++ {
 
@@ -585,12 +603,12 @@ func (it *dbReplica) trySplit(shard, next *kvapi.DatabaseMap_Shard) ([]byte, err
 			if repSize < 1024 {
 				repSize = 1024
 			}
-			midSize = repSize * shardSplit_CapacityThreshold
+			midSize = repSize * kShardSplit_CapacityThreshold
 		}
 
 		capRatio = absFloat64(s-midSize) / repSize
 
-		if capRatio <= shardSplit_CapacityBiasMin {
+		if capRatio <= kShardSplit_CapacityBiasMin {
 			leftKey = offset
 			break
 		} else if s <= midSize {
@@ -600,7 +618,7 @@ func (it *dbReplica) trySplit(shard, next *kvapi.DatabaseMap_Shard) ([]byte, err
 		}
 	}
 
-	if capRatio > shardSplit_CapacityBiasMax {
+	if capRatio > kShardSplit_CapacityBiasMax {
 
 		testPrintf("miss s %v", startKey)
 		testPrintf("miss l %v", leftKey)
@@ -612,8 +630,16 @@ func (it *dbReplica) trySplit(shard, next *kvapi.DatabaseMap_Shard) ([]byte, err
 	testPrintf("try shard %d, split hit, key %v, size %d, size-ratio %f, cap-ratio %f, try-n %d, time %v",
 		it.shardId, string(leftKey[1:]), int64(repSize)/(1<<20), midSize/repSize, capRatio, tryNum, time.Since(tn))
 
-	hlog.Printf("info", "try shard split hit, key %v, size %f, cap-ratio %f, try-n %d, time %v",
-		string(leftKey[1:]), midSize/repSize, capRatio, tryNum, time.Since(tn))
+	hlog.Printf("info", "try shard split hit, key %v, size %f (%d/%d), cap-ratio %f, try-n %d, time %v",
+		string(leftKey[1:]), midSize/repSize, int(midSize)/(1<<20), int(repSize)/(1<<20), capRatio, tryNum, time.Since(tn))
+
+	if next != nil {
+		hlog.Printf("info", "left %s, mid %s, right %s, shard %d %d",
+			string(shard.LowerKey), string(leftKey[1:]), string(next.LowerKey), shard.Id, next.Id)
+	} else {
+		hlog.Printf("info", "left %s, mid %s, right %s, shard %d",
+			string(shard.LowerKey), string(leftKey[1:]), "zzzz", shard.Id)
+	}
 
 	return leftKey[1:], nil
 }

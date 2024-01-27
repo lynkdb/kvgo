@@ -23,6 +23,18 @@ import (
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
 
+type _jobSplitReplicaItem struct {
+	rep  *dbReplica
+	size int64
+}
+
+type _jobSplitShardItem struct {
+	shard    *kvapi.DatabaseMap_Shard
+	next     *kvapi.DatabaseMap_Shard
+	sizeAvg  int64
+	replicas []*_jobSplitReplicaItem
+}
+
 func (it *dbServer) jobShardSplitSetup() error {
 
 	if it.close {
@@ -34,24 +46,18 @@ func (it *dbServer) jobShardSplitSetup() error {
 		it.closegw.Done()
 	}()
 
-	type replicaItem struct {
-		rep  *dbReplica
-		size int64
-		dist int64
-	}
+	var (
+		tn           = timesec()
+		splitPending = false
+	)
 
-	type shardItem struct {
-		shard    *kvapi.DatabaseMap_Shard
-		next     *kvapi.DatabaseMap_Shard
-		sizeAvg  int64
-		replicas []*replicaItem
-	}
-
-	splitInCheck := func(tm *dbMap, shard *kvapi.DatabaseMap_Shard) bool {
+	splitInCheck := func(tm *dbMap, shard *kvapi.DatabaseMap_Shard, nextMapVersion uint64) bool {
 
 		if !kvapi.AttrAllow(shard.Action, kShardSetup_SplitIn) {
 			return false
 		}
+
+		splitPending = true
 
 		if len(shard.Replicas) < 1 || len(shard.Replicas) < int(tm.data.ReplicaNum) {
 			return false
@@ -64,12 +70,14 @@ func (it *dbServer) jobShardSplitSetup() error {
 				return false
 			}
 
-			if !kvapi.AttrAllow(repInst.status.action, kReplicaStatus_Ready) {
+			if repInst.localStatus.action.mapVersion != shard.Version ||
+				!kvapi.AttrAllow(repInst.localStatus.action.attr, kReplicaStatus_Ready) {
 				return false
 			}
 		}
 
 		shard.Action = kvapi.AttrRemove(shard.Action, kShardSetup_SplitIn)
+		shard.Version = nextMapVersion
 		shard.Updated = timesec()
 
 		it.auditLogger.Put("split", "database %s, shard %d, split-in done", tm.data.Name, shard.Id)
@@ -77,11 +85,13 @@ func (it *dbServer) jobShardSplitSetup() error {
 		return true
 	}
 
-	splitOutCheck := func(tm *dbMap, shard *kvapi.DatabaseMap_Shard) bool {
+	splitOutCheck := func(tm *dbMap, shard *kvapi.DatabaseMap_Shard, nextMapVersion uint64) bool {
 
 		if !kvapi.AttrAllow(shard.Action, kShardSetup_SplitOut) {
 			return false
 		}
+
+		splitPending = true
 
 		if len(shard.Replicas) < 1 || len(shard.Replicas) < int(tm.data.ReplicaNum) {
 			return false
@@ -94,16 +104,14 @@ func (it *dbServer) jobShardSplitSetup() error {
 				return false
 			}
 
-			if !kvapi.AttrAllow(repInst.status.action, kReplicaStatus_Ready) {
-				return false
-			}
-
-			if repInst.status.mapVersion < shard.Version {
+			if repInst.localStatus.action.mapVersion != shard.Version ||
+				!kvapi.AttrAllow(repInst.localStatus.action.attr, kReplicaStatus_Ready) {
 				return false
 			}
 		}
 
 		shard.Action = kvapi.AttrRemove(shard.Action, kShardSetup_SplitOut)
+		shard.Version = nextMapVersion
 		shard.Updated = timesec()
 
 		it.auditLogger.Put("split", "database %s, shard %d, split-out done", tm.data.Name, shard.Id)
@@ -111,158 +119,49 @@ func (it *dbServer) jobShardSplitSetup() error {
 		return true
 	}
 
-	splitAction := func(tm *dbMap, shard *shardItem) *kvapi.DatabaseMap_Shard {
+	splitCheck := func(tm *dbMap, mapData *kvapi.DatabaseMap) bool {
 
-		for _, v := range shard.replicas {
-			v.dist = absInt64(shard.sizeAvg - v.size)
-		}
+		var (
+			chg            = false
+			nextMapVersion = mapData.Version + 1
+		)
 
-		sort.Slice(shard.replicas, func(i, j int) bool {
-			return shard.replicas[i].dist < shard.replicas[j].dist
-		})
+		for _, shard := range mapData.Shards {
 
-		mk, err := shard.replicas[0].rep.trySplit(shard.shard, shard.next)
-		if err != nil {
-			testPrintf("spit err %v", err)
-			return nil
-		}
+			if shard.Action == kShardSetup_In {
+				continue
+			}
 
-		it.jobSetupMut.Lock()
-		defer it.jobSetupMut.Unlock()
+			if splitInCheck(tm, shard, nextMapVersion) {
+				chg = true
+				break
+			}
 
-		var mapData kvapi.DatabaseMap
-		if err := objectClone(tm.mapData, &mapData); err != nil {
-			testPrintf("spit err %v", err)
-			return nil
-		}
-
-		var lowerShard *kvapi.DatabaseMap_Shard
-		for _, v := range mapData.Shards {
-			if v.Id == shard.shard.Id {
-				lowerShard = v
+			if splitOutCheck(tm, shard, nextMapVersion) {
+				chg = true
 				break
 			}
 		}
-		if lowerShard == nil {
-			testPrintf("spit err nil")
-			return nil
+
+		if chg {
+			mapData.Version = nextMapVersion
+			mapData.Updated = timesec()
 		}
 
-		if bytes.Compare(mk, lowerShard.LowerKey) <= 0 {
-			return nil
-		}
-
-		mapData.Version += 1
-
-		upperShard := &kvapi.DatabaseMap_Shard{
-			Id:       tm.nextIncr(),
-			Prev:     lowerShard.Id,
-			Version:  mapData.Version,
-			LowerKey: mk,
-			Action:   kShardSetup_In | kShardSetup_SplitIn,
-			Updated:  timesec(),
-		}
-		for _, rep := range lowerShard.Replicas {
-			upperShard.Replicas = append(upperShard.Replicas, &kvapi.DatabaseMap_Replica{
-				Id:      tm.nextIncr(),
-				StoreId: rep.StoreId,
-				Action:  kReplicaSetup_In,
-			})
-		}
-
-		// lowerShard.UpperKey = mk
-		lowerShard.Action |= kShardSetup_SplitOut
-		lowerShard.Version = mapData.Version
-		lowerShard.Updated = timesec()
-
-		mapData.Shards = append(mapData.Shards, upperShard)
-
-		sort.Slice(mapData.Shards, func(i, j int) bool {
-			return bytes.Compare(mapData.Shards[i].LowerKey, mapData.Shards[j].LowerKey) < 0
-		})
-
-		if mapData.IncrId < tm.mapData.IncrId {
-			mapData.IncrId = tm.mapData.IncrId
-		}
-
-		wr := kvapi.NewWriteRequest(nsSysDatabaseMap(tm.data.Id), jsonEncode(mapData))
-		wr.Database = sysDatabaseName
-		wr.PrevVersion = tm.mapMeta.Version
-
-		rs, err := it.api.Write(nil, wr)
-		if err != nil {
-			hlog.Printf("error", "job update fail %s", err.Error())
-			testPrintf("shard split update fail %s", err.Error())
-			return nil
-		}
-		if rs.OK() {
-
-			item := rs.Item()
-			if item == nil {
-				return nil
-			}
-
-			tm.mapMeta = item.Meta
-			tm.mapData = &mapData
-
-			for _, rep := range upperShard.Replicas {
-
-				if _, ok := tm.replicas[rep.Id]; ok {
-					continue
-				}
-
-				store := tm.storeMgr.store(rep.StoreId)
-				if store == nil {
-					continue
-				}
-
-				trep, err := NewDatabase(store, tm.data.Id, tm.data.Name, upperShard.Id, rep.Id, tm.cfg)
-				if err != nil {
-					continue
-				}
-
-				tm.replicas[rep.Id] = trep
-				tm.arrReplicas = append(tm.arrReplicas, trep)
-
-				tm.syncStatusReplica(rep.Id, kReplicaStatus_In)
-			}
-
-			hlog.Printf("error", "job updated, database %s, version %d, shards %d",
-				tm.data.Name, shard.shard.Version, len(mapData.Shards))
-
-			it.auditLogger.Put("split", "database %s, shard %d to %d, split start",
-				tm.data.Name, lowerShard.Id, upperShard.Id)
-
-		} else {
-			testPrintf("shard split update fail %s", rs.StatusMessage)
-		}
-
-		return upperShard
+		return chg
 	}
 
-	dbAction := func(tm *dbMap) {
+	splitSchedule := func(tm *dbMap, mapData *kvapi.DatabaseMap) *kvapi.DatabaseMap_Shard {
 
 		var (
-			shardItems = []*shardItem{}
-			tn         = timesec()
+			splitSize = (3 * tm.shardSize()) / 2
+			splitSets []*_jobSplitShardItem
 		)
 
-		for i, shard := range tm.mapData.Shards {
+		for i, shard := range mapData.Shards {
 
 			if len(shard.Replicas) != int(tm.data.ReplicaNum) {
 				// testPrintf("shard %d %d %d", shard.Id, len(shard.Replicas), tm.data.ReplicaNum)
-				continue
-			}
-
-			if kvapi.AttrAllow(shard.Action, kShardSetup_SplitIn) {
-				if chg := splitInCheck(tm, shard); chg {
-					testPrintf("shard split-in check %v", chg)
-				}
-				continue
-			}
-
-			if kvapi.AttrAllow(shard.Action, kShardSetup_SplitOut) {
-				splitOutCheck(tm, shard)
 				continue
 			}
 
@@ -270,34 +169,36 @@ func (it *dbServer) jobShardSplitSetup() error {
 				continue
 			}
 
-			if shard.Updated+kJob_ShardResetIntervalSeconds > tn {
-				// continue
+			if shard.Updated+kShardSplit_JobIntervalSeconds > tn {
+				// testPrintf("shard %d split-in check skip time %d", shard.Id, tn-shard.Updated)
+				continue
 			}
 
-			si := &shardItem{
+			// testPrintf("shard %d split-in check time %d", shard.Id, tn-shard.Updated)
+
+			si := &_jobSplitShardItem{
 				shard: shard,
 			}
 
-			if i+1 < len(tm.mapData.Shards) {
-				si.next = tm.mapData.Shards[i+1]
+			if i+1 < len(mapData.Shards) {
+				si.next = mapData.Shards[i+1]
 			}
 
 			for _, rep := range shard.Replicas {
 
-				trep, ok := tm.replicas[rep.Id]
+				repInst, ok := tm.replicas[rep.Id]
 				if !ok {
 					continue
 				}
 
-				if trep.status.mapVersion != shard.Version {
-					si.replicas = nil
+				if repInst.localStatus.storageUsed.mapVersion != shard.Version {
 					break
 				}
 
-				si.sizeAvg += trep.status.storageUsed.value
-				si.replicas = append(si.replicas, &replicaItem{
-					rep:  trep,
-					size: trep.status.storageUsed.value,
+				si.sizeAvg += repInst.localStatus.storageUsed.value
+				si.replicas = append(si.replicas, &_jobSplitReplicaItem{
+					rep:  repInst,
+					size: repInst.localStatus.storageUsed.value,
 				})
 			}
 
@@ -306,22 +207,140 @@ func (it *dbServer) jobShardSplitSetup() error {
 			}
 
 			si.sizeAvg = si.sizeAvg / int64(len(si.replicas))
-			if si.sizeAvg <= shardSplit_CapacitySize_Def {
+
+			if si.sizeAvg <= splitSize {
 				continue
 			}
 
-			shardItems = append(shardItems, si)
+			splitSets = append(splitSets, si)
 		}
 
-		if len(shardItems) == 0 {
+		if len(splitSets) == 0 {
+			return nil
+		}
+
+		sort.Slice(splitSets, func(i, j int) bool {
+			return splitSets[i].sizeAvg > splitSets[j].sizeAvg
+		})
+
+		lowerShard := splitSets[0]
+		sort.Slice(lowerShard.replicas, func(i, j int) bool {
+			return lowerShard.replicas[i].size > lowerShard.replicas[j].size
+		})
+
+		mk, err := lowerShard.replicas[0].rep.trySplit(lowerShard.shard, lowerShard.next, lowerShard.sizeAvg)
+		if err != nil {
+			testPrintf("spit err %v", err)
+			return nil
+		}
+
+		if bytes.Compare(mk, lowerShard.shard.LowerKey) <= 0 {
+			return nil
+		}
+
+		mapData.Version += 1
+
+		upperShard := &kvapi.DatabaseMap_Shard{
+			Id:       tm.nextIncr(),
+			Prev:     lowerShard.shard.Id,
+			Version:  mapData.Version,
+			LowerKey: mk,
+			Action:   kShardSetup_In | kShardSetup_SplitIn,
+			Updated:  timesec(),
+		}
+		for _, rep := range lowerShard.shard.Replicas {
+			upperShard.Replicas = append(upperShard.Replicas, &kvapi.DatabaseMap_Replica{
+				Id:      tm.nextIncr(),
+				StoreId: rep.StoreId,
+				Action:  kReplicaSetup_In,
+			})
+		}
+
+		lowerShard.shard.Action |= kShardSetup_SplitOut
+		lowerShard.shard.Version = mapData.Version
+		lowerShard.shard.Updated = timesec()
+
+		newShards := make([]*kvapi.DatabaseMap_Shard, len(mapData.Shards)+1)
+		for j, shard := range mapData.Shards {
+			if shard.Id == lowerShard.shard.Id {
+				copy(newShards[:j+1], mapData.Shards[:j+1])
+				newShards[j+1] = upperShard
+				copy(newShards[j+2:], mapData.Shards[j+1:])
+				mapData.Shards = newShards
+				break
+			}
+		}
+
+		if mapData.IncrId < tm.mapData.IncrId {
+			mapData.IncrId = tm.mapData.IncrId
+		}
+
+		it.auditLogger.Put("split", "database %s, shard %d, upper-shard %d, new", tm.data.Name, lowerShard.shard.Id, upperShard.Id)
+
+		return upperShard
+	}
+
+	dbAction := func(tm *dbMap) {
+
+		it.jobSetupMut.Lock()
+		defer it.jobSetupMut.Unlock()
+
+		if tm.mapData.Id == sysDatabaseId {
 			return
 		}
 
-		sort.Slice(shardItems, func(i, j int) bool {
-			return shardItems[i].sizeAvg > shardItems[j].sizeAvg
-		})
+		var (
+			prevMetaVersion = tm.mapMeta.Version
+			mapData         kvapi.DatabaseMap
+		)
 
-		splitAction(tm, shardItems[0])
+		if err := objectClone(tm.mapData, &mapData); err != nil {
+			return
+		}
+
+		if chg := splitCheck(tm, &mapData); chg {
+			if err := it.mapFlush(tm, &mapData, prevMetaVersion); err != nil {
+			}
+			return
+		}
+
+		if splitPending {
+			return
+		}
+
+		upperShard := splitSchedule(tm, &mapData)
+		if upperShard == nil {
+			return
+		}
+
+		hlog.Printf("info", "job updated, database %s, version %d, shards %d",
+			tm.data.Name, upperShard.Version, len(mapData.Shards))
+
+		if err := it.mapFlush(tm, &mapData, prevMetaVersion); err != nil {
+			return
+		}
+
+		for _, rep := range upperShard.Replicas {
+
+			if _, ok := tm.replicas[rep.Id]; ok {
+				continue
+			}
+
+			store := tm.storeMgr.store(rep.StoreId)
+			if store == nil {
+				continue
+			}
+
+			repInst, err := NewDatabase(store, tm.data.Id, tm.data.Name, upperShard.Id, rep.Id, tm.cfg)
+			if err != nil {
+				continue
+			}
+
+			tm.replicas[rep.Id] = repInst
+			tm.arrReplicas = append(tm.arrReplicas, repInst)
+
+			tm.syncStatusReplica(rep.Id, 0)
+		}
 	}
 
 	it.dbMapMgr.iter(dbAction)

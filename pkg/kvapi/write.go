@@ -97,15 +97,16 @@ func (it *WriteRequest) MetaEncode() ([]byte, error) {
 	return append(b, meta...), nil
 }
 
-func (it *WriteRequest) LogEncode(id uint64) ([]byte, error) {
+func (it *WriteRequest) LogEncode(id, replicaId uint64) ([]byte, error) {
 	logMeta := &LogMeta{
-		Id:      id,
-		Version: it.Meta.Version,
-		Attrs:   it.Meta.Attrs,
-		Expired: it.Meta.Expired,
-		Size:    it.Meta.Size,
-		Key:     it.Key,
-		Created: timems(),
+		Id:        id,
+		Version:   it.Meta.Version,
+		Attrs:     it.Meta.Attrs,
+		Expired:   it.Meta.Expired,
+		Size:      it.Meta.Size,
+		Key:       it.Key,
+		Created:   timems(),
+		ReplicaId: replicaId,
 	}
 	return StdProto.Encode(logMeta)
 }
@@ -162,24 +163,26 @@ func (it *DeleteRequest) SetRetainMeta(b bool) *DeleteRequest {
 	return it
 }
 
-func (it *DeleteRequest) LogEncode(id, ver uint64) ([]byte, error) {
+func (it *DeleteRequest) LogEncode(id, ver, replicaId uint64) ([]byte, error) {
 	logMeta := &LogMeta{
-		Id:      id,
-		Version: ver,
-		Attrs:   it.Attrs | Write_Attrs_Delete,
-		Key:     it.Key,
-		Created: timems(),
+		Id:        id,
+		Version:   ver,
+		Attrs:     it.Attrs | Write_Attrs_Delete,
+		Key:       it.Key,
+		Created:   timems(),
+		ReplicaId: replicaId,
 	}
 	return StdProto.Encode(logMeta)
 }
 
-func (it *DeleteProposalRequest) LogEncode(id, ver uint64) ([]byte, error) {
+func (it *DeleteProposalRequest) LogEncode(id, ver, replicaId uint64) ([]byte, error) {
 	logMeta := &LogMeta{
-		Id:      id,
-		Version: ver,
-		Attrs:   it.Attrs | Write_Attrs_Delete,
-		Key:     it.Key,
-		Created: timems(),
+		Id:        id,
+		Version:   ver,
+		Attrs:     it.Attrs | Write_Attrs_Delete,
+		Key:       it.Key,
+		Created:   timems(),
+		ReplicaId: replicaId,
 	}
 	return StdProto.Encode(logMeta)
 }

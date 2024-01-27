@@ -28,6 +28,7 @@ import (
 
 var (
 	Prefix      string
+	client      kvapi.Client
 	adminClient kvapi.AdminClient
 	cfg         server.ClientConfig
 	err         error
@@ -62,6 +63,10 @@ func Setup() error {
 		}
 
 		if adminClient, err = cfg.NewAdminClient(); err != nil {
+			return err
+		}
+
+		if client, err = cfg.NewClient(); err != nil {
 			return err
 		}
 

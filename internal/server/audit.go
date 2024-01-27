@@ -76,6 +76,10 @@ func (it *auditLogWriter) Put(name string, args ...interface{}) {
 		return
 	}
 
+	if testLocalMode {
+		// testPrintf(string(bs))
+	}
+
 	it.write(bs)
 }
 

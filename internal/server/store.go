@@ -29,6 +29,12 @@ type storeManager struct {
 	stores  map[uint64]storage.Conn
 
 	status storeStatusManager
+
+	rebalancePending     int
+	lastRebalanceUpdated int64
+
+	mergePending     int
+	lastMergeUpdated int64
 }
 
 type storeStatusManager struct {
@@ -95,7 +101,19 @@ func (it *storeManager) updateStatusVersion() {
 	it.status.version += 1
 }
 
-func (it *storeManager) syncStatus(uniId string, id uint64, used, free int64) {
+func (it *storeManager) iterSetStatus(fn func(s *kvapi.SysStoreStatus)) {
+	it.mu.Lock()
+	defer it.mu.Unlock()
+
+	for _, store := range it.status.Items {
+		if store.Options == nil {
+			store.Options = map[string]string{}
+		}
+		fn(store)
+	}
+}
+
+func (it *storeManager) setStatus(uniId string, id uint64, fn func(s *kvapi.SysStoreStatus)) {
 	if id == 0 {
 		return
 	}
@@ -107,18 +125,27 @@ func (it *storeManager) syncStatus(uniId string, id uint64, used, free int64) {
 		it.status.vers = map[string]uint64{}
 	}
 
-	s, ok := it.status.hset[uniId]
-	if !ok {
-		s = &kvapi.SysStoreStatus{
-			Id:    id,
-			UniId: uniId,
+	if uniId != "" {
+
+		if s, ok := it.status.hset[uniId]; !ok {
+			s = &kvapi.SysStoreStatus{
+				Id:    id,
+				UniId: uniId,
+			}
+			it.status.hset[uniId] = s
+			it.status.Items = append(it.status.Items, s)
 		}
-		it.status.hset[uniId] = s
-		it.status.Items = append(it.status.Items, s)
 	}
-	s.CapacityUsed = uint64(used)
-	s.CapacityFree = uint64(free)
-	s.Updated = uint64(timesec())
+
+	for _, store := range it.status.Items {
+		if store.Id == id {
+			if store.Options == nil {
+				store.Options = map[string]string{}
+			}
+			fn(store)
+			break
+		}
+	}
 }
 
 func (it *storeManager) lookupFitStore(deny map[uint64]bool) *kvapi.SysStoreStatus {
@@ -126,6 +153,10 @@ func (it *storeManager) lookupFitStore(deny map[uint64]bool) *kvapi.SysStoreStat
 	defer it.mu.Unlock()
 	fitStores := []*kvapi.SysStoreStatus{}
 	for _, vs := range it.status.Items {
+		// if vs.UniId == "4cf421f1a5ca2e9a" && vs.CapacityUsed > 6e6 {
+		// 	vs.CapacityUsed -= 6e6
+		// 	vs.CapacityFree += 6e6
+		// }
 		if len(deny) == 0 || !deny[vs.Id] {
 			fitStores = append(fitStores, vs)
 		}
@@ -157,25 +188,31 @@ func (it *storeManager) statusIter(fn func(s *kvapi.SysStoreStatus)) int {
 }
 
 type storeStats struct {
+	mgr *storeManager
+
 	Items []*storeStatsItem `json:"items"`
 
-	CapNum   int
-	capUsed  float64
-	capTotal float64
+	CapNum int
 
-	UsedRatioAvg float64 `json:"used_ratio_avg"`
+	capFree  int64
+	capTotal int64
+
+	FreeAvg      int64   `json:"free_avg"`
+	FreeRatioAvg float64 `json:"free_ratio_avg"`
 }
 
 type storeStatsItem struct {
-	status    *kvapi.SysStoreStatus
-	UsedRatio float64 `json:"used_ratio"`
-	CapFree   int64
+	status *kvapi.SysStoreStatus `json:"-"`
+
+	Free      int64   `json:"free"`
+	FreeRatio float64 `json:"free_ratio"`
 }
 
 func (it *storeManager) stats(name string) *storeStats {
 	it.mu.Lock()
 	defer it.mu.Unlock()
 	st := &storeStats{
+		mgr:    it,
 		CapNum: len(it.status.Items),
 	}
 	if st.CapNum > 0 {
@@ -186,31 +223,27 @@ func (it *storeManager) stats(name string) *storeStats {
 		}
 		it.status.vers[name] = it.status.version
 		for _, v := range it.status.Items {
-			cap := float64(v.CapacityFree + v.CapacityUsed)
-			if cap < 1024 { // 1 GB
+
+			total := v.CapacityFree + v.CapacityUsed
+			if total < 1024 { // 1 GB
 				continue
 			}
 
 			item := &storeStatsItem{
 				status:    v,
-				UsedRatio: float64(v.CapacityUsed) / cap,
-				CapFree:   int64(v.CapacityFree),
+				Free:      v.CapacityFree,
+				FreeRatio: float64(v.CapacityFree) / float64(total),
 			}
 
-			st.capUsed += float64(v.CapacityUsed)
-			st.capTotal += cap
+			st.capFree += v.CapacityFree
+			st.capTotal += total
 
 			st.Items = append(st.Items, item)
 		}
 		if st.capTotal > 0 {
-			st.UsedRatioAvg = st.capUsed / st.capTotal
+			st.FreeAvg = st.capFree / int64(len(it.status.Items))
+			st.FreeRatioAvg = float64(st.capFree) / float64(st.capTotal)
 		}
 	}
 	return st
-}
-
-func (it *storeStats) sort() {
-	sort.Slice(it.Items, func(i, j int) bool {
-		return it.Items[i].UsedRatio < it.Items[j].UsedRatio
-	})
 }

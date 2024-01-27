@@ -32,10 +32,10 @@ func Test_DatabaseReplica_Task(t *testing.T) {
 	{
 		testLocalMode = true
 
-		shardSplit_CapacitySize_Def = 32 << 20
-		shardSplit_CapacitySize_Min = 32 << 20
+		kShardSplit_CapacitySize_Def = 32
+		kShardSplit_CapacitySize_Min = 32
 
-		replicaRebalance_StoreCapacityThreshold = 0.01
+		kReplicaRebalance_StoreCapacityThreshold = 0.01
 	}
 
 	const (
@@ -133,7 +133,7 @@ func Test_DatabaseReplica_Task(t *testing.T) {
 
 			for _, shard := range shards {
 				for _, rep := range shard.replicas {
-					t.Logf("shard %d replica %d size %d", shard.shardId, rep.replicaId, rep.status.storageUsed.value/(1<<20))
+					t.Logf("shard %d replica %d size %d", shard.shardId, rep.replicaId, rep.status.storageUsed.value)
 				}
 			}
 		}

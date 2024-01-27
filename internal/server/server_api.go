@@ -41,12 +41,15 @@ func (it *dbServer) apiWrite(req *kvapi.WriteRequest, selectShard *dbMapSelectSh
 			len(selectShard.replicas), selectShard.replicaNum)
 	}
 
-	t0 := timeNow()
+	var (
+		t0 = timeNow()
+	)
 
 	if it.cfg.Server.MetricsEnable {
 		defer func() {
 			metricCounter.Add(metricService, "Key.Write", 1)
 			metricLatency.Add(metricService, "Key.Write", time.Since(t0).Seconds())
+			metricCounter.Add(metricServiceSize, "Key.Write", float64(len(req.Key)+len(req.Value)))
 		}()
 	}
 
@@ -265,12 +268,15 @@ func (it *dbServer) apiDelete(req *kvapi.DeleteRequest, selectShard *dbMapSelect
 			len(selectShard.replicas), selectShard.replicaNum)
 	}
 
-	t0 := timeNow()
+	var (
+		t0 = timeNow()
+	)
 
 	if it.cfg.Server.MetricsEnable {
 		defer func() {
 			metricCounter.Add(metricService, "Key.Delete", 1)
 			metricLatency.Add(metricService, "Key.Delete", time.Since(t0).Seconds())
+			metricCounter.Add(metricServiceSize, "Key.Delete", float64(len(req.Key)))
 		}()
 	}
 
@@ -468,12 +474,16 @@ func (it *dbServer) apiRead(req *kvapi.ReadRequest, selectShards []*dbMapSelectS
 		return newResultSetWithServerError("server not ready : shard init")
 	}
 
-	t0 := timeNow()
+	var (
+		t0 = timeNow()
+		sz int
+	)
 
 	if it.cfg.Server.MetricsEnable {
 		defer func() {
-			metricCounter.Add(metricService, "Key.Write", 1)
-			metricLatency.Add(metricService, "Key.Write", time.Since(t0).Seconds())
+			metricCounter.Add(metricService, "Key.Read", 1)
+			metricLatency.Add(metricService, "Key.Read", time.Since(t0).Seconds())
+			metricCounter.Add(metricServiceSize, "Key.Read", float64(sz))
 		}()
 	}
 
@@ -500,6 +510,7 @@ func (it *dbServer) apiRead(req *kvapi.ReadRequest, selectShards []*dbMapSelectS
 				rs.Items[idx[0]] = item
 				indexes[string(item.Key)] = idx[1:]
 				hit += 1
+				sz += len(item.Key) + len(item.Value)
 			}
 		}
 		if rs2.MaxVersion > rs.MaxVersion {
@@ -522,12 +533,16 @@ func (it *dbServer) apiRange(req *kvapi.RangeRequest, selectShards []*dbMapSelec
 		return newResultSetWithServerError("server not ready : shard init")
 	}
 
-	t0 := timeNow()
+	var (
+		t0 = timeNow()
+		sz int
+	)
 
 	if it.cfg.Server.MetricsEnable {
 		defer func() {
 			metricCounter.Add(metricService, "Key.Range", 1)
 			metricLatency.Add(metricService, "Key.Range", time.Since(t0).Seconds())
+			metricCounter.Add(metricServiceSize, "Key.Range", float64(sz))
 		}()
 	}
 
@@ -557,6 +572,9 @@ func (it *dbServer) apiRange(req *kvapi.RangeRequest, selectShards []*dbMapSelec
 			return rs
 		}
 		if len(rs2.Items) > 0 {
+			for _, item := range rs2.Items {
+				sz += len(item.Key) + len(item.Value)
+			}
 			rs.Items = append(rs.Items, rs2.Items...)
 			limit -= int64(len(rs2.Items))
 			if limit <= 0 {

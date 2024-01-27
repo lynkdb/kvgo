@@ -79,7 +79,7 @@ func (it *driver) Open(dirname string, opts *storage.Options) (storage.Conn, err
 			}
 			return n
 		},
-		MemTableSize:                opts.WriteBufferSize << 20,
+		MemTableSize:                int(opts.WriteBufferSize) << 20,
 		MemTableStopWritesThreshold: 4,
 		Cache:                       pebble.NewCache(int64(opts.BlockCacheSize << 20)),
 		MaxOpenFiles:                opts.MaxOpenFiles,
@@ -147,14 +147,10 @@ func (it *engine) Get(
 func (it *engine) NewIterator(
 	opts *storage.IterOptions,
 ) (storage.Iterator, error) {
-	iter, err := it.db.NewIter(&pebble.IterOptions{
+	iter := it.db.NewIter(&pebble.IterOptions{
 		LowerBound: opts.LowerKey,
 		UpperBound: opts.UpperKey,
 	})
-	if err != nil {
-		return nil, err
-	}
-
 	return &iterator{
 		iter: iter,
 	}, nil

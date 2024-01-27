@@ -23,8 +23,6 @@ import (
 
 	"github.com/chzyer/readline"
 	"github.com/olekukonko/tablewriter"
-
-	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
 
 var (
@@ -82,6 +80,9 @@ func (cmdHelp) Action(fg flagSet, l *readline.Instance) (string, error) {
 	table.EnableBorder(false)
 
 	for _, c := range arrCmds {
+		if c.Spec().Path == "help" {
+			continue
+		}
 		table.Append([]string{c.Spec().Path, c.Spec().Desc})
 	}
 
@@ -114,21 +115,6 @@ func Invoke(s string, l *readline.Instance) (string, error) {
 	}
 
 	return "", fmt.Errorf("no command match")
-}
-
-func sizeFormat(siz int64) string {
-
-	sizeS := "0"
-	if siz > kvapi.TiB {
-		sizeS = fmt.Sprintf("%.2f TB", float64(siz)/float64(kvapi.TiB))
-	} else if siz > kvapi.GiB {
-		sizeS = fmt.Sprintf("%.2f GB", float64(siz)/float64(kvapi.GiB))
-	} else if siz > kvapi.MiB {
-		sizeS = fmt.Sprintf("%d MB", siz/kvapi.MiB)
-	} else if siz > kvapi.KiB {
-		sizeS = fmt.Sprintf("%d KB", siz/kvapi.KiB)
-	}
-	return sizeS
 }
 
 func uptimeFormat(sec int64) string {

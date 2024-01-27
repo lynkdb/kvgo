@@ -1,0 +1,42 @@
+# Storage Settings
+[storage]
+data_directory = "/opt/kvgo/var/data"
+
+[[storage.stores]]
+mountpoint = "/data/n1s4-s1"
+
+[[storage.stores]]
+mountpoint = "/data/n1s4-s2"
+
+[[storage.stores]]
+mountpoint = "/data/n1s4-s3"
+
+[[storage.stores]]
+mountpoint = "/data/n1s4-s4"
+
+# Server Settings
+[server]
+bind = "127.0.0.1:9566"
+http_port = 9567
+runtime_mode = "v2x1"
+metrics_enable = true
+[server.access_key]
+id = "00000000"
+secret = "f7HzVuCwOaqvUcsFN5AYGLGYNEfubi47tHF607Jh"
+roles = ["sa"]
+
+[[server.access_key.scopes]]
+name = "kvgo/db"
+value = "*"
+
+# Performance Settings
+[performance]
+# in MiB, default to 8
+write_buffer_size = 32
+# in MiB, default to 32
+block_cache_size = 128
+# in MiB, default to 8
+max_table_size = 2
+# default to 500
+max_open_files = 10000
+

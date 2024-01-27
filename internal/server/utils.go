@@ -101,11 +101,22 @@ func randUint64() uint64 {
 	return mrand.Uint64()
 }
 
+func randInt64(n int64) int64 {
+	if n <= 0 {
+		n = 10
+	}
+	return mrand.Int63n(n)
+}
+
 func randFloat64(v float64) float64 {
 	if v < 0.0001 {
 		v = 0.0001
 	}
 	return v * mrand.Float64()
+}
+
+func RandHexString(length int) string {
+	return randHexString(length)
 }
 
 func randHexString(length int) string {
@@ -126,6 +137,10 @@ func randHexString(length int) string {
 	}
 
 	return hex.EncodeToString(bs)
+}
+
+func RandBytes(size int) []byte {
+	return randBytes(size)
 }
 
 func randBytes(size int) []byte {

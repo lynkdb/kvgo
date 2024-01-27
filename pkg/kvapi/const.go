@@ -71,7 +71,7 @@ const (
 
 const (
 	keyValue_MinKeyLen = 1
-	keyValue_MaxKeyLen = 256
+	keyValue_MaxKeyLen = 512
 )
 
 const (

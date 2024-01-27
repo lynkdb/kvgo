@@ -15,6 +15,7 @@
 package kvapi
 
 import (
+	"fmt"
 	"hash/crc32"
 	"time"
 )
@@ -41,4 +42,32 @@ func bytesCrc32Checksum(bs []byte) uint64 {
 
 func timems() int64 {
 	return time.Now().UnixNano() / 1e6
+}
+
+func BytesHumanDisplay(v int64) string {
+
+	if v <= 0 {
+		return "0"
+	}
+
+	type hrd struct {
+		name string
+		base int64
+	}
+
+	var bytesHumanReadableDicts = []hrd{
+		{"PB", PiB},
+		{"TB", TiB},
+		{"GB", GiB},
+		{"MB", MiB},
+		{"KB", KiB},
+	}
+
+	for _, r := range bytesHumanReadableDicts {
+		if v >= r.base {
+			return fmt.Sprintf("%.2f "+r.name, float64(v)/float64(r.base))
+		}
+	}
+
+	return fmt.Sprintf("%d B", v)
 }

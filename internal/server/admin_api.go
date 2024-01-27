@@ -17,6 +17,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hooto/hlog4g/hlog"
@@ -98,6 +99,13 @@ func (it *serviceAdminImpl) DatabaseCreate(
 		Desc:       req.Desc,
 	}
 
+	if req.ShardSize >= kShardSplit_CapacitySize_Min &&
+		req.ShardSize <= kShardSplit_CapacitySize_Max {
+		tbl.ShardSize = req.ShardSize
+	} else {
+		tbl.ShardSize = kShardSplit_CapacitySize_Def
+	}
+
 	wr := kvapi.NewWriteRequest(nsSysDatabase(tbl.Id), jsonEncode(tbl))
 	wr.Database = sysDatabaseName
 	wr.CreateOnly = true
@@ -162,6 +170,16 @@ func (it *serviceAdminImpl) DatabaseUpdate(
 		}
 	}
 
+	if req.ShardSize > 0 {
+		if req.ShardSize < kShardSplit_CapacitySize_Min ||
+			req.ShardSize > kShardSplit_CapacitySize_Max {
+			return newResultSetWithClientError("invalid shard size"), nil
+		}
+		if req.ShardSize != tmap.data.ShardSize {
+			tmap.data.ShardSize, chg = req.ShardSize, true
+		}
+	}
+
 	req.Desc = strings.TrimSpace(req.Desc)
 	if req.Desc != "" && req.Desc != tmap.data.Desc {
 		tmap.data.Desc, chg = req.Desc, true
@@ -198,36 +216,6 @@ func (it *serviceAdminImpl) DatabaseUpdate(
 	return rs, nil
 }
 
-func (it *serviceAdminImpl) Status(
-	ctx context.Context,
-	req *kvapi.StatusRequest,
-) (*kvapi.ResultSet, error) {
-
-	if !it.dbServer.cfg.Server.IsStandaloneMode() {
-		return newResultSetWithServerError("runtime mode not setup"), nil
-	}
-
-	if err := it.auth(ctx); err != nil {
-		return newResultSetWithAuthDeny(err.Error()), nil
-	}
-
-	rs := newResultSetOK()
-
-	resultSetAppendWithJsonObject(rs, []byte("server/config"), &kvapi.Meta{}, it.dbServer.cfg)
-
-	resultSetAppendWithJsonObject(rs, []byte("server/status"), &kvapi.Meta{}, it.dbServer.status)
-
-	resultSetAppendWithJsonObject(rs, []byte("store/status"), &kvapi.Meta{}, it.dbServer.storeMgr.status)
-
-	it.dbServer.dbMapMgr.iter(func(tm *dbMap) {
-		resultSetAppendWithJsonObject(rs, []byte("db/"+tm.data.Name+"/spec"), &kvapi.Meta{}, tm.data)
-		resultSetAppendWithJsonObject(rs, []byte("db/"+tm.data.Name+"/map"), &kvapi.Meta{}, tm.mapData)
-		resultSetAppendWithJsonObject(rs, []byte("db/"+tm.data.Name+"/status"), &kvapi.Meta{}, tm.status)
-	})
-
-	return rs, nil
-}
-
 func (it *serviceAdminImpl) SysGet(
 	ctx context.Context,
 	req *kvapi.SysGetRequest,
@@ -245,6 +233,10 @@ func (it *serviceAdminImpl) SysGet(
 		return newResultSetWithClientError("name not found"), nil
 	}
 
+	if req.Params == nil {
+		req.Params = map[string]string{}
+	}
+
 	if req.Limit == 0 {
 		req.Limit = 10
 	} else if req.Limit <= 0 {
@@ -256,6 +248,23 @@ func (it *serviceAdminImpl) SysGet(
 	rs := newResultSetOK()
 
 	switch req.Name {
+
+	case "info":
+
+		resultSetAppendWithJsonObject(rs, []byte("server/config"), &kvapi.Meta{}, it.dbServer.cfg)
+
+		resultSetAppendWithJsonObject(rs, []byte("server/status"), &kvapi.Meta{}, it.dbServer.status)
+
+		resultSetAppendWithJsonObject(rs, []byte("store/status"), &kvapi.Meta{}, it.dbServer.storeMgr.status)
+
+		if _, ok := req.Params["all"]; ok {
+			it.dbServer.dbMapMgr.iter(func(tm *dbMap) {
+				resultSetAppendWithJsonObject(rs, []byte("db/"+tm.data.Name+"/spec"), &kvapi.Meta{}, tm.data)
+				resultSetAppendWithJsonObject(rs, []byte("db/"+tm.data.Name+"/map"), &kvapi.Meta{}, tm.mapData)
+				resultSetAppendWithJsonObject(rs, []byte("db/"+tm.data.Name+"/status"), &kvapi.Meta{}, tm.status)
+			})
+		}
+
 	case "auditlog":
 		ds := it.dbServer.dbSystem.Range(&kvapi.RangeRequest{
 			LowerKey: nsSysAuditLog(false),
@@ -268,6 +277,32 @@ func (it *serviceAdminImpl) SysGet(
 				resultSetAppend(rs, []byte(string(item.Key)), &kvapi.Meta{}, item.Value)
 			}
 		}
+
+	case "db-info":
+
+		if len(req.Params) == 0 {
+			return newResultSetWithClientError("db name not found"), nil
+		}
+
+		dbName, ok := req.Params["db_name"]
+		if !ok {
+			return newResultSetWithClientError("db name not found"), nil
+		}
+
+		it.dbServer.dbMapMgr.iter(func(tm *dbMap) {
+			if tm.data.Name != dbName {
+				return
+			}
+			resultSetAppendWithJsonObject(rs, []byte("db/"+tm.data.Name+"/map"), &kvapi.Meta{}, tm.mapData)
+			resultSetAppendWithJsonObject(rs, []byte("db/"+tm.data.Name+"/status"), &kvapi.Meta{}, tm.status)
+		})
+
+	case "store-info":
+		sort.Slice(it.dbServer.storeMgr.status.Items, func(i, j int) bool {
+			return it.dbServer.storeMgr.status.Items[i].CapacityFree > it.dbServer.storeMgr.status.Items[j].CapacityFree
+		})
+		resultSetAppendWithJsonObject(rs, []byte("store/status"), &kvapi.Meta{}, it.dbServer.storeMgr.status)
+
 	default:
 		return nil, fmt.Errorf("name (%s) not match", req.Name)
 	}

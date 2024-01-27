@@ -29,8 +29,8 @@ func (it *dbReplica) _jobCleanTTL() error {
 
 	var (
 		tn           = time.Now().UnixNano() / 1e6
-		offset       = keyExpireEncode(it.replicaId, 0, nil)
-		cutset       = keyExpireEncode(it.replicaId, tn, nil)
+		offset       = keyExpireEncode(0, nil)
+		cutset       = keyExpireEncode(tn, nil)
 		statsKeys    int64
 		statsRawKeys int64
 	)
@@ -68,11 +68,13 @@ func (it *dbReplica) _jobCleanTTL() error {
 			continue
 		}
 
-		if meta, _ := it.getMeta(logMeta.Key); meta != nil {
-			if logMeta.Version >= meta.Version {
-				batch.Delete(keyEncode(nsKeyMeta, logMeta.Key))
-				batch.Delete(keyEncode(nsKeyData, logMeta.Key))
-				statsRawKeys += 2
+		if logMeta.ReplicaId == it.replicaId {
+			if meta, _ := it.getMeta(logMeta.Key); meta != nil {
+				if logMeta.Version >= meta.Version {
+					batch.Delete(keyEncode(nsKeyMeta, logMeta.Key))
+					batch.Delete(keyEncode(nsKeyData, logMeta.Key))
+					statsRawKeys += 2
+				}
 			}
 		}
 
@@ -105,9 +107,9 @@ func (it *dbReplica) _jobCleanLog() error {
 
 	var (
 		tn        = time.Now()
-		offset    = keyLogEncode(it.replicaId, 0)
-		cutset    = keyLogEncode(it.replicaId, 1<<61)
-		retenTime = (tn.UnixNano() / 1e6) - logRetentionMilliseconds
+		offset    = keyLogEncode(0, it.replicaId, 0)
+		cutset    = keyLogEncode(1<<61, it.replicaId, 0)
+		retenTime = (tn.UnixNano() / 1e6) - (kLogRetentionSeconds * 1e3)
 		retenId   uint64
 		statsKeys int64
 	)
@@ -164,6 +166,11 @@ func (it *dbReplica) _jobCleanLog() error {
 		}
 	}
 
+	if statsKeys > 0 && retenId > 0 {
+		if err := it.store.ExpCompact(offset, keyLogEncode(retenId, it.replicaId, 0)); err != nil {
+		}
+	}
+
 	it.logMu.Lock()
 	defer it.logMu.Unlock()
 
@@ -173,6 +180,7 @@ func (it *dbReplica) _jobCleanLog() error {
 }
 
 func (it *dbReplica) _jobLogPull(
+	tm *dbMap,
 	shard *kvapi.DatabaseMap_Shard,
 	lowerKey, upperKey []byte,
 	src *dbReplica,
@@ -222,8 +230,37 @@ func (it *dbReplica) _jobLogPull(
 		// jsonPrint("logpull offset", logPullState)
 	}
 
+	if !logPullState.FullScan {
+
+		if rs := tm.shardReplicaStatusList(shard); len(rs) >= int(tm.data.ReplicaNum) {
+			var (
+				sizRel = int64(0)
+				numRel = int64(0)
+				sizDst = int64(-1)
+			)
+			for repId, status := range rs {
+				if it.replicaId == repId {
+					sizDst = status.Used
+				} else {
+					sizRel += status.Used
+					numRel += 1
+				}
+			}
+			if sizDst >= 0 && numRel > 0 {
+				sizRel = sizRel / numRel
+				diff := float64(sizDst) / float64(sizRel)
+				if diff < 0.8 {
+					logPullState.FullScan = true
+					logPullState.SrcKeyOffset = nil
+					hlog.Printf("info", "database %s, shard %d, replica %d <- %d, diff %.2f, reset fullscan",
+						tm.data.Name, it.shardId, it.replicaId, src.replicaId, diff)
+				}
+			}
+		}
+	}
+
 	// delta
-	for !it.close {
+	for !it.close && !logPullState.FullScan {
 		//
 		rs1, err := src.logRange(&kvapi.LogRangeRequest{
 			LowerLog:  logPullState.SrcLogOffset,
@@ -312,7 +349,10 @@ func (it *dbReplica) _jobLogPull(
 			}
 			hlog.Printf("debug", "database %s, shard %d, replica %d < %d, offset %d",
 				it.dbId, it.shardId, it.replicaId, src.replicaId, logPullState.SrcLogOffset)
-			// testPrintf("logpull delta fetch %d flush %d", fetchNum, flushNum)
+
+			// testPrintf("logpull delta, db %s, shard %d, replica %d to %d, fetch %d flush %d, offset %d",
+			// 	it.dbName, it.shardId, src.replicaId, it.replicaId,
+			// 	fetchNum, flushNum, logPullState.SrcLogOffset)
 		}
 
 		//
@@ -372,11 +412,11 @@ func (it *dbReplica) _jobLogPull(
 		}
 
 		for len(dataRequest.Keys) > 0 && !it.close {
-			rs2 := src.Read(dataRequest)
-			if !rs2.OK() && !rs2.NotFound() {
-				return rs2.Error()
+			rs3 := src.Read(dataRequest)
+			if !rs3.OK() && !rs3.NotFound() {
+				return rs3.Error()
 			}
-			for _, item := range rs2.Items {
+			for _, item := range rs3.Items {
 				writeRequest := &kvapi.WriteRequest{
 					Key:   item.Key,
 					Meta:  item.Meta,
@@ -387,7 +427,7 @@ func (it *dbReplica) _jobLogPull(
 				}
 				flushNum += 1
 			}
-			dataRequest.Keys = rs2.NextKeys
+			dataRequest.Keys = rs3.NextKeys
 		}
 
 		if len(rs2.Items) > 0 {

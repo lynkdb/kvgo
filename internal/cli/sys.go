@@ -40,9 +40,16 @@ func (cmdInfo) Spec() baseCommandSpec {
 
 func (cmdInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
 
-	req := &kvapi.StatusRequest{}
+	req := &kvapi.SysGetRequest{
+		Name:   "info",
+		Params: map[string]string{},
+	}
 
-	rs := adminClient.Status(req)
+	if _, ok := fg.ValueOK("all"); ok {
+		req.Params["all"] = "true"
+	}
+
+	rs := adminClient.SysGet(req)
 	if !rs.OK() {
 		return "", rs.Error()
 	}
@@ -60,6 +67,7 @@ func (cmdInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
 
 	table.SetRowLine(true)
 	table.SetAutoWrapText(false)
+	table.SetCenterSeparator("|")
 
 	for _, kv := range rs.Items {
 
@@ -99,8 +107,6 @@ func (cmdSysGet) Action(fg flagSet, l *readline.Instance) (string, error) {
 	if fg.Value("limit").Int64() > 0 {
 		req.Limit = fg.Value("limit").Int64()
 	}
-
-	fmt.Println(fg.path, req)
 
 	rs := adminClient.SysGet(req)
 	if !rs.OK() {

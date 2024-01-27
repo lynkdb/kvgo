@@ -181,19 +181,19 @@ func (it *dbReplica) write(req *kvapi.WriteRequest, cLog uint64) *kvapi.ResultSe
 			return newResultSetWithServerError(err.Error())
 		}
 
-		bsLogMeta, err := req.LogEncode(logId)
+		bsLogMeta, err := req.LogEncode(logId, it.replicaId)
 		if err != nil {
 			return newResultSetWithServerError(err.Error())
 		}
 
 		if cLogOn && !it.cfg.Feature.WriteLogDisable {
-			batch.Put(keyLogEncode(it.replicaId, logId), bsLogMeta)
+			batch.Put(keyLogEncode(logId, it.replicaId, 0), bsLogMeta)
 			// jsonPrint("log put", fmt.Sprintf("%d %d", it.replicaId, logId))
 			writeSize += len(bsLogMeta)
 		}
 
 		if req.Meta.Expired > 0 {
-			batch.Put(keyExpireEncode(it.replicaId, req.Meta.Expired, req.Key), bsLogMeta)
+			batch.Put(keyExpireEncode(req.Meta.Expired, req.Key), bsLogMeta)
 			writeSize += len(bsLogMeta)
 		}
 	}
@@ -217,8 +217,8 @@ func (it *dbReplica) write(req *kvapi.WriteRequest, cLog uint64) *kvapi.ResultSe
 		metricCounter.Add(metricStorageSize, "Key.Write", float64(writeSize))
 	}
 
-	it.status.kvWriteKeys.Add(1)
-	it.status.kvWriteSize.Add(int64(writeSize))
+	it.localStatus.kvWriteKeys.Add(1)
+	it.localStatus.kvWriteSize.Add(int64(writeSize))
 
 	rs := newResultSetOK()
 	rs.MaxVersion = cLog
@@ -315,12 +315,12 @@ func (it *dbReplica) Delete(req *kvapi.DeleteRequest) *kvapi.ResultSet {
 			return newResultSetWithServerError(err.Error())
 		}
 
-		bsLogMeta, err := req.LogEncode(logId, cLog)
+		bsLogMeta, err := req.LogEncode(logId, cLog, it.replicaId)
 		if err != nil {
 			return newResultSetWithServerError(err.Error())
 		}
 
-		batch.Put(keyLogEncode(it.replicaId, logId), bsLogMeta)
+		batch.Put(keyLogEncode(logId, it.replicaId, 0), bsLogMeta)
 	}
 
 	if kvapi.AttrAllow(req.Attrs, kvapi.Write_Attrs_Sync) {
@@ -336,9 +336,9 @@ func (it *dbReplica) Delete(req *kvapi.DeleteRequest) *kvapi.ResultSet {
 		}
 	}
 
-	it.status.kvWriteKeys.Add(1)
+	it.localStatus.kvWriteKeys.Add(1)
 	if meta != nil && meta.Size > 0 {
-		it.status.kvWriteSize.Add(int64(meta.Size))
+		it.localStatus.kvWriteSize.Add(int64(meta.Size))
 	}
 
 	rs := newResultSetOK()
