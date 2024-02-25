@@ -97,7 +97,7 @@ func (tdb *dbTable) setup() error {
 			continue
 		}
 
-		meta, err := kv2.ObjectMetaDecode(iter.Value())
+		meta, _, err := kv2.ObjectMetaDecode(iter.Value())
 		if err == nil && meta != nil {
 			tdb.logSyncBuffer.put(meta.Version, meta.Attrs, meta.Key, true)
 			// hlog.Printf("info", "meta.Version %d, meta.Key %s", meta.Version, string(meta.Key))

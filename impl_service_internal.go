@@ -311,7 +311,7 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 			}
 
 			dbsiz += len(iter.Value())
-			meta, err := kv2.ObjectMetaDecode(iter.Value())
+			meta, _, err := kv2.ObjectMetaDecode(iter.Value())
 			if err != nil || meta == nil {
 				if err != nil {
 					hlog.Printf("info", "db-log-range err %s", err.Error())
@@ -447,7 +447,7 @@ func (it *InternalServiceImpl) LogSync(ctx context.Context,
 			}
 
 			dbsiz += len(iter.Value())
-			meta, err := kv2.ObjectMetaDecode(iter.Value())
+			meta, _, err := kv2.ObjectMetaDecode(iter.Value())
 			if err != nil || meta == nil {
 				if err != nil {
 					hlog.Printf("info", "db-log-range err %s", err.Error())

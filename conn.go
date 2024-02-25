@@ -291,7 +291,7 @@ func (cn *Conn) dbSetup(dir string, opts *kv2.StorageOptions) (*dbTable, error) 
 			if v == nsKeyLog {
 
 				if iter.Prev() {
-					meta, err := kv2.ObjectMetaDecode(bytesClone(iter.Value()))
+					meta, _, err := kv2.ObjectMetaDecode(bytesClone(iter.Value()))
 					if err == nil {
 						hlog.Printf("info", "db-ns-stats table %s, ns %d, log-id %d",
 							dir, v, meta.Version)
