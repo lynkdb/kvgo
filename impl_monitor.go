@@ -17,7 +17,7 @@ package kvgo
 import (
 	"bytes"
 
-	tsd2 "github.com/valuedig/apis/go/tsd/v2"
+	tsd2 "github.com/valuedig/apis/go/tsd2"
 
 	kv2 "github.com/lynkdb/kvspec/v2/go/kvspec"
 )

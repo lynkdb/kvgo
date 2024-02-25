@@ -27,7 +27,7 @@ import (
 	"github.com/hooto/hauth/go/hauth/v1"
 	"github.com/hooto/hflag4g/hflag"
 	"github.com/hooto/hlog4g/hlog"
-	tsd2 "github.com/valuedig/apis/go/tsd/v2"
+	tsd2 "github.com/valuedig/apis/go/tsd2"
 
 	kv2 "github.com/lynkdb/kvspec/v2/go/kvspec"
 )

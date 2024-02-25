@@ -23,7 +23,7 @@ import (
 
 	"github.com/hooto/hlog4g/hlog"
 	kv2 "github.com/lynkdb/kvspec/v2/go/kvspec"
-	tsd2 "github.com/valuedig/apis/go/tsd/v2"
+	tsd2 "github.com/valuedig/apis/go/tsd2"
 )
 
 type dbTableIncrSet struct {
