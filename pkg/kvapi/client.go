@@ -14,12 +14,41 @@
 
 package kvapi
 
+type ClientReader interface {
+	SetMetaOnly(b bool) ClientReader
+	SetAttrs(attrs uint64) ClientReader
+	Exec() *ResultSet
+}
+
+type ClientRanger interface {
+	SetLimit(v int64) ClientRanger
+	SetRevert(b bool) ClientRanger
+	Exec() *ResultSet
+}
+
+type ClientWriter interface {
+	SetTTL(ttl int64) ClientWriter
+	SetAttrs(attrs uint64) ClientWriter
+	SetJsonValue(v interface{}) ClientWriter
+	Exec() *ResultSet
+}
+
+type ClientDeleter interface {
+	SetRetainMeta(b bool) ClientDeleter
+	Exec() *ResultSet
+}
+
 type Client interface {
 	Write(req *WriteRequest) *ResultSet
 	Delete(req *DeleteRequest) *ResultSet
 	Read(req *ReadRequest) *ResultSet
 	Range(req *RangeRequest) *ResultSet
 	Batch(req *BatchRequest) *BatchResponse
+
+	NewReader(key []byte, keys ...[]byte) ClientReader
+	NewRanger(lowerKey, upperKey []byte) ClientRanger
+	NewWriter(key, value []byte) ClientWriter
+	NewDeleter(key []byte) ClientDeleter
 
 	SetDatabase(name string) Client
 

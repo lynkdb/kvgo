@@ -12,40 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package server_test
+package tests
 
 import (
 	"bytes"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
-	"github.com/lynkdb/kvgo/v2/internal/server"
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
-	"github.com/lynkdb/kvgo/v2/pkg/storage"
-	_ "github.com/lynkdb/kvgo/v2/pkg/storage/pebble"
 )
 
-func Test_DatabaseReplica_API(t *testing.T) {
-	//
-	sess, err := test_DatabaseReplica_API_Open(storage.DefaultDriver, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sess.release()
-
-	tbl, err := server.NewDatabase(sess.db, "0001", "db_api_test", 1, 2, &server.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
+func ClientAPI(c kvapi.Client, t *testing.T) {
 
 	// Write
 	{
-		if rs := tbl.Write(kvapi.NewWriteRequest([]byte("0001"), []byte("1"))); !rs.OK() {
+		if rs := c.Write(kvapi.NewWriteRequest([]byte("0001"), []byte("1"))); !rs.OK() {
 			t.Fatalf("Write ER!, Err %s", rs.ErrorMessage())
 		} else {
 			t.Logf("Write OK, Log %d", rs.Meta().Version)
@@ -54,7 +36,7 @@ func Test_DatabaseReplica_API(t *testing.T) {
 
 	// Read-Key
 	{
-		if rs := tbl.Read(kvapi.NewReadRequest([]byte("0001"))); !rs.OK() {
+		if rs := c.Read(kvapi.NewReadRequest([]byte("0001"))); !rs.OK() {
 			t.Fatalf("Read-Key ER! %s", rs.ErrorMessage())
 		} else {
 			if rs.Item() != nil && rs.Item().Uint64Value() != 1 {
@@ -71,12 +53,12 @@ func Test_DatabaseReplica_API(t *testing.T) {
 
 	// Delete
 	{
-		if rs := tbl.Delete(kvapi.NewDeleteRequest([]byte("0001"))); !rs.OK() {
+		if rs := c.Delete(kvapi.NewDeleteRequest([]byte("0001"))); !rs.OK() {
 			t.Fatal("Delete-Key ER!")
 		} else {
 			t.Logf("Delete-Key Version %d", rs.Meta().Version)
 		}
-		if rs := tbl.Read(kvapi.NewReadRequest([]byte("0001"))); !rs.NotFound() {
+		if rs := c.Read(kvapi.NewReadRequest([]byte("0001"))); !rs.NotFound() {
 			t.Fatal("Delete-ER!")
 		} else {
 			t.Logf("Delete-Key OK")
@@ -86,11 +68,11 @@ func Test_DatabaseReplica_API(t *testing.T) {
 	// Log
 	{
 		key := []byte("log-id-test")
-		if rs := tbl.Write(kvapi.NewWriteRequest(key, []byte("123"))); !rs.OK() {
+		if rs := c.Write(kvapi.NewWriteRequest(key, []byte("123"))); !rs.OK() {
 			t.Fatal("Write LogId ER!")
 		}
 		logID := uint64(0)
-		if rs := tbl.Read(kvapi.NewReadRequest(key)); !rs.OK() {
+		if rs := c.Read(kvapi.NewReadRequest(key)); !rs.OK() {
 			t.Fatal("Write LogId ER!")
 		} else if rs.Meta().Version < 1 {
 			t.Fatal("Write LogId ER!")
@@ -98,19 +80,19 @@ func Test_DatabaseReplica_API(t *testing.T) {
 			logID = rs.Meta().Version
 		}
 
-		if rs := tbl.Write(kvapi.NewWriteRequest(key, []byte("123"))); !rs.OK() {
+		if rs := c.Write(kvapi.NewWriteRequest(key, []byte("123"))); !rs.OK() {
 			t.Fatal("Write LogId ER!")
 		}
-		if rs := tbl.Read(kvapi.NewReadRequest(key)); !rs.OK() {
+		if rs := c.Read(kvapi.NewReadRequest(key)); !rs.OK() {
 			t.Fatal("Write LogId ER!")
 		} else if rs.Meta().Version != logID {
 			t.Fatalf("Write LogId ER! %d - %d", rs.Meta().Version, logID)
 		}
 
-		if rs := tbl.Write(kvapi.NewWriteRequest(key, []byte("321"))); !rs.OK() {
+		if rs := c.Write(kvapi.NewWriteRequest(key, []byte("321"))); !rs.OK() {
 			t.Fatal("Write LogId ER!")
 		}
-		if rs := tbl.Read(kvapi.NewReadRequest(key)); !rs.OK() {
+		if rs := c.Read(kvapi.NewReadRequest(key)); !rs.OK() {
 			t.Fatal("Write LogId ER!")
 		} else if rs.Meta().Version <= logID {
 			t.Fatal("Write LogId ER!")
@@ -121,7 +103,7 @@ func Test_DatabaseReplica_API(t *testing.T) {
 
 	//
 	for _, n := range []int{1, 2, 3} {
-		tbl.Write(kvapi.NewWriteRequest([]byte(fmt.Sprintf("%04d", n)), []byte(fmt.Sprintf("%v", n))))
+		c.Write(kvapi.NewWriteRequest([]byte(fmt.Sprintf("%04d", n)), []byte(fmt.Sprintf("%v", n))))
 	}
 
 	// Range
@@ -131,7 +113,7 @@ func Test_DatabaseReplica_API(t *testing.T) {
 			UpperKey: []byte("0009"),
 			Limit:    10,
 		}
-		if rs := tbl.Range(req); !rs.OK() {
+		if rs := c.Range(req); !rs.OK() {
 			t.Fatal("Range ER!")
 		} else {
 
@@ -150,7 +132,7 @@ func Test_DatabaseReplica_API(t *testing.T) {
 		}
 
 		req.Attrs = kvapi.Read_Attrs_MetaOnly
-		if rs := tbl.Range(req); !rs.OK() {
+		if rs := c.Range(req); !rs.OK() {
 			t.Fatal("Range ER!")
 		} else {
 
@@ -176,7 +158,7 @@ func Test_DatabaseReplica_API(t *testing.T) {
 			Limit:    10,
 			Revert:   true,
 		}
-		if rs := tbl.Range(req); !rs.OK() {
+		if rs := c.Range(req); !rs.OK() {
 			t.Fatal("Range+Rev ER!")
 		} else {
 
@@ -196,22 +178,22 @@ func Test_DatabaseReplica_API(t *testing.T) {
 
 	// Write Expired
 	{
-		if rs := tbl.Write(kvapi.NewWriteRequest([]byte("0001"), []byte("ttl")).SetTTL(500)); !rs.OK() {
+		if rs := c.Write(kvapi.NewWriteRequest([]byte("0001"), []byte("ttl")).SetTTL(500)); !rs.OK() {
 			t.Fatal("Write Expirted ER!")
 		}
-		if rs := tbl.Read(kvapi.NewReadRequest([]byte("0001"))); !rs.OK() {
+		if rs := c.Read(kvapi.NewReadRequest([]byte("0001"))); !rs.OK() {
 			t.Fatal("Write Expirted ER! Read")
 		}
-		if rs := tbl.Range(kvapi.NewRangeRequest([]byte("0000"), []byte("0001z"))); !rs.OK() {
+		if rs := c.Range(kvapi.NewRangeRequest([]byte("0000"), []byte("0001z"))); !rs.OK() {
 			t.Fatal("Write Expirted ER! Range")
 		}
 		time.Sleep(1e9)
-		if rs := tbl.Read(kvapi.NewReadRequest([]byte("0001"))); !rs.NotFound() {
+		if rs := c.Read(kvapi.NewReadRequest([]byte("0001"))); !rs.NotFound() {
 			t.Fatalf("Write Expirted ER! Read")
 		} else {
 			t.Logf("Write Expirted OK")
 		}
-		if rs := tbl.Range(kvapi.NewRangeRequest([]byte("0000"), []byte("0001z"))); !rs.NotFound() {
+		if rs := c.Range(kvapi.NewRangeRequest([]byte("0000"), []byte("0001z"))); !rs.NotFound() {
 			t.Fatalf("Write Expirted ER! Range %v", rs)
 		} else {
 			t.Logf("Write Expirted OK")
@@ -232,12 +214,12 @@ func Test_DatabaseReplica_API(t *testing.T) {
 		req.IncrNamespace = incrNS
 		req.Meta.IncrId = 1000
 
-		if rs := tbl.Write(req); !rs.OK() {
+		if rs := c.Write(req); !rs.OK() {
 			t.Fatalf("Write IncrId ER! %s", rs.ErrorMessage())
 		} else {
 			t.Logf("Write IncrId OK, incr-id %d", rs.Meta().IncrId)
 		}
-		if rs := tbl.Read(kvapi.NewReadRequest(key)); !rs.OK() || rs.Items[0].Meta.IncrId != 1000 {
+		if rs := c.Read(kvapi.NewReadRequest(key)); !rs.OK() || rs.Items[0].Meta.IncrId != 1000 {
 			t.Fatalf("Read IncrId ER! %s", rs.ErrorMessage())
 		} else {
 			t.Logf("Read IncrId OK, incr-id %d", rs.Meta().IncrId)
@@ -247,12 +229,12 @@ func Test_DatabaseReplica_API(t *testing.T) {
 		req = kvapi.NewWriteRequest(key, []byte("demo"))
 		req.IncrNamespace = incrNS
 
-		if rs := tbl.Write(req); !rs.OK() {
+		if rs := c.Write(req); !rs.OK() {
 			t.Fatal("Write-2 IncrId ER!")
 		} else {
 			t.Logf("Write-2 IncrId OK, incr-id %d", rs.Meta().IncrId)
 		}
-		if rs := tbl.Read(kvapi.NewReadRequest(key)); !rs.OK() || rs.Items[0].Meta.IncrId <= 1000 {
+		if rs := c.Read(kvapi.NewReadRequest(key)); !rs.OK() || rs.Items[0].Meta.IncrId <= 1000 {
 			t.Fatal("Write-2 IncrId ER!")
 		} else {
 			t.Logf("Write-2 IncrId OK, incr-id %d", rs.Meta().IncrId)
@@ -263,18 +245,18 @@ func Test_DatabaseReplica_API(t *testing.T) {
 		req.IncrNamespace = incrNS
 		req.Meta.IncrId = 2000
 		req.PrevIncrId = 1000
-		if rs := tbl.Write(req); rs.OK() {
+		if rs := c.Write(req); rs.OK() {
 			t.Fatal("Write PrevIncrId ER!")
 		} else {
 			t.Logf("Write PrevIncrId OK, meta %v", rs.Meta())
 		}
 		req.PrevIncrId = 1001
-		if rs := tbl.Write(req); rs.OK() {
+		if rs := c.Write(req); rs.OK() {
 			t.Logf("Write PrevIncrId OK, incr-id %d", rs.Meta().IncrId)
 		} else {
 			t.Fatalf("Write PrevIncrId ER! %s", rs.StatusMessage)
 		}
-		if rs := tbl.Read(kvapi.NewReadRequest(key)); rs.OK() && rs.Meta().IncrId == req.Meta.IncrId {
+		if rs := c.Read(kvapi.NewReadRequest(key)); rs.OK() && rs.Meta().IncrId == req.Meta.IncrId {
 			t.Log("Write PrevIncrId OK")
 		} else {
 			t.Fatalf("Write PrevIncrId Check ER! %d", rs.Meta().IncrId)
@@ -291,13 +273,13 @@ func Test_DatabaseReplica_API(t *testing.T) {
 		req.Meta.Attrs |= (1 << 48)
 		req.Meta.Attrs |= (1 << 49)
 
-		if rs := tbl.Write(req); rs.OK() {
+		if rs := c.Write(req); rs.OK() {
 			t.Log("Write PrevAttrs OK")
 		} else {
 			t.Fatal("Write PrevAttrs ER!")
 		}
 
-		if rs := tbl.Read(kvapi.NewReadRequest(key)); rs.OK() &&
+		if rs := c.Read(kvapi.NewReadRequest(key)); rs.OK() &&
 			kvapi.AttrAllow(rs.Meta().Attrs, (1<<48)) &&
 			kvapi.AttrAllow(rs.Meta().Attrs, (1<<49)) {
 			t.Log("Write PrevAttrs OK")
@@ -307,20 +289,20 @@ func Test_DatabaseReplica_API(t *testing.T) {
 
 		req = kvapi.NewWriteRequest(key, []byte("demo-1"))
 		req.PrevAttrs |= (1 << 50)
-		if rs := tbl.Write(req); !rs.OK() {
+		if rs := c.Write(req); !rs.OK() {
 			t.Log("Write PrevAttrs OK")
 		} else {
 			t.Fatal("Write PrevAttrs ER!")
 		}
 		req = kvapi.NewWriteRequest(key, []byte("demo-1"))
 		req.PrevAttrs |= (1 << 48)
-		if rs := tbl.Write(req); rs.OK() {
+		if rs := c.Write(req); rs.OK() {
 			t.Log("Write PrevAttrs OK")
 		} else {
 			t.Fatal("Write PrevAttrs ER!")
 		}
 
-		if rs := tbl.Read(kvapi.NewReadRequest(key)); rs.OK() &&
+		if rs := c.Read(kvapi.NewReadRequest(key)); rs.OK() &&
 			kvapi.AttrAllow(rs.Items[0].Meta.Attrs, (1<<48)) &&
 			kvapi.AttrAllow(rs.Items[0].Meta.Attrs, (1<<49)) {
 			t.Log("Write PrevAttrs OK")
@@ -338,19 +320,19 @@ func Test_DatabaseReplica_API(t *testing.T) {
 
 			key := []byte(fmt.Sprintf("data-off-%d-%d", round, va[0]))
 			req := kvapi.NewWriteRequest(key, []byte("demo")).SetAttrs(va[0])
-			if rs := tbl.Write(req); rs.OK() {
+			if rs := c.Write(req); rs.OK() {
 				t.Log("Write Attrs Ignore Meta|Data OK")
 			} else {
 				t.Fatal("Write Attrs Ignore Meta|Data ER!")
 			}
 
-			if rs := tbl.Read(kvapi.NewReadRequest(key).SetAttrs(va[1])); rs.OK() {
+			if rs := c.Read(kvapi.NewReadRequest(key).SetAttrs(va[1])); rs.OK() {
 				t.Log("Write Attrs Ignore Meta|Data OK")
 			} else {
 				t.Fatal("Write Attrs Ignore Meta|Data ER!")
 			}
 
-			if rs := tbl.Read(kvapi.NewReadRequest(key).SetAttrs(va[2])); rs.NotFound() {
+			if rs := c.Read(kvapi.NewReadRequest(key).SetAttrs(va[2])); rs.NotFound() {
 				t.Log("Write Attrs Ignore Meta|Data OK")
 			} else {
 				t.Fatal("Write Attrs Ignore Meta|Data ER!")
@@ -364,25 +346,25 @@ func Test_DatabaseReplica_API(t *testing.T) {
 			key = []byte(fmt.Sprintf("delete-data-only-%d", round))
 			req = kvapi.NewWriteRequest(key, []byte("demo"))
 		)
-		if rs := tbl.Write(req); rs.OK() {
+		if rs := c.Write(req); rs.OK() {
 			t.Log("Delete Attrs RetainMeta Step-1 OK")
 		} else {
 			t.Fatal("Delete Attrs RetainMeta Step-1 ER!")
 		}
 
-		if rs := tbl.Delete(kvapi.NewDeleteRequest(key).SetRetainMeta(true)); rs.OK() {
+		if rs := c.Delete(kvapi.NewDeleteRequest(key).SetRetainMeta(true)); rs.OK() {
 			t.Log("Delete Attrs RetainMeta Step-2 OK")
 		} else {
 			t.Fatal("Delete Attrs RetainMeta Step-2 ER!")
 		}
 
-		if rs := tbl.Read(kvapi.NewReadRequest(key)); rs.NotFound() {
+		if rs := c.Read(kvapi.NewReadRequest(key)); rs.NotFound() {
 			t.Log("Delete Attrs RetainMeta Step-3 OK")
 		} else {
 			t.Fatal("Delete Attrs RetainMeta Step-3 ER!")
 		}
 
-		if rs := tbl.Read(kvapi.NewReadRequest(key).SetMetaOnly(true)); rs.OK() {
+		if rs := c.Read(kvapi.NewReadRequest(key).SetMetaOnly(true)); rs.OK() {
 			t.Logf("Delete Attrs RetainMeta Step-4 OK")
 		} else {
 			t.Fatal("Delete Attrs RetainMeta Step-4 ER!")
@@ -399,13 +381,13 @@ func Test_DatabaseReplica_API(t *testing.T) {
 		)
 
 		req.Meta.Extra = extra
-		if rs := tbl.Write(req); rs.OK() {
+		if rs := c.Write(req); rs.OK() {
 			t.Log("Write Meta Extra OK")
 		} else {
 			t.Fatalf("Write Meta Extra ER! %s", rs.StatusMessage)
 		}
 
-		if rs := tbl.Read(kvapi.NewReadRequest(key)); rs.OK() &&
+		if rs := c.Read(kvapi.NewReadRequest(key)); rs.OK() &&
 			rs.Item() != nil && bytes.Compare(rs.Item().Value, value) == 0 &&
 			bytes.Compare(extra, rs.Meta().Extra) == 0 {
 			t.Log("Write Meta Extra OK")
@@ -413,7 +395,7 @@ func Test_DatabaseReplica_API(t *testing.T) {
 			t.Fatal("Write Meta Extra ER!")
 		}
 
-		if rs := tbl.Read(kvapi.NewReadRequest(key).SetMetaOnly(true)); rs.OK() &&
+		if rs := c.Read(kvapi.NewReadRequest(key).SetMetaOnly(true)); rs.OK() &&
 			rs.Item() != nil &&
 			len(rs.Item().Value) == 0 &&
 			bytes.Compare(extra, rs.Item().Meta.Extra) == 0 {
@@ -429,10 +411,10 @@ func Test_DatabaseReplica_API(t *testing.T) {
 		obj := kvapi.Meta{
 			Attrs: 100,
 		}
-		if rs := tbl.Write(kvapi.NewWriteRequest([]byte("0001"), obj); !rs.OK() {
+		if rs := c.Write(kvapi.NewWriteRequest([]byte("0001"), obj); !rs.OK() {
 			t.Fatal("Write ER!")
 		}
-		if rs := tbl.Read(kvapi.NewReadRequest([]byte("0001"))); !rs.OK() {
+		if rs := c.Read(kvapi.NewReadRequest([]byte("0001"))); !rs.OK() {
 			t.Fatalf("Read-Key ER! status %d", rs.Status)
 		} else {
 			var item kvapi.Meta
@@ -447,55 +429,4 @@ func Test_DatabaseReplica_API(t *testing.T) {
 		}
 	}
 	*/
-}
-
-type testDatabaseReplicaApiSession struct {
-	dir string
-	db  storage.Conn
-}
-
-func (it *testDatabaseReplicaApiSession) release() {
-	it.db.Close()
-	exec.Command("rm", "-rf", it.dir).Output()
-}
-
-func test_DatabaseReplica_API_Open(drvname string, samples int) (*testDatabaseReplicaApiSession, error) {
-
-	testDir := "/tmp/kvgo-test"
-	if runtime.GOOS == "darwin" {
-		testDir, _ = os.UserHomeDir()
-		testDir += "/kvgo-test"
-	}
-
-	if samples > 0 {
-		testDir = filepath.Clean(fmt.Sprintf("%s/db-replica-api-%d", testDir, samples))
-	} else {
-		testDir = filepath.Clean(fmt.Sprintf("%s/db-replica-api", testDir))
-	}
-
-	db, err := storage.Open(drvname, testDir, &storage.Options{
-		WriteBufferSize: 16,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	if samples > 0 {
-		// if rs := db.Get([]byte(fmt.Sprintf("%032d", samples-1)), nil); rs.NotFound() {
-		// 	for i := 0; i < samples; i++ {
-		// 		bs := randBytes(128 + mrand.Intn(256)) // size 128 ~ 384 bytes, avg 256 bytes
-		// 		if rs := db.Put([]byte(fmt.Sprintf("%032d", i)), bs, nil); !rs.OK() {
-		// 			return nil, rs.Error()
-		// 		}
-		// 	}
-		// 	fmt.Println("storage samples", samples)
-		// }
-	}
-
-	sess := &testDatabaseReplicaApiSession{
-		dir: testDir,
-		db:  db,
-	}
-
-	return sess, nil
 }

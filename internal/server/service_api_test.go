@@ -471,7 +471,8 @@ func test_ServiceApi_Open(drvname string, samples int) (*testServiceApiSession, 
 		testDir = filepath.Clean(fmt.Sprintf("%s/service-api", testDir))
 	}
 
-	db, err := storage.Open(drvname, testDir, &storage.Options{
+	db, err := storage.Open(drvname, &storage.Options{
+		DataDirectory:   testDir,
 		WriteBufferSize: 16,
 	})
 	if err != nil {

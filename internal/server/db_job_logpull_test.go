@@ -104,8 +104,8 @@ func Test_DatabaseJob_LogPull(t *testing.T) {
 
 			for _, reqCase := range []*testCase{
 				{
-					LowerKey: keyLogEncode(c1.replicaId, 0),
-					UpperKey: keyLogEncode(c1.replicaId, 100000),
+					LowerKey: keyLogEncode(0, 0, 0),
+					UpperKey: keyLogEncode(100000, 0, 0),
 					Num:      0,
 				},
 				{
@@ -135,6 +135,9 @@ func Test_DatabaseJob_LogPull(t *testing.T) {
 					}
 					num += len(items)
 					for _, item := range items {
+						if bytesContains(item.Value, jobDatabasePing_MagicKey) {
+							num -= 1
+						}
 						req.LowerKey = item.Key
 					}
 					if len(items) < 10 {

@@ -14,8 +14,27 @@
 
 package utils
 
+import (
+	"encoding/binary"
+	"encoding/hex"
+)
+
 func BytesClone(src []byte) []byte {
 	dst := make([]byte, len(src))
 	copy(dst, src)
 	return dst
+}
+
+func BytesToHexString(bs []byte) string {
+	return hex.EncodeToString(bs)
+}
+
+func Uint32ToBytes(v uint32) []byte {
+	bs := make([]byte, 4)
+	binary.BigEndian.PutUint32(bs, v)
+	return bs
+}
+
+func Uint32ToHexString(v uint32) string {
+	return BytesToHexString(Uint32ToBytes(v))
 }

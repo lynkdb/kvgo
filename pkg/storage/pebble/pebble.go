@@ -15,9 +15,9 @@
 package pebble
 
 import (
+	"errors"
 	"log"
 	"os"
-	"path/filepath"
 	"runtime"
 	"sync"
 
@@ -42,28 +42,26 @@ func (it *driver) Name() string {
 	return "v2"
 }
 
-func (it *driver) Open(dirname string, opts *storage.Options) (storage.Conn, error) {
+func (it *driver) Open(opts *storage.Options) (storage.Conn, error) {
 
 	mu.Lock()
 	defer mu.Unlock()
 
-	dir := filepath.Clean(dirname)
+	if opts == nil {
+		return nil, errors.New("storage.Options not setup")
+	}
+	opts.Reset()
 
-	log.Printf("storage open %s", dir)
+	log.Printf("storage open %s", opts.DataDirectory)
 
-	conn, ok := conns[dir]
+	conn, ok := conns[opts.DataDirectory]
 	if ok {
 		return conn, nil
 	}
 
-	if err := os.MkdirAll(dir, 0750); err != nil {
+	if err := os.MkdirAll(opts.DataDirectory, 0750); err != nil {
 		return nil, err
 	}
-
-	if opts == nil {
-		opts = &storage.Options{}
-	}
-	opts = opts.Reset()
 
 	ldbOpts := &pebble.Options{
 		L0CompactionThreshold: 2,
@@ -79,7 +77,7 @@ func (it *driver) Open(dirname string, opts *storage.Options) (storage.Conn, err
 			}
 			return n
 		},
-		MemTableSize:                int(opts.WriteBufferSize) << 20,
+		MemTableSize:                uint64(opts.WriteBufferSize) << 20,
 		MemTableStopWritesThreshold: 4,
 		Cache:                       pebble.NewCache(int64(opts.BlockCacheSize << 20)),
 		MaxOpenFiles:                opts.MaxOpenFiles,
@@ -107,16 +105,16 @@ func (it *driver) Open(dirname string, opts *storage.Options) (storage.Conn, err
 
 	ldbOpts.Levels[6].FilterPolicy = nil
 
-	db, err := pebble.Open(dir, ldbOpts)
+	db, err := pebble.Open(opts.DataDirectory, ldbOpts)
 	if err != nil {
 		return nil, err
 	}
 
 	conn = &engine{
-		db:  db,
-		dir: dir,
+		db:   db,
+		opts: opts,
 	}
-	conns[dir] = conn
+	conns[opts.DataDirectory] = conn
 
 	return conn, nil
 }
@@ -124,7 +122,7 @@ func (it *driver) Open(dirname string, opts *storage.Options) (storage.Conn, err
 type engine struct {
 	mu     sync.Mutex
 	db     *pebble.DB
-	dir    string
+	opts   *storage.Options
 	closed bool
 }
 
@@ -147,10 +145,13 @@ func (it *engine) Get(
 func (it *engine) NewIterator(
 	opts *storage.IterOptions,
 ) (storage.Iterator, error) {
-	iter := it.db.NewIter(&pebble.IterOptions{
+	iter, err := it.db.NewIter(&pebble.IterOptions{
 		LowerBound: opts.LowerKey,
 		UpperBound: opts.UpperKey,
 	})
+	if err != nil {
+		return nil, err
+	}
 	return &iterator{
 		iter: iter,
 	}, nil
@@ -228,7 +229,7 @@ func (it *engine) Close() error {
 	defer it.mu.Unlock()
 	if !it.closed {
 		it.closed = true
-		delete(conns, it.dir)
+		delete(conns, it.opts.DataDirectory)
 		return it.db.Close()
 	}
 	return nil

@@ -15,6 +15,7 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 )
@@ -29,7 +30,7 @@ type Driver interface {
 	Name() string
 
 	// Open returns a new connection to the database.
-	Open(dirname string, opts *Options) (Conn, error)
+	Open(opts *Options) (Conn, error)
 }
 
 var (
@@ -48,12 +49,22 @@ func Register(drv Driver) {
 	}
 }
 
-func Open(driver, dirname string, opts *Options) (Conn, error) {
+func Open(driver string, opts *Options) (Conn, error) {
+
 	dmu.Lock()
 	drv, ok := drivers[driver]
 	dmu.Unlock()
 	if !ok {
 		return nil, fmt.Errorf("driver (%s) not found", driver)
 	}
-	return drv.Open(dirname, opts)
+
+	if opts == nil {
+		return nil, errors.New("storage.Options not set")
+	}
+	if err := opts.Valid(); err != nil {
+		return nil, err
+	}
+	opts.Reset()
+
+	return drv.Open(opts)
 }

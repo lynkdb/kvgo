@@ -15,7 +15,8 @@
 package kvapi
 
 import (
-// "google.golang.org/protobuf/proto"
+	"encoding/json"
+	// "google.golang.org/protobuf/proto"
 )
 
 // const (
@@ -29,6 +30,20 @@ import (
 type ValueCodec interface {
 	Encode(object interface{}) ([]byte, error)
 	Decode(value []byte, object interface{}) error
+}
+
+var (
+	JsonValueCodec jsonValueCodec
+)
+
+type jsonValueCodec struct{}
+
+func (jsonValueCodec) Encode(object interface{}) ([]byte, error) {
+	return json.Marshal(object)
+}
+
+func (jsonValueCodec) Decode(value []byte, object interface{}) error {
+	return json.Unmarshal(value, object)
 }
 
 // type stdValueBytesCodec struct{}

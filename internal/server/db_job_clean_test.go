@@ -95,13 +95,13 @@ func Test_DatabaseJob_Clean(t *testing.T) {
 
 		for _, req := range []*kvapi.RangeRequest{
 			&kvapi.RangeRequest{
-				LowerKey: keyExpireEncode(c1.replicaId, 0, nil),
-				UpperKey: keyExpireEncode(c1.replicaId, tto, nil),
+				LowerKey: keyExpireEncode(0, nil),
+				UpperKey: keyExpireEncode(tto, nil),
 				Limit:    10 + int64(mrand.Intn(100)),
 			},
 			&kvapi.RangeRequest{
-				LowerKey: keyLogEncode(c1.replicaId, 0),
-				UpperKey: keyLogEncode(c1.replicaId, 100000),
+				LowerKey: keyLogEncode(0, 0, 0),
+				UpperKey: keyLogEncode(100000, 0, 0),
 				Limit:    10 + int64(mrand.Intn(100)),
 			},
 		} {
@@ -186,8 +186,8 @@ func Test_DatabaseJob_Clean(t *testing.T) {
 		c1._jobCleanTTL()
 		for _, req := range []*kvapi.RangeRequest{
 			&kvapi.RangeRequest{
-				LowerKey: keyExpireEncode(c1.replicaId, 0, nil),
-				UpperKey: keyExpireEncode(c1.replicaId, tto, nil),
+				LowerKey: keyExpireEncode(0, nil),
+				UpperKey: keyExpireEncode(tto, nil),
 				Limit:    10,
 			},
 			&kvapi.RangeRequest{

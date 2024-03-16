@@ -12,15 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package kvgo
+package kvrep
 
 import (
-	kv2 "github.com/lynkdb/kvspec/v2/go/kvspec"
+	"github.com/lynkdb/kvgo/v2/internal/server"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/storage"
+	_ "github.com/lynkdb/kvgo/v2/pkg/storage/pebble"
 )
 
-func storageEngineOpen(engine, path string, opts *kv2.StorageOptions) (kv2.StorageEngine, error) {
-	if engine == "pebble" {
-		return StoragePebbleOpen(path, opts)
+func NewReplica(opts *storage.Options) (kvapi.Client, error) {
+
+	db, err := storage.Open(storage.DefaultDriver, opts)
+	if err != nil {
+		return nil, err
 	}
-	return StorageLevelDBOpen(path, opts)
+
+	scfg := &server.Config{}
+	scfg.Feature.WriteLogDisable = true
+
+	c, err := server.NewDatabase(db, "0000", "local-replica", 1, 2, scfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return c, nil
 }

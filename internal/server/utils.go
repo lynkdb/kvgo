@@ -33,7 +33,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/cespare/xxhash"
+	"github.com/cespare/xxhash/v2"
 
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
@@ -63,6 +63,14 @@ func bytesClone(src []byte) []byte {
 	copy(dst, src)
 
 	return dst
+}
+
+func bytesEqual(a, b []byte) bool {
+	return bytes.Equal(a, b)
+}
+
+func bytesContains(b, s []byte) bool {
+	return bytes.Contains(b, s)
 }
 
 func objectClone(src, dst interface{}) error {

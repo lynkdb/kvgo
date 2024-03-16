@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lynkdb/kvgo/v2/pkg/client"
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 	"github.com/lynkdb/kvgo/v2/pkg/storage"
 	_ "github.com/lynkdb/kvgo/v2/pkg/storage/pebble"
@@ -156,7 +157,7 @@ func test_AdminApi_Open(args ...interface{}) (*testAdminApiSession, error) {
 	}
 	sess.dbs = append(sess.dbs, db)
 
-	cc := &ClientConfig{
+	cc := &client.ClientConfig{
 		Addr:      fmt.Sprintf("127.0.0.1:%d", port),
 		AccessKey: dbTestAccessKey,
 	}

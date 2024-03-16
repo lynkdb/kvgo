@@ -16,6 +16,7 @@ package kvapi
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 )
@@ -31,6 +32,33 @@ func NewWriteRequest(key, value []byte) *WriteRequest {
 		req.Meta.Size = int32(len(value))
 	}
 	return req
+}
+
+func NewWriteRequestWithJson(key []byte, value interface{}) *WriteRequest {
+	req := &WriteRequest{
+		Meta: &Meta{},
+		Key:  key,
+	}
+	if value != nil {
+		req.Value, _ = json.Marshal(value)
+		req.Meta.Checksum = bytesCrc32Checksum(req.Value)
+		req.Meta.Size = int32(len(req.Value))
+	}
+	return req
+}
+
+func (it *WriteRequest) SetValueEncode(o interface{}, c ValueCodec) error {
+	if o == nil || c == nil {
+		return errors.New("data or codec not found")
+	}
+	value, err := c.Encode(o)
+	if err != nil {
+		return err
+	}
+	it.Value = value
+	it.Meta.Checksum = bytesCrc32Checksum(it.Value)
+	it.Meta.Size = int32(len(it.Value))
+	return nil
 }
 
 func (it *WriteRequest) Valid() error {
@@ -185,55 +213,4 @@ func (it *DeleteProposalRequest) LogEncode(id, ver, replicaId uint64) ([]byte, e
 		ReplicaId: replicaId,
 	}
 	return StdProto.Encode(logMeta)
-}
-
-func NewBatchRequest() *BatchRequest {
-	return &BatchRequest{}
-}
-
-func (it *BatchRequest) Delete(key []byte) {
-	it.Items = append(it.Items, &RequestUnion{
-		Value: &RequestUnion_Delete{
-			Delete: &DeleteRequest{
-				Key: key,
-			},
-		},
-	})
-}
-
-func (it *BatchRequest) Valid() error {
-
-	for _, req := range it.Items {
-
-		if req.Value == nil {
-			return errors.New("request empty")
-		}
-
-		reqDatabase := ""
-
-		switch req.Value.(type) {
-		case *RequestUnion_Write:
-			reqDatabase = req.Value.(*RequestUnion_Write).Write.Database
-
-		case *RequestUnion_Delete:
-			reqDatabase = req.Value.(*RequestUnion_Delete).Delete.Database
-
-		case *RequestUnion_Read:
-			reqDatabase = req.Value.(*RequestUnion_Read).Read.Database
-
-		case *RequestUnion_Range:
-			reqDatabase = req.Value.(*RequestUnion_Range).Range.Database
-
-		default:
-			return errors.New("invalid request type")
-		}
-
-		if it.Database == "" && reqDatabase != "" {
-			it.Database = reqDatabase
-		} else if reqDatabase != "" && it.Database != reqDatabase {
-			return errors.New("all subrequests can only operate on the same database")
-		}
-	}
-
-	return nil
 }

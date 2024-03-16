@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build enable_storage_goleveldb
+
 package goleveldb
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -44,23 +47,26 @@ func (it *driver) Name() string {
 	return "v1"
 }
 
-func (it *driver) Open(dirname string, opts *storage.Options) (storage.Conn, error) {
+func (it *driver) Open(opts *storage.Options) (storage.Conn, error) {
 
-	dir := filepath.Clean(dirname)
+	mu.Lock()
+	defer mu.Unlock()
 
-	conn, ok := conns[dirname]
+	if opts == nil {
+		return errors.New("storage.Options not setup")
+	}
+	opts.Reset()
+
+	log.Printf("storage open %s", opts.DataDirectory)
+
+	conn, ok := conns[opts.DataDirectory]
 	if ok {
 		return conn, nil
 	}
 
-	if err := os.MkdirAll(dir, 0750); err != nil {
+	if err := os.MkdirAll(opts.DataDirectory, 0750); err != nil {
 		return nil, err
 	}
-
-	if opts == nil {
-		opts = &storage.Options{}
-	}
-	opts = opts.Reset()
 
 	ldbOpts := &opt.Options{
 		WriteBuffer:            opts.WriteBufferSize << 20,
@@ -76,16 +82,16 @@ func (it *driver) Open(dirname string, opts *storage.Options) (storage.Conn, err
 		ldbOpts.Compression = opt.NoCompression
 	}
 
-	db, err := leveldb.OpenFile(dir, ldbOpts)
+	db, err := leveldb.OpenFile(opts.DataDirectory, ldbOpts)
 	if err != nil {
 		return nil, err
 	}
 
 	conn = &engine{
-		db:  db,
-		dir: dirname,
+		db:   db,
+		opts: opts,
 	}
-	conns[dirname] = conn
+	conns[opts.DataDirectory] = conn
 
 	return conn, nil
 }
@@ -93,7 +99,7 @@ func (it *driver) Open(dirname string, opts *storage.Options) (storage.Conn, err
 type engine struct {
 	mu     sync.Mutex
 	db     *leveldb.DB
-	dir    string
+	opts   *storage.Options
 	closed bool
 }
 
@@ -168,7 +174,7 @@ func (it *engine) Close() error {
 	defer it.mu.Unlock()
 	if !it.closed {
 		it.closed = true
-		delete(conns, it.dir)
+		delete(conns, it.opts.DataDirectory)
 		return it.db.Close()
 	}
 	return nil

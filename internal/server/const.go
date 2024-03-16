@@ -21,7 +21,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/cespare/xxhash"
+	"github.com/cespare/xxhash/v2"
 
 	hauth "github.com/hooto/hauth/go/hauth/v1"
 
@@ -338,4 +338,8 @@ var (
 			},
 		},
 	}
+)
+
+var (
+	jobDatabasePing_MagicKey = []byte("_magic_ping_key")
 )

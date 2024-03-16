@@ -1,4 +1,5 @@
 doc/*
+tests/*
 *.swp
 batch-*
 bench/*
@@ -6,5 +7,6 @@ bench/*
 .DS_Store
 go.sum
 bin/
-etc/
 var/
+*.go0
+pkg/object/

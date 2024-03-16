@@ -12,15 +12,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package kvrep_test
 
 import (
-	"github.com/lynkdb/iomix/connect"
-	kv2 "github.com/lynkdb/kvspec/v2/go/kvspec"
+	"os/exec"
+	"testing"
 
-	"github.com/lynkdb/kvgo"
+	"github.com/lynkdb/kvgo/v2/internal/tests"
+	"github.com/lynkdb/kvgo/v2/pkg/kvrep"
+	"github.com/lynkdb/kvgo/v2/pkg/storage"
 )
 
-func NewConnector(copts *connect.ConnOptions) (kv2.ClientConnector, error) {
-	return kvgo.Open(*copts)
+func Test_KV_Replica(t *testing.T) {
+
+	dir := "/tmp/pkg_kvrep_test"
+	exec.Command("rm", "-rf", dir+"/*").Output()
+
+	db, err := kvrep.NewReplica(&storage.Options{
+		DataDirectory: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() {
+		db.Close()
+		exec.Command("rm", "-rf", dir).Output()
+	}()
+
+	tests.ClientAPI(db, t)
 }

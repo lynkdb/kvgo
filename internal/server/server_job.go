@@ -152,16 +152,6 @@ func (it *dbServer) jobDatabaseListSetup() error {
 				return err
 			}
 
-			// 227
-			{
-				for i, shard := range tm.Shards {
-					if shard.Id == 227 {
-						tm.Shards = append(tm.Shards[:i], tm.Shards[i+1:]...)
-						break
-					}
-				}
-			}
-
 			ptm := it.dbMapMgr.getById(tm.Id)
 			if ptm == nil {
 				continue
@@ -360,15 +350,17 @@ func (it *dbServer) _jobDatabaseMapSetup(tm *dbMap) error {
 				continue
 			}
 
-			dir := fmt.Sprintf("%s/data/%s_%s", cfg.Mountpoint, tm.data.Id, tm.data.Engine)
-			store, err = storage.Open(tm.data.Engine, dir, it.cfg.cloneStorageOptions())
+			opts := it.cfg.cloneStorageOptions()
+			opts.DataDirectory = fmt.Sprintf("%s/data/%s_%s", cfg.Mountpoint, tm.data.Id, tm.data.Engine)
+
+			store, err = storage.Open(tm.data.Engine, opts)
 			if err != nil {
 				return err
 			}
 
 			tm.syncStore(rep.StoreId, store)
 
-			hlog.Printf("info", "store setup %s ok", dir)
+			hlog.Printf("info", "store setup %s ok", opts.DataDirectory)
 		}
 	}
 
@@ -746,10 +738,6 @@ func (it *dbServer) jobKeyMapSetup() error {
 	return nil
 }
 
-var (
-	storeLocalTestResetSize = map[uint64]int64{}
-)
-
 func (it *dbServer) jobStoreStatusRefresh() error {
 
 	const name = "jobStoreStatusRefresh"
@@ -783,21 +771,6 @@ func (it *dbServer) jobStoreStatusRefresh() error {
 			total = int64(st.Total) / (1 << 20)
 		)
 
-		if testLocalMode {
-			// used = int64(float64(used) * (0.8 + randFloat64(0.2)))
-			reset, ok := storeLocalTestResetSize[vol.StoreId]
-			if !ok {
-				reset = randInt64(128)
-				storeLocalTestResetSize[vol.StoreId] = reset
-				testPrintf("store %s, reset free %d MB", vol.Mountpoint, reset)
-			}
-			used += reset
-		}
-
-		// if vol.UniId == "4cf421f1a5ca2e9a" && used > 6e6 {
-		// 	used -= 6e6
-		// }
-
 		it.storeMgr.setStatus(vol.UniId, vol.StoreId, func(s *kvapi.SysStoreStatus) {
 			s.CapacityUsed = used
 			s.CapacityFree = total - used
@@ -824,12 +797,7 @@ func (it *dbServer) jobDatabasePing() error {
 
 	it.dbMapMgr.initIter(func(tm *dbMap) {
 
-		var (
-			key = []byte("_magic_ping_key")
-			val = randBytes(100)
-		)
-
-		wr := kvapi.NewWriteRequest(key, val)
+		wr := kvapi.NewWriteRequest(jobDatabasePing_MagicKey, randBytes(100))
 		wr.Database = tm.data.Name
 
 		// wr.SetTTL(60e3)

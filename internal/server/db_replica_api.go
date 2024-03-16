@@ -695,3 +695,111 @@ func (it *dbReplica) RawRange(req *kvapi.RangeRequest) ([]*kvapi.RawKeyValue, er
 func (it *dbReplica) SetDatabase(name string) kvapi.Client {
 	return it
 }
+
+func (it *dbReplica) NewReader(key []byte, keys ...[]byte) kvapi.ClientReader {
+	r := &dbReplicaReader{
+		cc:  it,
+		req: kvapi.NewReadRequest(key, keys...),
+	}
+	return r
+}
+
+func (it *dbReplica) NewRanger(lowerKey, upperKey []byte) kvapi.ClientRanger {
+	r := &dbReplicaRanger{
+		cc:  it,
+		req: kvapi.NewRangeRequest(lowerKey, upperKey),
+	}
+	return r
+}
+
+func (it *dbReplica) NewWriter(key, value []byte) kvapi.ClientWriter {
+	r := &dbReplicaWriter{
+		cc:  it,
+		req: kvapi.NewWriteRequest(key, value),
+	}
+	return r
+}
+
+func (it *dbReplica) NewDeleter(key []byte) kvapi.ClientDeleter {
+	r := &dbReplicaDeleter{
+		cc:  it,
+		req: kvapi.NewDeleteRequest(key),
+	}
+	return r
+}
+
+type dbReplicaReader struct {
+	cc  *dbReplica
+	req *kvapi.ReadRequest
+}
+
+func (it *dbReplicaReader) SetMetaOnly(b bool) kvapi.ClientReader {
+	it.req.SetMetaOnly(b)
+	return it
+}
+
+func (it *dbReplicaReader) SetAttrs(attrs uint64) kvapi.ClientReader {
+	it.req.SetAttrs(attrs)
+	return it
+}
+
+func (it *dbReplicaReader) Exec() *kvapi.ResultSet {
+	return it.cc.Read(it.req)
+}
+
+type dbReplicaRanger struct {
+	cc  *dbReplica
+	req *kvapi.RangeRequest
+}
+
+func (it *dbReplicaRanger) SetLimit(n int64) kvapi.ClientRanger {
+	it.req.SetLimit(n)
+	return it
+}
+
+func (it *dbReplicaRanger) SetRevert(b bool) kvapi.ClientRanger {
+	it.req.SetRevert(b)
+	return it
+}
+
+func (it *dbReplicaRanger) Exec() *kvapi.ResultSet {
+	return it.cc.Range(it.req)
+}
+
+type dbReplicaWriter struct {
+	cc  *dbReplica
+	req *kvapi.WriteRequest
+}
+
+func (it *dbReplicaWriter) SetTTL(ttl int64) kvapi.ClientWriter {
+	it.req.SetTTL(ttl)
+	return it
+}
+
+func (it *dbReplicaWriter) SetAttrs(attrs uint64) kvapi.ClientWriter {
+	it.req.SetAttrs(attrs)
+	return it
+}
+
+func (it *dbReplicaWriter) SetJsonValue(o interface{}) kvapi.ClientWriter {
+	it.req.SetValueEncode(o, kvapi.JsonValueCodec)
+	return it
+}
+
+func (it *dbReplicaWriter) Exec() *kvapi.ResultSet {
+	return it.cc.Write(it.req)
+}
+
+type dbReplicaDeleter struct {
+	cc  *dbReplica
+	req *kvapi.DeleteRequest
+}
+
+func (it *dbReplicaDeleter) SetRetainMeta(b bool) kvapi.ClientDeleter {
+	it.req.SetRetainMeta(b)
+	return it
+}
+
+func (it *dbReplicaDeleter) Exec() *kvapi.ResultSet {
+	return it.cc.Delete(it.req)
+}

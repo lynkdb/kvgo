@@ -35,27 +35,32 @@ const (
 var (
 	rpcClientConns = map[string]*grpc.ClientConn{}
 	rpcClientMu    sync.Mutex
+
+	dbMut sync.Mutex
+	// map : address + key.id + [database] -> client
+	dbConns = map[string]*clientConn{}
+
+	// map : address + key.id -> client
+	admConns = map[string]*adminClientConn{}
 )
 
 type ClientConfig struct {
 	Addr      string               `toml:"addr" json:"addr"`
 	AccessKey *hauth.AccessKey     `toml:"access_key" json:"access_key"`
 	Options   *kvapi.ClientOptions `toml:"options,omitempty" json:"options,omitempty"`
-
-	mu sync.Mutex        `toml:"-" json:"-"`
-	c  kvapi.Client      `toml:"-" json:"-"`
-	ac kvapi.AdminClient `toml:"-" json:"-"`
 }
 
 type clientConn struct {
+	_ak      string
 	cfg      *ClientConfig
 	rpcConn  *grpc.ClientConn
 	database string
-	c        kvapi.KvgoClient
+	kvClient kvapi.KvgoClient
 	err      error
 }
 
 type adminClientConn struct {
+	_ak     string
 	cfg     *ClientConfig
 	rpcConn *grpc.ClientConn
 	ac      kvapi.KvgoAdminClient
@@ -64,10 +69,21 @@ type adminClientConn struct {
 
 func (it *ClientConfig) NewClient() (kvapi.Client, error) {
 
-	it.mu.Lock()
-	defer it.mu.Unlock()
+	if it.AccessKey == nil {
+		return nil, errors.New("access key not setup")
+	}
 
-	if it.c == nil {
+	ak := fmt.Sprintf("%s.%s", it.Addr, it.AccessKey.Id)
+
+	dbMut.Lock()
+	defer dbMut.Unlock()
+
+	if dbConns == nil {
+		dbConns = map[string]*clientConn{}
+	}
+
+	dbConn, ok := dbConns[ak]
+	if !ok {
 
 		conn, err := rpcClientConnect(it.Addr, it.AccessKey, false)
 		if err != nil {
@@ -78,36 +94,51 @@ func (it *ClientConfig) NewClient() (kvapi.Client, error) {
 			it.Options = kvapi.DefaultClientOptions()
 		}
 
-		it.c = &clientConn{
-			cfg:     it,
-			rpcConn: conn,
-			c:       kvapi.NewKvgoClient(conn),
+		dbConn = &clientConn{
+			_ak:      ak,
+			cfg:      it,
+			rpcConn:  conn,
+			kvClient: kvapi.NewKvgoClient(conn),
 		}
+		dbConns[ak] = dbConn
 	}
 
-	return it.c, nil
+	return dbConn, nil
 }
 
 func (it *ClientConfig) NewAdminClient() (kvapi.AdminClient, error) {
 
-	it.mu.Lock()
-	defer it.mu.Unlock()
+	if it.AccessKey == nil {
+		return nil, errors.New("access key not setup")
+	}
 
-	if it.ac == nil {
+	ak := fmt.Sprintf("%s.%s", it.Addr, it.AccessKey.Id)
+
+	dbMut.Lock()
+	defer dbMut.Unlock()
+
+	if admConns == nil {
+		admConns = map[string]*adminClientConn{}
+	}
+
+	admConn, ok := admConns[ak]
+	if !ok {
 
 		conn, err := rpcClientConnect(it.Addr, it.AccessKey, false)
 		if err != nil {
 			return nil, err
 		}
 
-		it.ac = &adminClientConn{
+		admConn = &adminClientConn{
+			_ak:     ak,
 			cfg:     it,
 			rpcConn: conn,
 			ac:      kvapi.NewKvgoAdminClient(conn),
 		}
+		admConns[ak] = admConn
 	}
 
-	return it.ac, nil
+	return admConn, nil
 }
 
 func (it *ClientConfig) timeout() time.Duration {
@@ -124,7 +155,7 @@ func (it *ClientConfig) timeout() time.Duration {
 // 			return err
 // 		}
 // 		it.rpcConn = conn
-// 		it.c = kvapi.NewKvgoClient(conn)
+// 		it.kvClient  = kvapi.NewKvgoClient(conn)
 // 	}
 // 	return nil
 // }
@@ -142,7 +173,7 @@ func (it *clientConn) Read(req *kvapi.ReadRequest) *kvapi.ResultSet {
 		req.Database = it.database
 	}
 
-	rs, err := it.c.Read(ctx, req)
+	rs, err := it.kvClient.Read(ctx, req)
 	if err != nil {
 		return newResultSetWithClientError(err.Error())
 	}
@@ -159,7 +190,7 @@ func (it *clientConn) Range(req *kvapi.RangeRequest) *kvapi.ResultSet {
 		req.Database = it.database
 	}
 
-	rs, err := it.c.Range(ctx, req)
+	rs, err := it.kvClient.Range(ctx, req)
 	if err != nil {
 		return newResultSetWithClientError(err.Error())
 	}
@@ -176,7 +207,7 @@ func (it *clientConn) Write(req *kvapi.WriteRequest) *kvapi.ResultSet {
 		req.Database = it.database
 	}
 
-	rs, err := it.c.Write(ctx, req)
+	rs, err := it.kvClient.Write(ctx, req)
 	if err != nil {
 		return newResultSetWithClientError(err.Error())
 	}
@@ -193,7 +224,7 @@ func (it *clientConn) Delete(req *kvapi.DeleteRequest) *kvapi.ResultSet {
 		req.Database = it.database
 	}
 
-	rs, err := it.c.Delete(ctx, req)
+	rs, err := it.kvClient.Delete(ctx, req)
 	if err != nil {
 		return newResultSetWithClientError(err.Error())
 	}
@@ -206,7 +237,7 @@ func (it *clientConn) Batch(req *kvapi.BatchRequest) *kvapi.BatchResponse {
 	ctx, fc := context.WithTimeout(context.Background(), it.cfg.timeout())
 	defer fc()
 
-	rs, err := it.c.Batch(ctx, req)
+	rs, err := it.kvClient.Batch(ctx, req)
 	if err != nil {
 		return &kvapi.BatchResponse{
 			StatusCode:    kvapi.Status_RequestTimeout,
@@ -218,8 +249,55 @@ func (it *clientConn) Batch(req *kvapi.BatchRequest) *kvapi.BatchResponse {
 }
 
 func (it *clientConn) SetDatabase(name string) kvapi.Client {
-	it.database = name
+	dbMut.Lock()
+	defer dbMut.Unlock()
+	if name != "" && name != it.database {
+
+		if _, ok := dbConns[it._ak+":"+name]; !ok {
+			dbConns[it._ak+":"+name] = &clientConn{
+				_ak:      it._ak,
+				database: name,
+				cfg:      it.cfg,
+				rpcConn:  it.rpcConn,
+				kvClient: it.kvClient,
+			}
+		}
+
+		it.database = name
+	}
 	return it
+}
+
+func (it *clientConn) NewReader(key []byte, keys ...[]byte) kvapi.ClientReader {
+	r := &clientReader{
+		cc:  it,
+		req: kvapi.NewReadRequest(key, keys...),
+	}
+	return r
+}
+
+func (it *clientConn) NewRanger(lowerKey, upperKey []byte) kvapi.ClientRanger {
+	r := &clientRanger{
+		cc:  it,
+		req: kvapi.NewRangeRequest(lowerKey, upperKey),
+	}
+	return r
+}
+
+func (it *clientConn) NewWriter(key, value []byte) kvapi.ClientWriter {
+	r := &clientWriter{
+		cc:  it,
+		req: kvapi.NewWriteRequest(key, value),
+	}
+	return r
+}
+
+func (it *clientConn) NewDeleter(key []byte) kvapi.ClientDeleter {
+	r := &clientDeleter{
+		cc:  it,
+		req: kvapi.NewDeleteRequest(key),
+	}
+	return r
 }
 
 func (it *clientConn) Close() error {
@@ -227,6 +305,82 @@ func (it *clientConn) Close() error {
 		return it.rpcConn.Close()
 	}
 	return nil
+}
+
+type clientReader struct {
+	cc  *clientConn
+	req *kvapi.ReadRequest
+}
+
+func (it *clientReader) SetMetaOnly(b bool) kvapi.ClientReader {
+	it.req.SetMetaOnly(b)
+	return it
+}
+
+func (it *clientReader) SetAttrs(attrs uint64) kvapi.ClientReader {
+	it.req.SetAttrs(attrs)
+	return it
+}
+
+func (it *clientReader) Exec() *kvapi.ResultSet {
+	return it.cc.Read(it.req)
+}
+
+type clientRanger struct {
+	cc  *clientConn
+	req *kvapi.RangeRequest
+}
+
+func (it *clientRanger) SetLimit(n int64) kvapi.ClientRanger {
+	it.req.SetLimit(n)
+	return it
+}
+
+func (it *clientRanger) SetRevert(b bool) kvapi.ClientRanger {
+	it.req.SetRevert(b)
+	return it
+}
+
+func (it *clientRanger) Exec() *kvapi.ResultSet {
+	return it.cc.Range(it.req)
+}
+
+type clientWriter struct {
+	cc  *clientConn
+	req *kvapi.WriteRequest
+}
+
+func (it *clientWriter) SetTTL(ttl int64) kvapi.ClientWriter {
+	it.req.SetTTL(ttl)
+	return it
+}
+
+func (it *clientWriter) SetAttrs(attrs uint64) kvapi.ClientWriter {
+	it.req.SetAttrs(attrs)
+	return it
+}
+
+func (it *clientWriter) SetJsonValue(o interface{}) kvapi.ClientWriter {
+	it.req.SetValueEncode(o, kvapi.JsonValueCodec)
+	return it
+}
+
+func (it *clientWriter) Exec() *kvapi.ResultSet {
+	return it.cc.Write(it.req)
+}
+
+type clientDeleter struct {
+	cc  *clientConn
+	req *kvapi.DeleteRequest
+}
+
+func (it *clientDeleter) SetRetainMeta(b bool) kvapi.ClientDeleter {
+	it.req.SetRetainMeta(b)
+	return it
+}
+
+func (it *clientDeleter) Exec() *kvapi.ResultSet {
+	return it.cc.Delete(it.req)
 }
 
 func (it *adminClientConn) DatabaseList(req *kvapi.DatabaseListRequest) *kvapi.ResultSet {
@@ -259,18 +413,6 @@ func (it *adminClientConn) DatabaseUpdate(req *kvapi.DatabaseUpdateRequest) *kva
 	defer fc()
 
 	rs, err := it.ac.DatabaseUpdate(ctx, req)
-	if err != nil {
-		return newResultSetWithClientError(err.Error())
-	}
-	return rs
-}
-
-func (it *adminClientConn) Status(req *kvapi.StatusRequest) *kvapi.ResultSet {
-
-	ctx, fc := context.WithTimeout(context.Background(), it.cfg.timeout())
-	defer fc()
-
-	rs, err := it.ac.Status(ctx, req)
 	if err != nil {
 		return newResultSetWithClientError(err.Error())
 	}

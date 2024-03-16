@@ -153,10 +153,6 @@ func (it *storeManager) lookupFitStore(deny map[uint64]bool) *kvapi.SysStoreStat
 	defer it.mu.Unlock()
 	fitStores := []*kvapi.SysStoreStatus{}
 	for _, vs := range it.status.Items {
-		// if vs.UniId == "4cf421f1a5ca2e9a" && vs.CapacityUsed > 6e6 {
-		// 	vs.CapacityUsed -= 6e6
-		// 	vs.CapacityFree += 6e6
-		// }
 		if len(deny) == 0 || !deny[vs.Id] {
 			fitStores = append(fitStores, vs)
 		}

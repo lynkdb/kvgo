@@ -16,6 +16,7 @@ package storage
 
 import (
 	"errors"
+	"path/filepath"
 )
 
 // Options holds the optional parameters for the DB storage engine
@@ -211,6 +212,8 @@ func (it *Options) Valid() error {
 }
 
 func (it *Options) Reset() *Options {
+
+	it.DataDirectory = filepath.Clean(it.DataDirectory)
 
 	if it.WriteBufferSize == 0 {
 		it.WriteBufferSize = 8

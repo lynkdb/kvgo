@@ -262,6 +262,7 @@ func (it *dbServer) dbSystemSetup() error {
 	var (
 		dir  = filepath.Clean(fmt.Sprintf("%s/%08d_%s", it.cfg.Storage.DataDirectory, sysDatabaseStoreId, storage.DriverV2))
 		opts = &storage.Options{
+			DataDirectory:   dir,
 			WriteBufferSize: 2,
 			BlockCacheSize:  2,
 			MaxTableSize:    8,
@@ -272,7 +273,7 @@ func (it *dbServer) dbSystemSetup() error {
 
 	testPrintf("server %d, system dir %s", it.pid, dir)
 
-	store, err := storage.Open(storage.DriverV2, dir, opts)
+	store, err := storage.Open(storage.DriverV2, opts)
 	if err != nil {
 		return err
 	}

@@ -133,7 +133,8 @@ func Test_DatabaseReplica_Task(t *testing.T) {
 
 			for _, shard := range shards {
 				for _, rep := range shard.replicas {
-					t.Logf("shard %d replica %d size %d", shard.shardId, rep.replicaId, rep.status.storageUsed.value)
+					t.Logf("shard %d replica %d size %d",
+						shard.shardId, rep.replicaId, rep.localStatus.storageUsed.value)
 				}
 			}
 		}

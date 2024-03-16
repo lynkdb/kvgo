@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lynkdb/kvgo/v2/pkg/client"
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 	"github.com/lynkdb/kvgo/v2/pkg/storage"
 	_ "github.com/lynkdb/kvgo/v2/pkg/storage/pebble"
@@ -540,7 +541,7 @@ func test_ServiceApi_RepX_Open(name string, args ...interface{}) (*testServiceAp
 
 	var (
 		opts = map[string]bool{}
-		cc   = &ClientConfig{
+		cc   = &client.ClientConfig{
 			Addr:      fmt.Sprintf("127.0.0.1:%d", port),
 			AccessKey: test_ServiceApi_RepX_AccessKey,
 		}

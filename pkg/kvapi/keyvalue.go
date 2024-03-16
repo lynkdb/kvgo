@@ -96,6 +96,10 @@ func (it *KeyValue) Valid() error {
 	return nil
 }
 
+func (it *KeyValue) StringValue() string {
+	return string(it.Value)
+}
+
 func (it *KeyValue) Int64Value() int64 {
 	if i64, err := strconv.ParseInt(string(it.Value), 10, 64); err == nil {
 		return i64
@@ -122,6 +126,25 @@ func (it *KeyValue) Float64Value() float64 {
 		return f64
 	}
 	return 0
+}
+
+func (it *KeyValue) Encode(o interface{}, c ValueCodec) error {
+	if c == nil || o == nil || len(it.Value) == 0 {
+		return errors.New("codec or data not found")
+	}
+	v, err := c.Encode(o)
+	if err != nil {
+		return err
+	}
+	it.Value = v
+	return nil
+}
+
+func (it *KeyValue) Decode(o interface{}, c ValueCodec) error {
+	if c == nil || o == nil || len(it.Value) == 0 {
+		return errors.New("codec or data not found")
+	}
+	return c.Decode(it.Value, o)
 }
 
 func (it *KeyValue) JsonDecode(o interface{}) error {

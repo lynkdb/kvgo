@@ -1,5 +1,4 @@
-# Copyright 2019 Eryx <evorui at gmail dot com>, All rights reserved.
-#
+# Copyright 2015 Eryx <evorui at gmail dot com>, All rights reserved.
 
 EXE_SERVER = bin/kvgo-server
 EXE_CLI = bin/kvgo-cli
@@ -7,7 +6,7 @@ APP_HOME = /opt/lynkdb/kvgo
 APP_USER = kvgo
 
 PROTOC_CMD = protoc
-PROTOC_ARGS = --proto_path=./api/v2/ --go_opt=paths=source_relative --go_out=./pkg/kvapi --go-grpc_out=./pkg/kvapi ./api/v2/*.proto
+PROTOC_ARGS = --proto_path=./api/ --go_opt=paths=source_relative --go_out=./pkg/kvapi --go-grpc_out=./pkg/kvapi ./api/*.proto
 
 HTOML_TAG_FIX_CMD = htoml-tag-fix
 HTOML_TAG_FIX_ARGS = pkg/kvapi

@@ -60,6 +60,13 @@ func (it *ResultSet) JsonDecode(o interface{}) error {
 	return errors.New("no data found")
 }
 
+func (it *ResultSet) Decode(o interface{}, c ValueCodec) error {
+	if len(it.Items) > 0 {
+		return it.Items[0].Decode(o, c)
+	}
+	return errors.New("no data found")
+}
+
 func (it *ResultSet) Lookup(key []byte) *KeyValue {
 	for _, v := range it.Items {
 		if bytes.Compare(key, v.Key) == 0 {
