@@ -26,7 +26,7 @@ func (it *dbReplica) Write(req *kvapi.WriteRequest) *kvapi.ResultSet {
 	return it.write(req, 0)
 }
 
-func (it *dbReplica) write(req *kvapi.WriteRequest, cLog uint64) *kvapi.ResultSet {
+func (it *dbReplica) write(req *kvapi.WriteRequest, cVer uint64) *kvapi.ResultSet {
 
 	var (
 		t0 = time.Now()
@@ -58,6 +58,10 @@ func (it *dbReplica) write(req *kvapi.WriteRequest, cLog uint64) *kvapi.ResultSe
 		updated = t0.UnixNano() / 1e6
 	)
 
+	if req.Meta.IncrId > 0 && kvapi.AttrAllow(req.Attrs, kvapi.Write_Attrs_InnerSync) {
+		it.incrMgr.sync("", 0, req.Meta.IncrId, req.Key)
+	}
+
 	if meta != nil {
 
 		if req.PrevVersion > 0 && req.PrevVersion != meta.Version {
@@ -73,10 +77,10 @@ func (it *dbReplica) write(req *kvapi.WriteRequest, cLog uint64) *kvapi.ResultSe
 		}
 
 		if req.PrevIncrId > 0 && req.PrevIncrId != meta.IncrId {
-			return newResultSetWithClientError("invalid prev_incr_id")
+			return newResultSetWithClientError("invalid prev_incr_id (req %d, prev %d)", req.PrevIncrId, meta.IncrId)
 		}
 
-		if (cLog > 0 && meta.Version == cLog) ||
+		if (cVer > 0 && meta.Version == cVer) ||
 			req.CreateOnly ||
 			(req.Meta.Expired == meta.Expired &&
 				(req.Meta.IncrId == 0 || req.Meta.IncrId == meta.IncrId) &&
@@ -86,6 +90,7 @@ func (it *dbReplica) write(req *kvapi.WriteRequest, cLog uint64) *kvapi.ResultSe
 			rs := newResultSetOK()
 			resultSetAppend(rs, req.Key, &kvapi.Meta{
 				Version: meta.Version,
+				IncrNs:  meta.IncrNs,
 				IncrId:  meta.IncrId,
 				Updated: meta.Updated,
 				// Created: meta.Created,
@@ -93,11 +98,15 @@ func (it *dbReplica) write(req *kvapi.WriteRequest, cLog uint64) *kvapi.ResultSe
 			return rs
 		}
 
+		if req.Meta.IncrNs == 0 && meta.IncrNs > 0 {
+			req.Meta.IncrNs = meta.IncrNs
+		}
+
 		if req.Meta.IncrId == 0 && meta.IncrId > 0 {
 			req.Meta.IncrId = meta.IncrId
 		}
 
-		if meta.Attrs > 0 {
+		if meta.Attrs > 0 && !kvapi.AttrAllow(req.Attrs, kvapi.Write_Attrs_InnerSync) {
 			req.Meta.Attrs |= meta.Attrs
 		}
 
@@ -110,7 +119,9 @@ func (it *dbReplica) write(req *kvapi.WriteRequest, cLog uint64) *kvapi.ResultSe
 		}
 	}
 
-	req.Meta.Updated = updated
+	if req.Meta.Updated <= 0 || !kvapi.AttrAllow(req.Attrs, kvapi.Write_Attrs_InnerSync) {
+		req.Meta.Updated = updated
+	}
 
 	// if req.Meta.Created < 1 {
 	// 	req.Meta.Created = updated
@@ -119,38 +130,38 @@ func (it *dbReplica) write(req *kvapi.WriteRequest, cLog uint64) *kvapi.ResultSe
 	if req.IncrNamespace != "" {
 
 		if req.Meta.IncrId == 0 {
-			req.Meta.IncrId, err = it.incrSync(req.IncrNamespace, 1, 0)
+			req.Meta.IncrNs, req.Meta.IncrId, err = it.incrMgr.sync(req.IncrNamespace, 1, 0, req.Key)
 			if err != nil {
 				return newResultSetWithServerError(err.Error())
 			}
 		} else {
-			it.incrSync(req.IncrNamespace, 0, req.Meta.IncrId)
+			it.incrMgr.sync(req.IncrNamespace, 0, req.Meta.IncrId, req.Key)
 		}
 	}
 
-	cLogOn := true
+	cVerOn := true
 
 	if false /* log-off */ {
-		cLogOn = false
+		cVerOn = false
 	} else {
 
-		if cLog == 0 {
+		if cVer == 0 {
 			if meta != nil && meta.Version > 0 {
-				cLog = meta.Version
+				cVer = meta.Version
 			}
 
-			if cLog, err = it.versionSync(1, cLog); err != nil {
+			if cVer, err = it.versionSync(1, cVer); err != nil {
 				return newResultSetWithServerError(err.Error())
 			}
 		} else {
-			if _, err = it.versionSync(0, cLog); err != nil {
+			if _, err = it.versionSync(0, cVer); err != nil {
 				return newResultSetWithServerError(err.Error())
 			}
-			cLogOn = false
+			cVerOn = false
 		}
 	}
 
-	req.Meta.Version = cLog
+	req.Meta.Version = cVer
 
 	bsMeta, bsData, err := req.Encode()
 	if err != nil {
@@ -170,7 +181,7 @@ func (it *dbReplica) write(req *kvapi.WriteRequest, cLog uint64) *kvapi.ResultSe
 		writeSize += len(bsData)
 	}
 
-	if (cLogOn && !it.cfg.Feature.WriteLogDisable) ||
+	if (cVerOn && !it.cfg.Feature.WriteLogDisable) ||
 		req.Meta.Expired > 0 {
 
 		it.logMu.Lock()
@@ -186,7 +197,9 @@ func (it *dbReplica) write(req *kvapi.WriteRequest, cLog uint64) *kvapi.ResultSe
 			return newResultSetWithServerError(err.Error())
 		}
 
-		if cLogOn && !it.cfg.Feature.WriteLogDisable {
+		if cVerOn && !it.cfg.Feature.WriteLogDisable &&
+			!kvapi.AttrAllow(req.Attrs, kvapi.Write_Attrs_InnerSync) {
+
 			batch.Put(keyLogEncode(logId, it.replicaId, 0), bsLogMeta)
 			// jsonPrint("log put", fmt.Sprintf("%d %d", it.replicaId, logId))
 			writeSize += len(bsLogMeta)
@@ -221,9 +234,10 @@ func (it *dbReplica) write(req *kvapi.WriteRequest, cLog uint64) *kvapi.ResultSe
 	it.localStatus.kvWriteSize.Add(int64(writeSize))
 
 	rs := newResultSetOK()
-	rs.MaxVersion = cLog
+	rs.MaxVersion = cVer
 	resultSetAppend(rs, req.Key, &kvapi.Meta{
-		Version: cLog,
+		Version: cVer,
+		IncrNs:  req.Meta.IncrNs,
 		IncrId:  req.Meta.IncrId,
 		Updated: req.Meta.Updated,
 	}, nil)
@@ -259,7 +273,7 @@ func (it *dbReplica) Delete(req *kvapi.DeleteRequest) *kvapi.ResultSet {
 	}
 
 	var (
-		cLog    = uint64(0)
+		cVer    = uint64(0)
 		updated = t0.UnixNano() / 1e6
 	)
 
@@ -275,25 +289,25 @@ func (it *dbReplica) Delete(req *kvapi.DeleteRequest) *kvapi.ResultSet {
 		return newResultSetWithClientError("invalid prev_attrs")
 	}
 
-	cLogOn := true
+	cVerOn := true
 
 	if false /* log-off */ {
-		cLogOn = false
+		cVerOn = false
 	} else {
 
-		if cLog == 0 {
+		if cVer == 0 {
 			if meta != nil && meta.Version > 0 {
-				cLog = meta.Version
+				cVer = meta.Version
 			}
 
-			if cLog, err = it.versionSync(1, cLog); err != nil {
+			if cVer, err = it.versionSync(1, cVer); err != nil {
 				return newResultSetWithServerError(err.Error())
 			}
 		} else {
-			if _, err = it.versionSync(0, cLog); err != nil {
+			if _, err = it.versionSync(0, cVer); err != nil {
 				return newResultSetWithServerError(err.Error())
 			}
-			cLogOn = false
+			cVerOn = false
 		}
 	}
 
@@ -305,7 +319,8 @@ func (it *dbReplica) Delete(req *kvapi.DeleteRequest) *kvapi.ResultSet {
 
 	batch.Delete(keyEncode(nsKeyData, req.Key))
 
-	if cLogOn && !it.cfg.Feature.WriteLogDisable {
+	if cVerOn && !it.cfg.Feature.WriteLogDisable &&
+		!kvapi.AttrAllow(req.Attrs, kvapi.Write_Attrs_InnerSync) {
 
 		it.logMu.Lock()
 		defer it.logMu.Unlock()
@@ -315,7 +330,7 @@ func (it *dbReplica) Delete(req *kvapi.DeleteRequest) *kvapi.ResultSet {
 			return newResultSetWithServerError(err.Error())
 		}
 
-		bsLogMeta, err := req.LogEncode(logId, cLog, it.replicaId)
+		bsLogMeta, err := req.LogEncode(logId, cVer, it.replicaId)
 		if err != nil {
 			return newResultSetWithServerError(err.Error())
 		}
@@ -342,10 +357,10 @@ func (it *dbReplica) Delete(req *kvapi.DeleteRequest) *kvapi.ResultSet {
 	}
 
 	rs := newResultSetOK()
-	rs.MaxVersion = cLog
+	rs.MaxVersion = cVer
 
 	resultSetAppend(rs, req.Key, &kvapi.Meta{
-		Version: cLog,
+		Version: cVer,
 		Updated: updated,
 		Attrs:   req.Attrs,
 	}, nil)
@@ -441,6 +456,10 @@ func (it *dbReplica) Range(req *kvapi.RangeRequest) *kvapi.ResultSet {
 			metricCounter.Add(metricStorage, "Key.Range", 1)
 			metricCounter.Add(metricStorage, "Key.Range.Item", float64(len(rs.Items)))
 			metricCounter.Add(metricStorageSize, "Key.Range", float64(readSize))
+			if kvapi.AttrAllow(req.Attrs, kvapi.Read_Attrs_MetaOnly) {
+				metricCounter.Add(metricStorage, "Key.Range.Meta", 1)
+				metricCounter.Add(metricStorageSize, "Key.Range.Meta", float64(readSize))
+			}
 		}()
 	}
 
@@ -712,7 +731,7 @@ func (it *dbReplica) NewRanger(lowerKey, upperKey []byte) kvapi.ClientRanger {
 	return r
 }
 
-func (it *dbReplica) NewWriter(key, value []byte) kvapi.ClientWriter {
+func (it *dbReplica) NewWriter(key []byte, value interface{}) kvapi.ClientWriter {
 	r := &dbReplicaWriter{
 		cc:  it,
 		req: kvapi.NewWriteRequest(key, value),
@@ -781,8 +800,28 @@ func (it *dbReplicaWriter) SetAttrs(attrs uint64) kvapi.ClientWriter {
 	return it
 }
 
+func (it *dbReplicaWriter) SetIncr(id uint64, ns string) kvapi.ClientWriter {
+	it.req.SetIncr(id, ns)
+	return it
+}
+
 func (it *dbReplicaWriter) SetJsonValue(o interface{}) kvapi.ClientWriter {
 	it.req.SetValueEncode(o, kvapi.JsonValueCodec)
+	return it
+}
+
+func (it *dbReplicaWriter) SetCreateOnly(b bool) kvapi.ClientWriter {
+	it.req.CreateOnly = b
+	return it
+}
+
+func (it *dbReplicaWriter) SetPrevVersion(v uint64) kvapi.ClientWriter {
+	it.req.PrevVersion = v
+	return it
+}
+
+func (it *dbReplicaWriter) SetPrevChecksum(v uint64) kvapi.ClientWriter {
+	it.req.PrevChecksum = v
 	return it
 }
 
@@ -797,6 +836,16 @@ type dbReplicaDeleter struct {
 
 func (it *dbReplicaDeleter) SetRetainMeta(b bool) kvapi.ClientDeleter {
 	it.req.SetRetainMeta(b)
+	return it
+}
+
+func (it *dbReplicaDeleter) SetPrevVersion(v uint64) kvapi.ClientDeleter {
+	it.req.PrevVersion = v
+	return it
+}
+
+func (it *dbReplicaDeleter) SetPrevChecksum(v uint64) kvapi.ClientDeleter {
+	it.req.PrevChecksum = v
 	return it
 }
 

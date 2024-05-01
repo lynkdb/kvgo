@@ -19,12 +19,6 @@ package lynkdb.kvapi.v2;
 option optimize_for = LITE_RUNTIME;
 option go_package = "./;kvapi";
 
-// // Value specifies the value at a key.
-// message Value {
-//   uint32 type = 1;
-//   bytes raw_bytes = 2;
-// }
-
 // KeyValue is a pair of Key and Value for returned Key/Value pairs
 message KeyValue {
   Meta meta = 1;
@@ -52,7 +46,8 @@ message Meta {
   // value size
   int32 size = 6;
 
-  // increasing ID
+  // increasing namespace:id
+  uint32 incr_ns = 9;
   uint64 incr_id = 10;
 
   // TTL time. unix time in milliseconds.
@@ -85,8 +80,6 @@ message DeleteRequest {
   string database = 1;
 
   bytes key = 2;
-
-  // Meta meta = 4;
 
   uint64 attrs = 5;
 
@@ -145,6 +138,7 @@ message ResultSet {
 
   repeated bytes next_keys = 16;
   bool next_result_set = 17;
+  string next_token = 18;
 }
 
 service Kvgo {

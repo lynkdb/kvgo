@@ -42,7 +42,7 @@ type dbList struct{}
 
 func (dbList) Spec() baseCommandSpec {
 	return baseCommandSpec{
-		Path: "db list",
+		Path: "db-list",
 	}
 }
 
@@ -90,7 +90,7 @@ type dbCreate struct{}
 
 func (dbCreate) Spec() baseCommandSpec {
 	return baseCommandSpec{
-		Path: "db create",
+		Path: "db-create",
 	}
 }
 
@@ -144,7 +144,8 @@ type dbUpdate struct{}
 
 func (dbUpdate) Spec() baseCommandSpec {
 	return baseCommandSpec{
-		Path: "db update",
+		Path: "db-update",
+		Desc: "db-update <database name>",
 	}
 }
 
@@ -152,12 +153,16 @@ func (dbUpdate) Action(fg flagSet, l *readline.Instance) (string, error) {
 
 	req := &kvapi.DatabaseUpdateRequest{}
 
-	l.SetPrompt("database name: ")
-	dbName, err := l.Readline()
-	if err != nil {
-		return "", err
+	if len(fg.varArgs) > 0 {
+		req.Name = fg.varArgs[0]
+	} else {
+		l.SetPrompt("database name: ")
+		dbName, err := l.Readline()
+		if err != nil {
+			return "", err
+		}
+		req.Name = dbName
 	}
-	req.Name = dbName
 
 	l.SetPrompt("description: ")
 	req.Desc, err = l.Readline()
@@ -185,14 +190,15 @@ func (dbUpdate) Action(fg flagSet, l *readline.Instance) (string, error) {
 		return "", rs.Error()
 	}
 
-	return fmt.Sprintf("OK database %s, id %d", dbName, rs.Meta().IncrId), nil
+	return fmt.Sprintf("OK database %s, id %d", req.Name, rs.Meta().IncrId), nil
 }
 
 type dbInfo struct{}
 
 func (dbInfo) Spec() baseCommandSpec {
 	return baseCommandSpec{
-		Path: "db info",
+		Path: "db-info",
+		Desc: "db-info <database name>",
 	}
 }
 
@@ -205,8 +211,8 @@ func (dbInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
 
 	var dbName string
 
-	if fg.path != "" {
-		dbName = fg.path
+	if len(fg.varArgs) > 0 {
+		dbName = fg.varArgs[0]
 	} else {
 
 		l.SetPrompt("database name: ")
@@ -239,7 +245,7 @@ func (dbInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
 
 	table.SetHeader([]string{
 		"Shard", "Action", "Ver", "Updated",
-		"Rep ID", "Rep Action", "Rep Store",
+		"Rep ID", "Rep Action", "Rep Store", "Ver",
 		"Offset"})
 
 	table.SetAutoMergeCellsByColumnIndex([]int{0, 1, 2, 3, 7})
@@ -282,11 +288,13 @@ func (dbInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
 			var (
 				statusAction uint64
 				statusUsed   int64
+				statusVer    uint64
 			)
 
 			if repStatus, ok := dbStatus.Replicas[rep.Id]; ok {
 				statusAction = repStatus.Action
 				statusUsed = repStatus.Used
+				statusVer = repStatus.LogVersion
 			}
 
 			var idArrow string
@@ -302,6 +310,7 @@ func (dbInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
 					server.ReplicaActionDisplay(statusAction),
 				fmt.Sprintf("%d : %s", rep.StoreId,
 					kvapi.BytesHumanDisplay(statusUsed*(1<<20))),
+				fmt.Sprintf("%d", statusVer),
 			}...), attrs...))
 		}
 	}
@@ -318,7 +327,8 @@ type dbTestData struct{}
 
 func (dbTestData) Spec() baseCommandSpec {
 	return baseCommandSpec{
-		Path: "db test-data",
+		Path: "db-test-data",
+		Desc: "db-test-data <database name> [-num N]",
 	}
 }
 
@@ -326,8 +336,8 @@ func (dbTestData) Action(fg flagSet, l *readline.Instance) (string, error) {
 
 	var dbName string
 
-	if fg.path != "" {
-		dbName = fg.path
+	if len(fg.varArgs) > 0 {
+		dbName = fg.varArgs[0]
 	} else {
 
 		l.SetPrompt("database name: ")
@@ -360,7 +370,7 @@ func (dbTestData) Action(fg flagSet, l *readline.Instance) (string, error) {
 		wr := kvapi.NewWriteRequest(key, val)
 		wr.Database = dbName
 
-		rs := client.Write(wr)
+		rs := kvclient.Write(wr)
 		if rs.OK() {
 			fmt.Printf("#%08d write key %s ok\n", i, string(key))
 		} else {

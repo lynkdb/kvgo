@@ -42,8 +42,7 @@ type dbReplica struct {
 
 	store storage.Conn
 
-	incrMu     sync.RWMutex
-	incrStates map[string]*dbReplicaIncrState
+	incrMgr *dbIncrDatabase
 
 	verMu     sync.RWMutex
 	verOffset uint64
@@ -118,6 +117,7 @@ func NewDatabase(
 	dbId, dbName string,
 	shardId, replicaId uint64,
 	cfg *Config,
+	args ...interface{},
 ) (*dbReplica, error) {
 
 	if cfg == nil {
@@ -138,13 +138,29 @@ func NewDatabase(
 	}
 
 	dt = &dbReplica{
-		store:      store,
-		dbName:     dbName,
-		shardId:    shardId,
-		replicaId:  replicaId,
-		incrStates: map[string]*dbReplicaIncrState{},
-		proposals:  map[string]*proposalx{},
-		cfg:        cfg,
+		store:     store,
+		dbName:    dbName,
+		shardId:   shardId,
+		replicaId: replicaId,
+		proposals: map[string]*proposalx{},
+		cfg:       cfg,
+	}
+
+	for _, arg := range args {
+		if arg == nil {
+			continue
+		}
+		switch arg.(type) {
+		case *dbIncrDatabase:
+			dt.incrMgr = arg.(*dbIncrDatabase)
+		}
+	}
+
+	if dt.incrMgr == nil {
+		dt.incrMgr, err = newIncrDatabase(dbId, store)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	dt.cfg.Reset()
@@ -183,35 +199,22 @@ func (it *dbReplica) init() error {
 		return rs.Error()
 	} else if err := jsonDecode(rs.Bytes(), &it.logState); err != nil {
 		return err
+	} else if it.logState.Offset < it.logState.Cutset {
+		it.logState.Offset = it.logState.Cutset
 	}
+	hlog.Printf("info", "database %s, load log-state %s",
+		it.dbName, string(jsonEncode(it.logState)))
 
 	// load version state
 	if rs := it.store.Get(keySysVerCutset, nil); rs.NotFound() {
 
-	} else if !rs.NotFound() {
+	} else if !rs.OK() {
 		return rs.Error()
 	} else {
 		if it.verCutset, err = strconv.ParseUint(string(rs.Bytes()), 10, 64); err != nil {
 			return err
-		}
-	}
-
-	// load incr state
-	{
-		var (
-			iter, _ = it.store.NewIterator(&storage.IterOptions{
-				LowerKey: keySysIncrCutset(""),
-				UpperKey: keySysIncrCutset("zzzzzzzz"),
-			})
-		)
-		defer iter.Release()
-
-		for ok := iter.SeekToFirst(); ok; ok = iter.Next() {
-			var item dbReplicaIncrState
-			if err := jsonDecode(iter.Value(), &item); err != nil {
-				return err
-			}
-			it.incrStates[item.Namespace] = &item
+		} else if it.verOffset < it.verCutset {
+			it.verOffset = it.verCutset
 		}
 	}
 
@@ -238,8 +241,7 @@ func (it *dbReplica) versionSync(incr, set uint64) (uint64, error) {
 		} else {
 			if it.verCutset, err = strconv.ParseUint(string(rs.Bytes()), 10, 64); err != nil {
 				return 0, err
-			}
-			if it.verOffset < it.verCutset {
+			} else if it.verOffset < it.verCutset {
 				it.verOffset = it.verCutset
 			}
 		}
@@ -297,19 +299,17 @@ func (it *dbReplica) logSync(incr, reten uint64) (uint64, error) {
 			return 0, rs.Error()
 		} else if err := jsonDecode(rs.Bytes(), &it.logState); err != nil {
 			return 0, err
-		}
-
-		if it.logState.Offset < it.logState.Cutset {
+		} else if it.logState.Offset < it.logState.Cutset {
 			it.logState.Offset = it.logState.Cutset
 		}
 	}
 
-	if incr == 0 {
-		return it.logState.Offset, nil
-	}
-
 	if it.logState.Offset < logRange {
 		it.logState.Offset = logRange
+	}
+
+	if incr == 0 && reten == 0 {
+		return it.logState.Offset, nil
 	}
 
 	if (it.logState.Offset+incr) >= it.logState.Cutset ||
@@ -320,7 +320,9 @@ func (it *dbReplica) logSync(incr, reten uint64) (uint64, error) {
 		}
 
 		logStateNew := it.logState
-		logStateNew.Cutset += incr + logRange
+		if (it.logState.Offset + incr) >= it.logState.Cutset {
+			logStateNew.Cutset += incr + logRange
+		}
 
 		if ss := it.store.Put(keySysLogState, jsonEncode(&logStateNew), &storage.WriteOptions{
 			Sync: true,
@@ -329,79 +331,13 @@ func (it *dbReplica) logSync(incr, reten uint64) (uint64, error) {
 		}
 		it.logState.Cutset = logStateNew.Cutset
 
-		hlog.Printf("debug", "database %s, reset log-id to %d~%d",
-			it.dbName, it.logState.Offset+incr, it.logState.Cutset)
+		hlog.Printf("debug", "database %s, reset log-id to %d~%d, retention %d",
+			it.dbName, it.logState.Offset+incr, it.logState.Cutset, it.logState.RetentionOffset)
 	}
 
 	it.logState.Offset += incr
 
 	return it.logState.Offset, nil
-}
-
-func (it *dbReplica) incrSync(ns string, incr, set uint64) (uint64, error) {
-
-	it.incrMu.Lock()
-	defer it.incrMu.Unlock()
-
-	if it.close {
-		return 0, errors.New("db closed")
-	}
-
-	incrState := it.incrStates[ns]
-
-	if incrState == nil {
-		incrState = &dbReplicaIncrState{
-			Namespace: ns,
-		}
-		it.incrStates[ns] = incrState
-
-		var item dbReplicaIncrState
-		if rs := it.store.Get(keySysIncrCutset(ns), nil); rs.NotFound() {
-		} else if !rs.OK() {
-			return 0, rs.Error()
-		} else if err := jsonDecode(rs.Bytes(), &item); err != nil {
-			return 0, err
-		}
-
-		incrState.Offset = item.Offset
-		incrState.Cutset = item.Cutset
-
-		if incrState.Offset < 100 {
-			incrState.Offset = 100
-		}
-	}
-
-	if incr == 0 && set == 0 {
-		return incrState.Offset, nil
-	}
-
-	if set > 0 && set > incrState.Offset {
-		incr += (set - incrState.Offset)
-	}
-
-	if incr > 0 {
-
-		if (incrState.Offset + incr) >= incrState.Cutset {
-
-			cutset := incrState.Offset + incr + 100
-
-			if rs := it.store.Put(keySysIncrCutset(ns), jsonEncode(&dbReplicaIncrState{
-				Namespace: incrState.Namespace,
-				Offset:    incrState.Offset,
-				Cutset:    cutset,
-			}), &storage.WriteOptions{
-				Sync: true,
-			}); !rs.OK() {
-				return 0, rs.Error()
-			}
-
-			incrState.Cutset = cutset
-		}
-
-		incrState.Offset += incr
-	}
-
-	return incrState.Offset, nil
 }
 
 func (it *dbReplica) Close() error {
@@ -411,27 +347,7 @@ func (it *dbReplica) Close() error {
 	}
 	it.close = true
 
-	{
-		it.incrMu.Lock()
-		defer it.incrMu.Unlock()
-
-		for ns, incrState := range it.incrStates {
-
-			if incrState.Cutset > incrState.Offset {
-
-				incrState.Cutset = incrState.Offset
-
-				if rs := it.store.Put(keySysIncrCutset(ns), jsonEncode(incrState), &storage.WriteOptions{
-					Sync: true,
-				}); !rs.OK() {
-					hlog.Printf("info", "db error %s", rs.ErrorMessage())
-				} else {
-					hlog.Printf("info", "kvgo database %s, flush incr ns:%s offset %d",
-						it.dbName, ns, incrState.Offset)
-				}
-			}
-		}
-	}
+	it.incrMgr.flush()
 
 	{
 		it.verMu.Lock()

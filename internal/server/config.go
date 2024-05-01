@@ -20,6 +20,9 @@ import (
 	"strings"
 
 	hauth "github.com/hooto/hauth/go/hauth/v1"
+
+	"github.com/lynkdb/kvgo/v2/internal/utils"
+	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 	"github.com/lynkdb/kvgo/v2/pkg/storage"
 )
 
@@ -39,6 +42,9 @@ type Config struct {
 
 	// Cluster Settings
 	Cluster ConfigCluster `toml:"cluster" json:"cluster" desc:"Cluster Settings"`
+
+	// Data Transfer Settings
+	TransferJobs []ConfigTransferJob `toml:"transfer_jobs" json:"transfer_jobs"`
 }
 
 type ConfigStorage struct {
@@ -86,6 +92,8 @@ type ConfigServer struct {
 	PprofEnable bool `toml:"pprof_enable,omitempty" json:"pprof_enable,omitempty"`
 
 	MetricsEnable bool `toml:"metrics_enable,omitempty" json:"metrics_enable,omitempty"`
+
+	DebugMode bool `toml:"debug_mode,omitempty" json:"debug_mode,omitempty"`
 }
 
 type ConfigPerformance struct {
@@ -99,6 +107,29 @@ type ConfigFeature struct {
 	WriteMetaDisable bool   `toml:"write_meta_disable" json:"write_meta_disable"`
 	WriteLogDisable  bool   `toml:"write_log_disable" json:"write_log_disable"`
 	Compression      string `toml:"compression" json:"compression"`
+}
+
+type ConfigTransferSource struct {
+	Addr      string               `toml:"addr" json:"addr"`
+	Database  string               `toml:"database" json:"database"`
+	AccessKey *hauth.AccessKey     `toml:"access_key" json:"access_key"`
+	Options   *kvapi.ClientOptions `toml:"options,omitempty" json:"options,omitempty"`
+}
+
+type ConfigTransferJob struct {
+	UniId string `toml:"uni_id" json:"uni_id"`
+
+	// control state
+	Action string `toml:"action" json:"action"`
+
+	// The read source of the data.
+	Source ConfigTransferSource `toml:"source" json:"source"`
+
+	// The write sink for the local database.
+	SinkDatabase string `toml:"sink_database" json:"sink_database"`
+
+	// Interval between the start of each scheduled Transfer Job.
+	RepeatIntervalSeconds int64 `toml:"repeat_interval_seconds" json:"repeat_interval_seconds"`
 }
 
 type ConfigCluster struct {
@@ -239,6 +270,37 @@ func (it *Config) Reset() *Config {
 			if bs, err := ioutil.ReadFile(it.Server.AuthTLSCert.ServerCertFile); err == nil {
 				it.Server.AuthTLSCert.ServerCertData = strings.TrimSpace(string(bs))
 			}
+		}
+	}
+
+	if it.Server.DebugMode && len(it.TransferJobs) == 0 {
+		it.TransferJobs = append(it.TransferJobs, ConfigTransferJob{
+			Source: ConfigTransferSource{
+				Addr:     "49.232.65.177:9566",
+				Database: "test",
+				AccessKey: &hauth.AccessKey{
+					Id:     "00000000",
+					Secret: "jOR3tZusw5wVzkZH8VqH3T4hAcbB/l0yVIMld5yz",
+				},
+			},
+			SinkDatabase:          "test",
+			RepeatIntervalSeconds: 60,
+		})
+
+	} else {
+		// it.TransferJobs = nil
+	}
+
+	for i, v := range it.TransferJobs {
+		if !hex12_32.MatchString(v.UniId) {
+			it.TransferJobs[i].UniId = utils.RandUint64HexString()
+		}
+		if v.RepeatIntervalSeconds == 0 {
+			it.TransferJobs[i].RepeatIntervalSeconds = kJobTransfer_IntervalSeconds_Def
+		} else if v.RepeatIntervalSeconds < kJobTransfer_IntervalSeconds_Min {
+			it.TransferJobs[i].RepeatIntervalSeconds = kJobTransfer_IntervalSeconds_Min
+		} else if v.RepeatIntervalSeconds > kJobTransfer_IntervalSeconds_Max {
+			it.TransferJobs[i].RepeatIntervalSeconds = kJobTransfer_IntervalSeconds_Max
 		}
 	}
 

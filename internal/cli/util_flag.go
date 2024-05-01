@@ -8,7 +8,29 @@ import (
 type flagSet struct {
 	path    string
 	rawArgs []string
+	varArgs []string
 	args    map[string]flagValue
+}
+
+func flagVarParse(s string) []string {
+	s = strings.TrimSpace(s)
+
+	var (
+		varArgs []string
+		rawArgs = strings.Split(s, " ")
+	)
+
+	for _, v := range rawArgs {
+		if len(v) == 0 {
+			continue
+		}
+		if v[0] == '-' {
+			break
+		}
+		varArgs = append(varArgs, v)
+	}
+
+	return varArgs
 }
 
 func flagParse(s string) flagSet {
@@ -18,6 +40,7 @@ func flagParse(s string) flagSet {
 	fset := flagSet{
 		path:    "",
 		rawArgs: strings.Split(s, " "),
+		varArgs: []string{},
 		args:    map[string]flagValue{},
 	}
 

@@ -17,6 +17,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	mrand "math/rand"
 	"sync"
 	"time"
 
@@ -61,6 +62,7 @@ func (it *dbServer) jobRefresh() error {
 	defer it.mu.Unlock()
 
 	if err := it.jobDatabaseListSetup(); err != nil {
+		hlog.Printf("info", "database list setup err %s", err.Error())
 		return err
 	}
 
@@ -77,6 +79,9 @@ func (it *dbServer) jobRefresh() error {
 	}
 
 	if err := it.jobShardMergeSetup(false); err != nil {
+	}
+
+	if err := it.jobDatabaseTransferSetup(); err != nil {
 	}
 
 	if err := it.jobDatabasePing(); err != nil {
@@ -97,8 +102,8 @@ func (it *dbServer) jobDatabaseListSetup() error {
 	}()
 
 	var (
-		offset = nsSysDatabase("")
-		cutset = nsSysDatabase("zzzz")
+		offset = nsSysDatabaseSpec("")
+		cutset = nsSysDatabaseSpec("zzzz")
 	)
 
 	for !it.close {
@@ -248,8 +253,8 @@ func (it *dbServer) _jobDatabaseMapSetup(tm *dbMap) error {
 		}, true
 	}
 
-	if tm.data.ReplicaNum < 1 {
-		tm.data.ReplicaNum = 1
+	if tm.data.ReplicaNum < minReplicaCap {
+		tm.data.ReplicaNum = minReplicaCap
 	} else if tm.data.ReplicaNum > maxReplicaCap {
 		tm.data.ReplicaNum = maxReplicaCap
 	}
@@ -382,6 +387,10 @@ func (it *dbServer) jobStatusMergeSetup() error {
 
 	tmStatusRefresh := func(tm *dbMap) {
 
+		if tm.mapData == nil {
+			return
+		}
+
 		for _, shard := range tm.mapData.Shards {
 
 			shardVersion := shard.Version
@@ -446,6 +455,7 @@ func (it *dbServer) jobStatusMergeSetup() error {
 							s.MapVersion = shardVersion
 							s.Used = repInst.localStatus.storageUsed.value
 							s.Updated = timesec()
+							s.LogVersion, _ = repInst.logSync(0, 0)
 						})
 
 					} else if kvapi.AttrAllow(rep.Action, kReplicaSetup_Remove) {
@@ -769,13 +779,50 @@ func (it *dbServer) jobStoreStatusRefresh() error {
 		var (
 			used  = int64(st.Used) / (1 << 20)
 			total = int64(st.Total) / (1 << 20)
+
+			logUsed  int64 = -1
+			metaUsed int64 = -1
+			dataUsed int64 = -1
+			ttlUsed  int64 = -1
 		)
+
+		if store := it.storeMgr.store(vol.StoreId); store != nil {
+
+			sizeIter := func(ns byte) int64 {
+				if rs, err := store.SizeOf([]*storage.IterOptions{
+					{
+						LowerKey: keyEncode(ns, []byte{0x00}),
+						UpperKey: keyEncode(ns, []byte{0xff}),
+					},
+				}); err == nil {
+					return rs[0] / (1 << 20)
+				}
+				return -1
+			}
+
+			logUsed = sizeIter(nsKeyLog)
+			metaUsed = sizeIter(nsKeyMeta)
+			dataUsed = sizeIter(nsKeyData)
+			ttlUsed = sizeIter(nsKeyTtl)
+		}
 
 		it.storeMgr.setStatus(vol.UniId, vol.StoreId, func(s *kvapi.SysStoreStatus) {
 			s.CapacityUsed = used
 			s.CapacityFree = total - used
 			s.Updated = timesec()
 			s.Options["fstype"] = st.Fstype
+			if logUsed >= 0 {
+				s.LogUsed = logUsed
+			}
+			if metaUsed >= 0 {
+				s.MetaUsed = metaUsed
+			}
+			if dataUsed >= 0 {
+				s.DataUsed = dataUsed
+			}
+			if ttlUsed >= 0 {
+				s.TtlUsed = ttlUsed
+			}
 		})
 
 		// testPrintf("store %s, used %d GB", vol.Mountpoint, used/(1<<10))
@@ -790,6 +837,11 @@ func (it *dbServer) jobDatabasePing() error {
 		return nil
 	}
 
+	if timesec()-it.status.Uptime > 60 &&
+		mrand.Intn(3) > 0 {
+		return nil
+	}
+
 	it.closegw.Add(1)
 	defer func() {
 		it.closegw.Done()
@@ -797,20 +849,34 @@ func (it *dbServer) jobDatabasePing() error {
 
 	it.dbMapMgr.initIter(func(tm *dbMap) {
 
-		wr := kvapi.NewWriteRequest(jobDatabasePing_MagicKey, randBytes(100))
-		wr.Database = tm.data.Name
+		if mrand.Intn(2) == 0 {
 
-		// wr.SetTTL(60e3)
+			wr := kvapi.NewWriteRequest(jobDatabasePing_MagicKey, randBytes(20))
+			wr.Database = tm.data.Name
 
-		rs, err := it.api.Write(nil, wr)
-		if err != nil {
-			return
+			// wr.SetTTL(60e3)
+
+			rs, err := it.api.Write(nil, wr)
+			if err != nil {
+				return
+			}
+			if !rs.OK() {
+				return
+			}
+
+		} else {
+
+			wr := kvapi.NewDeleteRequest(jobDatabasePing_MagicKey)
+			wr.Database = tm.data.Name
+
+			rs, err := it.api.Delete(nil, wr)
+			if err != nil {
+				return
+			}
+			if !rs.OK() {
+				return
+			}
 		}
-		if !rs.OK() {
-			return
-		}
-
-		// testPrintf("ping ok %s", tm.data.Name)
 	})
 
 	return nil

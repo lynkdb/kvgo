@@ -229,9 +229,10 @@ func (it *dbReplica) _writePrepare(req *kvapi.WriteProposalRequest) (*kvapi.Meta
 		return nil, err
 	}
 
-	pInc := req.Write.Meta.IncrId
+	pIncNs := req.Write.Meta.IncrNs
+	pIncId := req.Write.Meta.IncrId
 	if req.Write.IncrNamespace != "" && req.Write.Meta.IncrId == 0 {
-		pInc, err = it.incrSync(req.Write.IncrNamespace, 1, 0)
+		pIncNs, pIncId, err = it.incrMgr.sync(req.Write.IncrNamespace, 1, 0, req.Write.Key)
 		if err != nil {
 			return nil, err
 		}
@@ -245,7 +246,8 @@ func (it *dbReplica) _writePrepare(req *kvapi.WriteProposalRequest) (*kvapi.Meta
 
 	return &kvapi.Meta{
 		Version: pLog,
-		IncrId:  pInc,
+		IncrNs:  pIncNs,
+		IncrId:  pIncId,
 	}, nil
 }
 
@@ -265,9 +267,10 @@ func (it *dbReplica) _writeAccept(req *kvapi.WriteProposalRequest) (*kvapi.Meta,
 
 	var (
 		tn     = time.Now().UnixNano() / 1e6
-		cLogOn = true
-		cLog   = req.Write.Meta.Version
-		cInc   = req.Write.Meta.IncrId
+		cVerOn = true
+		cVer   = req.Write.Meta.Version
+		cIncNs = req.Write.Meta.IncrNs
+		cIncId = req.Write.Meta.IncrId
 	)
 
 	it.proposalMu.Lock()
@@ -278,13 +281,13 @@ func (it *dbReplica) _writeAccept(req *kvapi.WriteProposalRequest) (*kvapi.Meta,
 		return nil, errors.New("deny")
 	}
 
-	if pp.write.Write.Meta.Version > cLog {
+	if pp.write.Write.Meta.Version > cVer {
 		return nil, errors.New("invalid version")
 	}
 
-	it.versionSync(0, cLog)
-	if pp.write.Write.IncrNamespace != "" && cInc > 0 {
-		it.incrSync(pp.write.Write.IncrNamespace, 0, cInc)
+	it.versionSync(0, cVer)
+	if pp.write.Write.IncrNamespace != "" && cIncId > 0 {
+		it.incrMgr.sync(pp.write.Write.IncrNamespace, 0, cIncId, pp.write.Write.Key)
 	}
 
 	it.mu.Lock()
@@ -294,8 +297,12 @@ func (it *dbReplica) _writeAccept(req *kvapi.WriteProposalRequest) (*kvapi.Meta,
 	if meta == nil && err != nil {
 		return nil, err
 	}
-	if meta != nil && meta.Version > cLog {
+	if meta != nil && meta.Version > cVer {
 		return nil, errors.New("invalid version")
+	}
+
+	if req.Write.Meta.IncrId > 0 && kvapi.AttrAllow(req.Write.Attrs, kvapi.Write_Attrs_InnerSync) {
+		it.incrMgr.sync("", 0, req.Write.Meta.IncrId, req.Write.Key)
 	}
 
 	if pp.write.Write.Meta.Updated < 1 {
@@ -306,8 +313,9 @@ func (it *dbReplica) _writeAccept(req *kvapi.WriteProposalRequest) (*kvapi.Meta,
 	// 	pp.write.Write.Meta.Created = tn
 	// }
 
-	pp.write.Write.Meta.Version = cLog
-	pp.write.Write.Meta.IncrId = cInc
+	pp.write.Write.Meta.Version = cVer
+	pp.write.Write.Meta.IncrNs = cIncNs
+	pp.write.Write.Meta.IncrId = cIncId
 
 	bsMeta, bsData, err := pp.write.Write.Encode()
 	if err != nil {
@@ -324,7 +332,7 @@ func (it *dbReplica) _writeAccept(req *kvapi.WriteProposalRequest) (*kvapi.Meta,
 		batch.Put(keyEncode(nsKeyData, pp.write.Write.Key), bsData)
 	}
 
-	if (cLogOn && !it.cfg.Feature.WriteLogDisable) ||
+	if (cVerOn && !it.cfg.Feature.WriteLogDisable) ||
 		pp.write.Write.Meta.Expired > 0 {
 
 		it.logMu.Lock()
@@ -340,7 +348,8 @@ func (it *dbReplica) _writeAccept(req *kvapi.WriteProposalRequest) (*kvapi.Meta,
 			return nil, err
 		}
 
-		if cLogOn && !it.cfg.Feature.WriteLogDisable {
+		if cVerOn && !it.cfg.Feature.WriteLogDisable &&
+			!kvapi.AttrAllow(pp.write.Write.Attrs, kvapi.Write_Attrs_InnerSync) {
 			batch.Put(keyLogEncode(logId, it.replicaId, 0), bsLogMeta)
 			writeSize += len(bsLogMeta)
 		}
@@ -376,8 +385,9 @@ func (it *dbReplica) _writeAccept(req *kvapi.WriteProposalRequest) (*kvapi.Meta,
 	it.localStatus.kvWriteSize.Add(int64(writeSize))
 
 	return &kvapi.Meta{
-		Version: cLog,
-		IncrId:  cInc,
+		Version: cVer,
+		IncrNs:  cIncNs,
+		IncrId:  cIncId,
 	}, nil
 }
 
@@ -445,8 +455,8 @@ func (it *dbReplica) _deleteAccept(req *kvapi.DeleteProposalRequest) (*kvapi.Met
 
 	var (
 		tn     = time.Now().UnixNano() / 1e6
-		cLogOn = true
-		cLog   = req.Meta.Version
+		cVerOn = true
+		cVer   = req.Meta.Version
 	)
 
 	it.proposalMu.Lock()
@@ -457,11 +467,11 @@ func (it *dbReplica) _deleteAccept(req *kvapi.DeleteProposalRequest) (*kvapi.Met
 		return nil, errors.New("deny")
 	}
 
-	if pp.delete.Meta.Version > cLog {
+	if pp.delete.Meta.Version > cVer {
 		return nil, errors.New("invalid version")
 	}
 
-	it.versionSync(0, cLog)
+	it.versionSync(0, cVer)
 
 	it.mu.Lock()
 	defer it.mu.Unlock()
@@ -470,7 +480,7 @@ func (it *dbReplica) _deleteAccept(req *kvapi.DeleteProposalRequest) (*kvapi.Met
 	if meta == nil && err != nil {
 		return nil, err
 	}
-	if meta != nil && meta.Version > cLog {
+	if meta != nil && meta.Version > cVer {
 		return nil, errors.New("invalid version")
 	}
 
@@ -482,7 +492,7 @@ func (it *dbReplica) _deleteAccept(req *kvapi.DeleteProposalRequest) (*kvapi.Met
 	// 	pp.delete.Meta.Created = tn
 	// }
 
-	pp.delete.Meta.Version = cLog
+	pp.delete.Meta.Version = cVer
 
 	batch := it.store.NewBatch()
 
@@ -497,7 +507,8 @@ func (it *dbReplica) _deleteAccept(req *kvapi.DeleteProposalRequest) (*kvapi.Met
 		metricCounter.Add(metricStorageSize, "Key.Delete", float64(len(pp.delete.Key)))
 	}
 
-	if cLogOn && !it.cfg.Feature.WriteLogDisable {
+	if cVerOn && !it.cfg.Feature.WriteLogDisable &&
+		!kvapi.AttrAllow(pp.delete.Attrs, kvapi.Write_Attrs_InnerSync) {
 
 		it.logMu.Lock()
 		defer it.logMu.Unlock()
@@ -507,7 +518,7 @@ func (it *dbReplica) _deleteAccept(req *kvapi.DeleteProposalRequest) (*kvapi.Met
 			return nil, err
 		}
 
-		bsLogMeta, err := pp.delete.LogEncode(logId, cLog, it.replicaId)
+		bsLogMeta, err := pp.delete.LogEncode(logId, cVer, it.replicaId)
 		if err != nil {
 			return nil, err
 		}
@@ -540,7 +551,7 @@ func (it *dbReplica) _deleteAccept(req *kvapi.DeleteProposalRequest) (*kvapi.Met
 	}
 
 	return &kvapi.Meta{
-		Version: cLog,
+		Version: cVer,
 	}, nil
 }
 

@@ -145,7 +145,7 @@ type Conn interface {
 	SizeOf(args []*IterOptions) ([]int64, error)
 
 	// Info
-	// Info() *Info
+	Info() *Info
 
 	// Close closes the DB. This will also releases any outstanding snapshot,
 	// abort any in-flight compaction and discard open transaction.
@@ -153,8 +153,10 @@ type Conn interface {
 }
 
 type Info struct {
-	Spec   string `json:"spec"`
-	Status string `json:"status"`
+	// Spec    string            `json:"spec"`
+	// Status  string            `json:"status"`
+	Dir     string            `json:"dir"`
+	Options map[string]string `json:"options,omitempty"`
 }
 
 // Iterator is the interface that wraps iterator methods.

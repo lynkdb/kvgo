@@ -44,15 +44,16 @@ var (
 	admConns = map[string]*adminClientConn{}
 )
 
-type ClientConfig struct {
+type Config struct {
 	Addr      string               `toml:"addr" json:"addr"`
+	Database  string               `toml:"database,omitempty" json:"database,omitempty"`
 	AccessKey *hauth.AccessKey     `toml:"access_key" json:"access_key"`
 	Options   *kvapi.ClientOptions `toml:"options,omitempty" json:"options,omitempty"`
 }
 
 type clientConn struct {
 	_ak      string
-	cfg      *ClientConfig
+	cfg      *Config
 	rpcConn  *grpc.ClientConn
 	database string
 	kvClient kvapi.KvgoClient
@@ -61,13 +62,13 @@ type clientConn struct {
 
 type adminClientConn struct {
 	_ak     string
-	cfg     *ClientConfig
+	cfg     *Config
 	rpcConn *grpc.ClientConn
 	ac      kvapi.KvgoAdminClient
 	err     error
 }
 
-func (it *ClientConfig) NewClient() (kvapi.Client, error) {
+func (it *Config) NewClient() (kvapi.Client, error) {
 
 	if it.AccessKey == nil {
 		return nil, errors.New("access key not setup")
@@ -106,7 +107,7 @@ func (it *ClientConfig) NewClient() (kvapi.Client, error) {
 	return dbConn, nil
 }
 
-func (it *ClientConfig) NewAdminClient() (kvapi.AdminClient, error) {
+func (it *Config) NewAdminClient() (kvapi.AdminClient, error) {
 
 	if it.AccessKey == nil {
 		return nil, errors.New("access key not setup")
@@ -141,7 +142,7 @@ func (it *ClientConfig) NewAdminClient() (kvapi.AdminClient, error) {
 	return admConn, nil
 }
 
-func (it *ClientConfig) timeout() time.Duration {
+func (it *Config) timeout() time.Duration {
 	if it.Options == nil {
 		it.Options = kvapi.DefaultClientOptions()
 	}
@@ -284,7 +285,7 @@ func (it *clientConn) NewRanger(lowerKey, upperKey []byte) kvapi.ClientRanger {
 	return r
 }
 
-func (it *clientConn) NewWriter(key, value []byte) kvapi.ClientWriter {
+func (it *clientConn) NewWriter(key []byte, value interface{}) kvapi.ClientWriter {
 	r := &clientWriter{
 		cc:  it,
 		req: kvapi.NewWriteRequest(key, value),
@@ -360,8 +361,28 @@ func (it *clientWriter) SetAttrs(attrs uint64) kvapi.ClientWriter {
 	return it
 }
 
+func (it *clientWriter) SetIncr(id uint64, ns string) kvapi.ClientWriter {
+	it.req.SetIncr(id, ns)
+	return it
+}
+
 func (it *clientWriter) SetJsonValue(o interface{}) kvapi.ClientWriter {
 	it.req.SetValueEncode(o, kvapi.JsonValueCodec)
+	return it
+}
+
+func (it *clientWriter) SetCreateOnly(b bool) kvapi.ClientWriter {
+	it.req.CreateOnly = b
+	return it
+}
+
+func (it *clientWriter) SetPrevVersion(v uint64) kvapi.ClientWriter {
+	it.req.PrevVersion = v
+	return it
+}
+
+func (it *clientWriter) SetPrevChecksum(v uint64) kvapi.ClientWriter {
+	it.req.PrevChecksum = v
 	return it
 }
 
@@ -376,6 +397,16 @@ type clientDeleter struct {
 
 func (it *clientDeleter) SetRetainMeta(b bool) kvapi.ClientDeleter {
 	it.req.SetRetainMeta(b)
+	return it
+}
+
+func (it *clientDeleter) SetPrevVersion(v uint64) kvapi.ClientDeleter {
+	it.req.PrevVersion = v
+	return it
+}
+
+func (it *clientDeleter) SetPrevChecksum(v uint64) kvapi.ClientDeleter {
+	it.req.PrevChecksum = v
 	return it
 }
 

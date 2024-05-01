@@ -120,10 +120,10 @@ func (it *dbReplica) taskStatusRefresh(
 			return err
 		}
 
-		testPrintf("replica status refresh : rep %d:%d ver %d+, write-size %d db-size %d, key %v",
-			shard.Id, it.replicaId, int64(shard.Version)-int64(it.localStatus.storageUsed.mapVersion),
-			it.localStatus.kvWriteSize.Load()/(1<<20), rs[0]/(1<<20),
-			string(lowerKey))
+		// testPrintf("replica status refresh : rep %d:%d ver %d+, write-size %d db-size %d, key %v",
+		// 	shard.Id, it.replicaId, int64(shard.Version)-int64(it.localStatus.storageUsed.mapVersion),
+		// 	it.localStatus.kvWriteSize.Load()/(1<<20), rs[0]/(1<<20),
+		// 	string(lowerKey))
 
 		it.localStatus.storageUsed.value = rs[0] / (1 << 20)
 		it.localStatus.storageUsed.mapVersion = shard.Version

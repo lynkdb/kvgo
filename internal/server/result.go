@@ -31,7 +31,10 @@ func newResultSetOK() *kvapi.ResultSet {
 	return newResultSet(kvapi.Status_OK, "")
 }
 
-func newResultSetWithClientError(msg string) *kvapi.ResultSet {
+func newResultSetWithClientError(msg string, args ...interface{}) *kvapi.ResultSet {
+	if len(args) > 0 {
+		return newResultSet(kvapi.Status_InvalidArgument, fmt.Sprintf(msg, args...))
+	}
 	return newResultSet(kvapi.Status_InvalidArgument, msg)
 }
 
@@ -62,6 +65,22 @@ func newBatchResponse(code uint32, msg string) *kvapi.BatchResponse {
 	return &kvapi.BatchResponse{
 		StatusCode:    code,
 		StatusMessage: msg,
+	}
+}
+
+func newLogRangeResponse(code uint32, msg string) *kvapi.LogRangeResponse {
+	return &kvapi.LogRangeResponse{
+		Status: &kvapi.Status{
+			Code:    code,
+			Message: msg,
+		},
+	}
+}
+
+func newServiceStatus(code uint32, msg string) *kvapi.Status {
+	return &kvapi.Status{
+		Code:    code,
+		Message: msg,
 	}
 }
 

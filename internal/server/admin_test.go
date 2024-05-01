@@ -157,7 +157,7 @@ func test_AdminApi_Open(args ...interface{}) (*testAdminApiSession, error) {
 	}
 	sess.dbs = append(sess.dbs, db)
 
-	cc := &client.ClientConfig{
+	cc := &client.Config{
 		Addr:      fmt.Sprintf("127.0.0.1:%d", port),
 		AccessKey: dbTestAccessKey,
 	}

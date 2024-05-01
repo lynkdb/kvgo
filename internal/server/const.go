@@ -43,7 +43,8 @@ const (
 const (
 	grpcMsgByteMax = 12 << 20
 
-	maxReplicaCap = 5
+	minReplicaCap = 1
+	maxReplicaCap = 7
 )
 
 const (
@@ -71,7 +72,7 @@ const (
 const (
 	writeProposalTTL int64 = 5000
 
-	kLogRetentionSeconds int64 = 3600
+	kLogRetentionSeconds int64 = 3600 * 24
 )
 
 const (
@@ -145,6 +146,86 @@ var (
 
 var debugModeRX = regexp.MustCompile(`\/go\-build([0-9]{1,20})\/`)
 
+var (
+	authPermSysAll        = "sys/all"
+	authPermDatabaseList  = "db/list"
+	authPermDatabaseRead  = "db/read"
+	authPermDatabaseWrite = "db/write"
+	AuthScopeDatabase     = "kvgo/db"
+	defaultScopes         = []string{
+		AuthScopeDatabase,
+	}
+	defaultRoles = []*hauth.Role{
+		{
+			Name:  "sa",
+			Title: "System Administrator",
+			Permissions: []string{
+				authPermSysAll,
+				authPermDatabaseList,
+				authPermDatabaseRead,
+				authPermDatabaseWrite,
+			},
+		},
+		{
+			Name:  "client",
+			Title: "General Client",
+			Permissions: []string{
+				authPermDatabaseList,
+				authPermDatabaseRead,
+				authPermDatabaseWrite,
+			},
+		},
+	}
+)
+
+var (
+	jobDatabasePing_MagicKey = []byte("_magic_ping_key")
+)
+
+const (
+	kShardSetup_In  uint64 = 1 << 0
+	kShardSetup_Out uint64 = 1 << 1
+
+	kShardSetup_SplitIn  uint64 = 1 << 4
+	kShardSetup_SplitOut uint64 = 1 << 5
+
+	kShardSetup_Rebalance uint64 = 1 << 6
+
+	kShardSetup_MergeIn  uint64 = 1 << 7
+	kShardSetup_MergeOut uint64 = 1 << 8
+)
+
+const (
+// kShardStatus_In uint64 = 1 << 8
+)
+
+var (
+	kShardSetupMap = map[uint64]string{
+		kShardSetup_In:        "In",
+		kShardSetup_Out:       "Out",
+		kShardSetup_SplitIn:   "SplitIn",
+		kShardSetup_SplitOut:  "SplitOut",
+		kShardSetup_Rebalance: "Rebalance",
+		kShardSetup_MergeIn:   "MergeIn",
+		kShardSetup_MergeOut:  "MergeOut",
+	}
+	kShardStatusMap = map[uint64]string{
+		// kShardStatus_In: "In",
+	}
+)
+
+const (
+	dbReplicaStatusRefreshIntervalSecond int64 = 60 //1200
+
+	jobStoreStatusRefreshIntervalSecond int64 = 10 // TODO
+)
+
+const (
+	kJobTransfer_IntervalSeconds_Def int64 = 60
+	kJobTransfer_IntervalSeconds_Min int64 = 10
+	kJobTransfer_IntervalSeconds_Max int64 = 3600
+)
+
 func init() {
 	if testLocalMode || debugModeRX.MatchString(os.Args[0]) {
 		//
@@ -205,38 +286,6 @@ func ReplicaActionDisplay(v uint64) string {
 	return strings.Join(arr, ",")
 }
 
-const (
-	kShardSetup_In  uint64 = 1 << 0
-	kShardSetup_Out uint64 = 1 << 1
-
-	kShardSetup_SplitIn  uint64 = 1 << 4
-	kShardSetup_SplitOut uint64 = 1 << 5
-
-	kShardSetup_Rebalance uint64 = 1 << 6
-
-	kShardSetup_MergeIn  uint64 = 1 << 7
-	kShardSetup_MergeOut uint64 = 1 << 8
-)
-
-const (
-// kShardStatus_In uint64 = 1 << 8
-)
-
-var (
-	kShardSetupMap = map[uint64]string{
-		kShardSetup_In:        "In",
-		kShardSetup_Out:       "Out",
-		kShardSetup_SplitIn:   "SplitIn",
-		kShardSetup_SplitOut:  "SplitOut",
-		kShardSetup_Rebalance: "Rebalance",
-		kShardSetup_MergeIn:   "MergeIn",
-		kShardSetup_MergeOut:  "MergeOut",
-	}
-	kShardStatusMap = map[uint64]string{
-		// kShardStatus_In: "In",
-	}
-)
-
 func ShardActionDisplay(v uint64) string {
 	var arr []string
 	for a, s := range kShardSetupMap {
@@ -258,12 +307,6 @@ func ShardActionDisplay(v uint64) string {
 	return strings.Join(arr, ",")
 }
 
-const (
-	dbReplicaStatusRefreshIntervalSecond int64 = 1200
-
-	jobStoreStatusRefreshIntervalSecond int64 = 10 // TODO
-)
-
 func keyEncode(ns byte, key []byte) []byte {
 	return append([]byte{ns}, key...)
 }
@@ -281,6 +324,8 @@ func keyLogEncode(logVersion, replicaId, _ uint64) []byte {
 	return append([]byte{nsKeyLog}, uint64ToBytes(logVersion)...)
 }
 
+const kSysIncr_NsDef = "def"
+
 func keySysIncrCutset(ns string) []byte {
 	return append([]byte{nsKeySys}, []byte("incr:cutset:"+ns)...)
 }
@@ -293,12 +338,20 @@ func nsSysStore(uniId string) []byte {
 	return []byte("sys/store/" + uniId)
 }
 
-func nsSysDatabase(id string) []byte {
+func nsSysDatabaseSpec(id string) []byte {
 	return []byte("sys/dbspec/" + id)
 }
 
 func nsSysDatabaseMap(id string) []byte {
 	return []byte("sys/dbmap/" + id)
+}
+
+func nsSysDatabaseIncr(id string) []byte {
+	return []byte("sys/dbincr/" + id)
+}
+
+func nsSysTransferJob(uniId string) []byte {
+	return []byte("sys/transfer/job/" + uniId)
 }
 
 func nsSysAuditLog(b bool) []byte {
@@ -307,39 +360,3 @@ func nsSysAuditLog(b bool) []byte {
 	}
 	return []byte("sys/auditlog/" + uint64ToHexString(uint64(timens())))
 }
-
-var (
-	authPermSysAll        = "sys/all"
-	authPermDatabaseList  = "db/list"
-	authPermDatabaseRead  = "db/read"
-	authPermDatabaseWrite = "db/write"
-	AuthScopeDatabase     = "kvgo/db"
-	defaultScopes         = []string{
-		AuthScopeDatabase,
-	}
-	defaultRoles = []*hauth.Role{
-		{
-			Name:  "sa",
-			Title: "System Administrator",
-			Permissions: []string{
-				authPermSysAll,
-				authPermDatabaseList,
-				authPermDatabaseRead,
-				authPermDatabaseWrite,
-			},
-		},
-		{
-			Name:  "client",
-			Title: "General Client",
-			Permissions: []string{
-				authPermDatabaseList,
-				authPermDatabaseRead,
-				authPermDatabaseWrite,
-			},
-		},
-	}
-)
-
-var (
-	jobDatabasePing_MagicKey = []byte("_magic_ping_key")
-)

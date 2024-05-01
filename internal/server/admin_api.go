@@ -85,8 +85,8 @@ func (it *serviceAdminImpl) DatabaseCreate(
 		return newResultSetWithConflict("database already exist " + req.Name), nil
 	}
 
-	if req.ReplicaNum < 1 {
-		req.ReplicaNum = 1
+	if req.ReplicaNum < minReplicaCap {
+		req.ReplicaNum = minReplicaCap
 	} else if req.ReplicaNum > maxReplicaCap {
 		req.ReplicaNum = maxReplicaCap
 	}
@@ -106,7 +106,7 @@ func (it *serviceAdminImpl) DatabaseCreate(
 		tbl.ShardSize = kShardSplit_CapacitySize_Def
 	}
 
-	wr := kvapi.NewWriteRequest(nsSysDatabase(tbl.Id), jsonEncode(tbl))
+	wr := kvapi.NewWriteRequest(nsSysDatabaseSpec(tbl.Id), jsonEncode(tbl))
 	wr.Database = sysDatabaseName
 	wr.CreateOnly = true
 	wr.Attrs |= kvapi.Write_Attrs_Sync
@@ -188,7 +188,7 @@ func (it *serviceAdminImpl) DatabaseUpdate(
 	rs := newResultSetOK()
 
 	if chg {
-		wr := kvapi.NewWriteRequest(nsSysDatabase(tmap.data.Id), jsonEncode(tmap.data))
+		wr := kvapi.NewWriteRequest(nsSysDatabaseSpec(tmap.data.Id), jsonEncode(tmap.data))
 		wr.Database = sysDatabaseName
 		wr.PrevVersion = tmap.meta.Version
 		wr.Attrs |= kvapi.Write_Attrs_Sync
@@ -261,7 +261,8 @@ func (it *serviceAdminImpl) SysGet(
 			it.dbServer.dbMapMgr.iter(func(tm *dbMap) {
 				resultSetAppendWithJsonObject(rs, []byte("db/"+tm.data.Name+"/spec"), &kvapi.Meta{}, tm.data)
 				resultSetAppendWithJsonObject(rs, []byte("db/"+tm.data.Name+"/map"), &kvapi.Meta{}, tm.mapData)
-				resultSetAppendWithJsonObject(rs, []byte("db/"+tm.data.Name+"/status"), &kvapi.Meta{}, tm.status)
+				tm.status.IncrOffsets = tm.incrMgr.Items
+				resultSetAppendWithJsonObject(rs, []byte("db/"+tm.data.Name+"/status"), &kvapi.Meta{}, &tm.status)
 			})
 		}
 
@@ -294,14 +295,24 @@ func (it *serviceAdminImpl) SysGet(
 				return
 			}
 			resultSetAppendWithJsonObject(rs, []byte("db/"+tm.data.Name+"/map"), &kvapi.Meta{}, tm.mapData)
-			resultSetAppendWithJsonObject(rs, []byte("db/"+tm.data.Name+"/status"), &kvapi.Meta{}, tm.status)
+			tm.status.IncrOffsets = tm.incrMgr.Items
+			resultSetAppendWithJsonObject(rs, []byte("db/"+tm.data.Name+"/status"), &kvapi.Meta{}, &tm.status)
 		})
+
+		if len(rs.Items) == 0 {
+			return newResultSetWithClientError("no database"), nil
+		}
 
 	case "store-info":
 		sort.Slice(it.dbServer.storeMgr.status.Items, func(i, j int) bool {
 			return it.dbServer.storeMgr.status.Items[i].CapacityFree > it.dbServer.storeMgr.status.Items[j].CapacityFree
 		})
 		resultSetAppendWithJsonObject(rs, []byte("store/status"), &kvapi.Meta{}, it.dbServer.storeMgr.status)
+
+	case "transfer-info":
+		it.dbServer.transferMgr.iter(func(jobOffset *jobTransferInOffset) {
+			resultSetAppendWithJsonObject(rs, []byte("transfer/in/"+jobOffset.UniId), &kvapi.Meta{}, jobOffset)
+		})
 
 	default:
 		return nil, fmt.Errorf("name (%s) not match", req.Name)

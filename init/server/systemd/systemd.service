@@ -6,8 +6,8 @@ After=network.target
 User=kvgo
 Group=kvgo
 Type=simple
-LimitNOFILE=4096
-ExecStart=/opt/lynkdb/kvgo/bin/kvgo-server -log_dir /opt/lynkdb/kvgo/var/log -minloglevel 1 -logtolevel true
+LimitNOFILE=8192
+ExecStart=/opt/lynkdb/kvgo/bin/kvgod -log_dir /opt/lynkdb/kvgo/var/log -minloglevel 1
 ExecReload=/bin/kill -HUP $MAINPID
 
 TimeoutStartSec=0
@@ -22,5 +22,4 @@ StartLimitInterval=60s
 
 [Install]
 WantedBy=multi-user.target
-
 

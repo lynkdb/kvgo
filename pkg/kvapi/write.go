@@ -16,31 +16,17 @@ package kvapi
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 )
 
-func NewWriteRequest(key, value []byte) *WriteRequest {
-	req := &WriteRequest{
-		Meta: &Meta{},
-		Key:  key,
-	}
-	if len(value) > 0 {
-		req.Value = value
-		req.Meta.Checksum = bytesCrc32Checksum(value)
-		req.Meta.Size = int32(len(value))
-	}
-	return req
-}
-
-func NewWriteRequestWithJson(key []byte, value interface{}) *WriteRequest {
+func NewWriteRequest(key []byte, value interface{}) *WriteRequest {
 	req := &WriteRequest{
 		Meta: &Meta{},
 		Key:  key,
 	}
 	if value != nil {
-		req.Value, _ = json.Marshal(value)
+		req.Value, _ = rawValueEncode(value)
 		req.Meta.Checksum = bytesCrc32Checksum(req.Value)
 		req.Meta.Size = int32(len(req.Value))
 	}
@@ -82,7 +68,7 @@ func (it *WriteRequest) Valid() error {
 	}
 
 	if it.Meta.IncrId > 0 && it.IncrNamespace == "" {
-		it.IncrNamespace = "meta"
+		it.IncrNamespace = "def"
 	}
 
 	if it.IncrNamespace != "" &&
@@ -126,6 +112,10 @@ func (it *WriteRequest) MetaEncode() ([]byte, error) {
 }
 
 func (it *WriteRequest) LogEncode(id, replicaId uint64) ([]byte, error) {
+	if it.Meta.Checksum == 0 && len(it.Value) > 0 {
+		it.Meta.Checksum = bytesCrc32Checksum(it.Value)
+		it.Meta.Size = int32(len(it.Value))
+	}
 	logMeta := &LogMeta{
 		Id:        id,
 		Version:   it.Meta.Version,
@@ -135,6 +125,7 @@ func (it *WriteRequest) LogEncode(id, replicaId uint64) ([]byte, error) {
 		Key:       it.Key,
 		Created:   timems(),
 		ReplicaId: replicaId,
+		Checksum:  it.Meta.Checksum,
 	}
 	return StdProto.Encode(logMeta)
 }
@@ -148,6 +139,14 @@ func (it *WriteRequest) SetTTL(ttl int64) *WriteRequest {
 
 func (it *WriteRequest) SetAttrs(attrs uint64) *WriteRequest {
 	it.Attrs |= attrs
+	return it
+}
+
+func (it *WriteRequest) SetIncr(id uint64, ns string) *WriteRequest {
+	if id > 0 {
+		it.Meta.IncrId = id
+	}
+	it.IncrNamespace = ns
 	return it
 }
 

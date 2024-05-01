@@ -331,7 +331,7 @@ func (it *dbServer) jobShardSplitSetup() error {
 				continue
 			}
 
-			repInst, err := NewDatabase(store, tm.data.Id, tm.data.Name, upperShard.Id, rep.Id, tm.cfg)
+			repInst, err := NewDatabase(store, tm.data.Id, tm.data.Name, upperShard.Id, rep.Id, tm.cfg, tm.incrMgr)
 			if err != nil {
 				continue
 			}
@@ -339,7 +339,10 @@ func (it *dbServer) jobShardSplitSetup() error {
 			tm.replicas[rep.Id] = repInst
 			tm.arrReplicas = append(tm.arrReplicas, repInst)
 
-			tm.syncStatusReplica(rep.Id, 0)
+			tm.setReplicaStatus(rep.Id, func(msRep *kvapi.DatabaseMapStatus_Replica) {
+				msRep.Action = 0
+				msRep.Updated = timesec()
+			})
 		}
 	}
 

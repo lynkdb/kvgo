@@ -94,3 +94,22 @@ func (it *BatchResponse) Error() error {
 func (it *BatchResponse) ErrorMessage() string {
 	return fmt.Sprintf("#%d %s", it.StatusCode, it.StatusMessage)
 }
+
+func (it *LogRangeResponse) OK() bool {
+	return it.Status.Code == Status_OK
+}
+
+func (it *LogRangeResponse) NotFound() bool {
+	return it.Status.Code == Status_NotFound
+}
+
+func (it *LogRangeResponse) Error() error {
+	if it.Status.Code == Status_OK {
+		return nil
+	}
+	return errors.New(it.Status.Message)
+}
+
+func (it *LogRangeResponse) ErrorMessage() string {
+	return fmt.Sprintf("#%d %s", it.Status.Code, it.Status.Message)
+}

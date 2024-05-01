@@ -26,19 +26,20 @@ import (
 )
 
 func init() {
-	register(new(cmdInfo))
+	register(new(cmdSysInfo))
 	register(new(cmdSysGet))
 }
 
-type cmdInfo struct{}
+type cmdSysInfo struct{}
 
-func (cmdInfo) Spec() baseCommandSpec {
+func (cmdSysInfo) Spec() baseCommandSpec {
 	return baseCommandSpec{
-		Path: "info",
+		Path: "sys-info",
+		Desc: "sys-info [--all]",
 	}
 }
 
-func (cmdInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
+func (cmdSysInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
 
 	req := &kvapi.SysGetRequest{
 		Name:   "info",
@@ -89,7 +90,8 @@ type cmdSysGet struct{}
 
 func (cmdSysGet) Spec() baseCommandSpec {
 	return baseCommandSpec{
-		Path: "sys get",
+		Path: "sys-get",
+		Desc: "sys-get <module name> [-limit N]",
 	}
 }
 
@@ -142,156 +144,3 @@ func (cmdSysGet) Action(fg flagSet, l *readline.Instance) (string, error) {
 
 	return tbuf.String(), nil
 }
-
-/**
-func SysStatus() (string, error) {
-	req := kv2.NewSysCmdRequest("SysStatus", nil)
-
-	rs := data.Connector().SysCmd(req)
-	if !rs.OK() {
-		return "", rs.Error()
-	}
-
-	if len(rs.Items) == 0 {
-		return "", fmt.Errorf("no data found")
-	}
-
-	var item kv2.SysStatus
-	if err := rs.Items[0].DataValue().Decode(&item, nil); err != nil {
-		return "", err
-	}
-
-	var buf bytes.Buffer
-
-	if len(item.Nodes) > 0 {
-
-		fmt.Fprintf(&buf, "%s\n", "Nodes")
-
-		table := tablewriter.NewWriter(&buf)
-		table.SetHeader([]string{"ID", "Addr", "Version", "Uptime", "CPU", "RAM", "DISK"})
-
-		var (
-			cpu  int64
-			ram  int64
-			disk int64
-		)
-
-		for _, v := range item.Nodes {
-			cols := []string{
-				v.Id,
-				v.Addr,
-				v.Version,
-				uptimeFormat(time.Now().Unix() - v.Uptime),
-			}
-			if len(v.Caps) > 0 {
-
-				if c, ok := v.Caps["cpu"]; ok {
-					cols = append(cols, fmt.Sprintf("%d", c.Use))
-					cpu += c.Use
-				} else {
-					cols = append(cols, " ")
-				}
-
-				if c, ok := v.Caps["mem"]; ok && c.Use > 0 {
-					cols = append(cols, sizeFormat(c.Use))
-					ram += c.Use
-				} else {
-					cols = append(cols, " ")
-				}
-
-				if c, ok := v.Caps["disk"]; ok && c.Use > 0 {
-					cols = append(cols, sizeFormat(c.Use))
-					disk += c.Use
-				} else {
-					cols = append(cols, " ")
-				}
-			} else {
-				cols = append(cols, []string{" ", " ", " "}...)
-			}
-
-			table.Append(cols)
-		}
-
-		if len(item.Nodes) > 1 {
-			table.SetFooter([]string{" ", " ", " ", " ", fmt.Sprintf("%d", cpu), sizeFormat(ram), sizeFormat(disk)})
-		}
-
-		table.Render()
-		buf.WriteString("\n")
-	}
-
-	if len(item.Tables) > 0 {
-
-		fmt.Fprintf(&buf, "%s\n", "Tables")
-
-		table := tablewriter.NewWriter(&buf)
-		table.SetHeader([]string{"Name", "Size", "Status"})
-		table.SetRowLine(true)
-		table.SetAutoWrapText(false)
-
-		size := int64(0)
-
-		rx := regexp.MustCompile("^size\\:(\\d+)$")
-
-		trySizeParse := func(k, v string) string {
-			if hit := rx.FindStringSubmatch(v); len(hit) == 2 {
-				if i, e := strconv.ParseInt(hit[1], 10, 64); e == nil && i >= 0 {
-					return fmt.Sprintf("%s: %s", k, sizeFormat(i))
-				}
-			}
-			return k + ": " + v
-		}
-
-		for _, v := range item.Tables {
-			cols := []string{
-				v.Name,
-				sizeFormat(int64(v.DbSize)),
-			}
-			size += int64(v.DbSize)
-			if len(v.States) > 0 {
-				ar := []string{}
-				for k2, v2 := range v.States {
-					ar = append(ar, trySizeParse(k2, v2))
-				}
-				sort.Slice(ar, func(i, j int) bool {
-					return strings.Compare(ar[i], ar[j]) < 0
-				})
-				cols = append(cols, strings.Join(ar, "\n"))
-			} else {
-				cols = append(cols, "")
-			}
-
-			table.Append(cols)
-		}
-
-		if len(item.Tables) > 1 {
-			table.SetFooter([]string{" ", sizeFormat(size), " "})
-		}
-
-		table.Render()
-		buf.WriteString("\n")
-	}
-
-	if len(item.Volumes) > 0 {
-
-		fmt.Fprintf(&buf, "%s\n", "Volumes")
-
-		table := tablewriter.NewWriter(&buf)
-		table.SetHeader([]string{"Id", "Mountpoint"})
-		table.SetRowLine(true)
-
-		for _, v := range item.Volumes {
-			cols := []string{
-				v.Id,
-				v.Mountpoint,
-			}
-			table.Append(cols)
-		}
-
-		table.Render()
-		buf.WriteString("\n")
-	}
-
-	return buf.String(), nil
-}
-*/

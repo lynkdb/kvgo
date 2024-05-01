@@ -21,7 +21,10 @@
 package kvapi
 
 import (
+	context "context"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 )
 
 // This is a compile-time assertion to ensure that this generated file
@@ -29,12 +32,19 @@ import (
 // Requires gRPC-Go v1.32.0 or later.
 const _ = grpc.SupportPackageIsVersion7
 
-const ()
+const (
+	KvgoInternal_LogRange_FullMethodName = "/lynkdb.kvapi.v2.KvgoInternal/LogRange"
+	KvgoInternal_Read_FullMethodName     = "/lynkdb.kvapi.v2.KvgoInternal/Read"
+	KvgoInternal_Range_FullMethodName    = "/lynkdb.kvapi.v2.KvgoInternal/Range"
+)
 
 // KvgoInternalClient is the client API for KvgoInternal service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type KvgoInternalClient interface {
+	LogRange(ctx context.Context, in *LogRangeRequest, opts ...grpc.CallOption) (*LogRangeResponse, error)
+	Read(ctx context.Context, in *InnerReadRequest, opts ...grpc.CallOption) (*ResultSet, error)
+	Range(ctx context.Context, in *RangeRequest, opts ...grpc.CallOption) (*ResultSet, error)
 }
 
 type kvgoInternalClient struct {
@@ -45,10 +55,40 @@ func NewKvgoInternalClient(cc grpc.ClientConnInterface) KvgoInternalClient {
 	return &kvgoInternalClient{cc}
 }
 
+func (c *kvgoInternalClient) LogRange(ctx context.Context, in *LogRangeRequest, opts ...grpc.CallOption) (*LogRangeResponse, error) {
+	out := new(LogRangeResponse)
+	err := c.cc.Invoke(ctx, KvgoInternal_LogRange_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *kvgoInternalClient) Read(ctx context.Context, in *InnerReadRequest, opts ...grpc.CallOption) (*ResultSet, error) {
+	out := new(ResultSet)
+	err := c.cc.Invoke(ctx, KvgoInternal_Read_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *kvgoInternalClient) Range(ctx context.Context, in *RangeRequest, opts ...grpc.CallOption) (*ResultSet, error) {
+	out := new(ResultSet)
+	err := c.cc.Invoke(ctx, KvgoInternal_Range_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // KvgoInternalServer is the server API for KvgoInternal service.
 // All implementations must embed UnimplementedKvgoInternalServer
 // for forward compatibility
 type KvgoInternalServer interface {
+	LogRange(context.Context, *LogRangeRequest) (*LogRangeResponse, error)
+	Read(context.Context, *InnerReadRequest) (*ResultSet, error)
+	Range(context.Context, *RangeRequest) (*ResultSet, error)
 	mustEmbedUnimplementedKvgoInternalServer()
 }
 
@@ -56,6 +96,15 @@ type KvgoInternalServer interface {
 type UnimplementedKvgoInternalServer struct {
 }
 
+func (UnimplementedKvgoInternalServer) LogRange(context.Context, *LogRangeRequest) (*LogRangeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method LogRange not implemented")
+}
+func (UnimplementedKvgoInternalServer) Read(context.Context, *InnerReadRequest) (*ResultSet, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Read not implemented")
+}
+func (UnimplementedKvgoInternalServer) Range(context.Context, *RangeRequest) (*ResultSet, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Range not implemented")
+}
 func (UnimplementedKvgoInternalServer) mustEmbedUnimplementedKvgoInternalServer() {}
 
 // UnsafeKvgoInternalServer may be embedded to opt out of forward compatibility for this service.
@@ -69,13 +118,80 @@ func RegisterKvgoInternalServer(s grpc.ServiceRegistrar, srv KvgoInternalServer)
 	s.RegisterService(&KvgoInternal_ServiceDesc, srv)
 }
 
+func _KvgoInternal_LogRange_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LogRangeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KvgoInternalServer).LogRange(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KvgoInternal_LogRange_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KvgoInternalServer).LogRange(ctx, req.(*LogRangeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _KvgoInternal_Read_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InnerReadRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KvgoInternalServer).Read(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KvgoInternal_Read_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KvgoInternalServer).Read(ctx, req.(*InnerReadRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _KvgoInternal_Range_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RangeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KvgoInternalServer).Range(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KvgoInternal_Range_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KvgoInternalServer).Range(ctx, req.(*RangeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // KvgoInternal_ServiceDesc is the grpc.ServiceDesc for KvgoInternal service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var KvgoInternal_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "lynkdb.kvapi.v2.KvgoInternal",
 	HandlerType: (*KvgoInternalServer)(nil),
-	Methods:     []grpc.MethodDesc{},
-	Streams:     []grpc.StreamDesc{},
-	Metadata:    "kvapi_internal.proto",
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "LogRange",
+			Handler:    _KvgoInternal_LogRange_Handler,
+		},
+		{
+			MethodName: "Read",
+			Handler:    _KvgoInternal_Read_Handler,
+		},
+		{
+			MethodName: "Range",
+			Handler:    _KvgoInternal_Range_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "kvapi_internal.proto",
 }

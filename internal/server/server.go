@@ -65,8 +65,10 @@ type dbServer struct {
 	cfgFile string
 
 	grpcListener net.Listener
-	apiAdmin     *serviceAdminImpl
-	api          *serviceApiImpl
+
+	api         *serviceApiImpl
+	apiAdmin    *serviceAdminImpl
+	apiInternal *serviceApiInternalImpl
 
 	dbSystem *dbReplica
 
@@ -77,6 +79,10 @@ type dbServer struct {
 	keyMgr *hauth.AccessKeyManager
 
 	dbMapMgr *dbMapMgr
+
+	transferMgr *transferManager
+
+	incrMgr *dbIncrManager
 
 	auditLogger *auditLogWriter
 
@@ -142,12 +148,13 @@ func dbServerSetup(cfgFile string, cfg Config) (*dbServer, error) {
 	storeMgr := newStoreManager()
 
 	srv := &dbServer{
-		pid:      randUint64(),
-		cfg:      cfg,
-		cfgFile:  cfgFile,
-		keyMgr:   hauth.NewAccessKeyManager(),
-		storeMgr: storeMgr,
-		dbMapMgr: newDatabaseMapMgr(&cfg, storeMgr),
+		pid:         randUint64(),
+		cfg:         cfg,
+		cfgFile:     cfgFile,
+		keyMgr:      hauth.NewAccessKeyManager(),
+		storeMgr:    storeMgr,
+		dbMapMgr:    newDatabaseMapMgr(&cfg, storeMgr),
+		transferMgr: newTransferManager(),
 		auditLogger: &auditLogWriter{
 			dir: Prefix + "/var/log",
 		},
@@ -197,6 +204,11 @@ func dbServerSetup(cfgFile string, cfg Config) (*dbServer, error) {
 
 		srv.api = &serviceApiImpl{
 			dbServer: srv,
+		}
+
+		srv.apiInternal = &serviceApiInternalImpl{
+			dbServer:       srv,
+			serviceApiImpl: srv.api,
 		}
 	}
 
@@ -284,10 +296,17 @@ func (it *dbServer) dbSystemSetup() error {
 	}
 	it.dbSystem = tdb
 
+	if incr, err := newIncrManager(store); err != nil {
+		return err
+	} else {
+		it.incrMgr = incr
+		it.dbMapMgr.incrMgr = incr // TODO
+	}
+
 	tm := it.dbMapMgr.syncDatabase(&kvapi.Meta{}, &kvapi.Database{
 		Id:         sysDatabaseId,
 		Name:       sysDatabaseName,
-		ReplicaNum: 1,
+		ReplicaNum: minReplicaCap,
 	})
 
 	tm.syncMap(&kvapi.Meta{}, &kvapi.DatabaseMap{
@@ -386,8 +405,19 @@ func (it *dbServer) netSetup() error {
 		it.api.rpcServer = grpcServer
 	}
 
-	kvapi.RegisterKvgoAdminServer(grpcServer, it.apiAdmin)
+	if it.apiInternal == nil {
+		it.apiInternal = &serviceApiInternalImpl{
+			rpcServer:      grpcServer,
+			dbServer:       it,
+			serviceApiImpl: it.api,
+		}
+	} else {
+		it.apiInternal.rpcServer = grpcServer
+	}
+
 	kvapi.RegisterKvgoServer(grpcServer, it.api)
+	kvapi.RegisterKvgoAdminServer(grpcServer, it.apiAdmin)
+	kvapi.RegisterKvgoInternalServer(grpcServer, it.apiInternal)
 
 	go grpcServer.Serve(lis)
 
@@ -479,9 +509,9 @@ func (it *dbServer) dbStoresSetup() error {
 				vol.StoreId = obj.Id
 			}
 
-			it.auditLogger.Put("storage", "load store desc %v", obj)
+			it.auditLogger.Put("storage-load-store", &obj)
 
-			hlog.Printf("info", "load store %v", obj)
+			hlog.Printf("info", "load store %s", string(jsonEncode(&obj)))
 		}
 
 		if !rs.NextResultSet {
@@ -509,7 +539,9 @@ func (it *dbServer) dbStoresSetup() error {
 				Created: timesec(),
 			}
 
-			wr := kvapi.NewWriteRequest(nsSysStore(store.UniId), jsonEncode(store))
+			js := jsonEncode(&store)
+
+			wr := kvapi.NewWriteRequest(nsSysStore(store.UniId), js)
 			wr.Database = sysDatabaseName
 			wr.CreateOnly = true
 
@@ -521,10 +553,10 @@ func (it *dbServer) dbStoresSetup() error {
 			it.auditLogger.Put("storage", "init uni-id %s, id %d, dir %s", store.UniId, store.Id, vol.Mountpoint)
 			vol.StoreId = incrId
 
-			hlog.Printf("warn", "store init %v", store)
+			hlog.Printf("warn", "store init %s", string(js))
 		}
 
-		hlog.Printf("warn", "store load %v", *vol)
+		hlog.Printf("warn", "setup store %v", *vol)
 
 		jsonPrint("vol set config", vol)
 		it.storeMgr.setConfig(vol)

@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build !disable_storage
+
 package pebble
 
 import (
@@ -84,7 +86,9 @@ func (it *driver) Open(opts *storage.Options) (storage.Conn, error) {
 	}
 
 	comp := pebble.NoCompression
-	if opts.Compression != "none" {
+	if opts.Compression == "zstd" {
+		comp = pebble.ZstdCompression
+	} else if opts.Compression != "none" {
 		comp = pebble.SnappyCompression
 	}
 
@@ -104,6 +108,10 @@ func (it *driver) Open(opts *storage.Options) (storage.Conn, error) {
 	}
 
 	ldbOpts.Levels[6].FilterPolicy = nil
+
+	// if err := ldbOpts.Validate(); err != nil {
+	// 	return nil, err
+	// }
 
 	db, err := pebble.Open(opts.DataDirectory, ldbOpts)
 	if err != nil {
@@ -213,6 +221,13 @@ func (it *engine) SizeOf(
 		}
 	}
 	return rs, nil
+}
+
+func (it *engine) Info() *storage.Info {
+	return &storage.Info{
+		Dir:     it.opts.DataDirectory,
+		Options: map[string]string{},
+	}
 }
 
 func (it *engine) Flush() error {

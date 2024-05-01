@@ -15,6 +15,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 
 	"google.golang.org/grpc"
@@ -40,6 +41,10 @@ func (it *serviceApiImpl) Write(
 		return rs, nil
 	}
 
+	if ctx != nil && kvapi.AttrAllow(req.Attrs, kvapi.Write_Attrs_InnerSync) {
+		req.Attrs = kvapi.AttrRemove(req.Attrs, kvapi.Write_Attrs_InnerSync)
+	}
+
 	hit := tmap.lookupByKey(req.Key)
 	if hit.replicaNum == 1 && len(hit.replicas) > 0 {
 		return hit.replicas[0].Write(req), nil
@@ -58,6 +63,10 @@ func (it *serviceApiImpl) Delete(
 	tmap, rs := it.valid(ctx, req.Database)
 	if rs != nil {
 		return rs, nil
+	}
+
+	if ctx != nil && kvapi.AttrAllow(req.Attrs, kvapi.Write_Attrs_InnerSync) {
+		req.Attrs = kvapi.AttrRemove(req.Attrs, kvapi.Write_Attrs_InnerSync)
 	}
 
 	hit := tmap.lookupByKey(req.Key)
@@ -98,6 +107,11 @@ func (it *serviceApiImpl) Range(
 	tmap, rs := it.valid(ctx, req.Database)
 	if rs != nil {
 		return rs, nil
+	}
+
+	// auto force fix
+	if bytes.Compare(req.LowerKey, req.UpperKey) > 0 {
+		req.LowerKey, req.UpperKey = req.UpperKey, req.LowerKey
 	}
 
 	hits := tmap.lookupByRange(req.LowerKey, req.UpperKey, req.Revert)

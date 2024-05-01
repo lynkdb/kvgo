@@ -41,6 +41,8 @@ import (
 var (
 	hex16 = regexp.MustCompile("^[a-f0-9]{16}$")
 
+	hex12_32 = regexp.MustCompile("^[a-f0-9]{12,32}$")
+
 	testLogOutput = true
 )
 

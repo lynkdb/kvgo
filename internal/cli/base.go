@@ -78,6 +78,11 @@ func (cmdHelp) Action(fg flagSet, l *readline.Instance) (string, error) {
 	table.SetHeaderLine(false)
 	table.SetBorder(false)
 	table.EnableBorder(false)
+	table.SetAutoWrapText(false)
+	table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
+	table.SetAlignment(tablewriter.ALIGN_LEFT)
+
+	table.SetHeader([]string{"Command", "Usage"})
 
 	for _, c := range arrCmds {
 		if c.Spec().Path == "help" {
@@ -87,11 +92,11 @@ func (cmdHelp) Action(fg flagSet, l *readline.Instance) (string, error) {
 	}
 
 	table.Append([]string{"help", ""})
-	table.Append([]string{"quit", ""})
+	// table.Append([]string{"quit", ""})
 
 	table.Render()
 
-	return fmt.Sprintf("kvgo-cli usage:\n%s\n", tbuf.String()), nil
+	return fmt.Sprintf("\n%s\n", tbuf.String()), nil
 }
 
 func Invoke(s string, l *readline.Instance) (string, error) {
@@ -111,6 +116,8 @@ func Invoke(s string, l *readline.Instance) (string, error) {
 			fg.path = ""
 		}
 
+		fg.varArgs = flagVarParse(fg.path)
+
 		return c.Action(fg, l)
 	}
 
@@ -125,7 +132,7 @@ func uptimeFormat(sec int64) string {
 	if d > 1 {
 		s = fmt.Sprintf("%d days ", d)
 	} else if d == 1 {
-		s = fmt.Sprintf("%d day ")
+		s = fmt.Sprintf("%d day ", d)
 	}
 
 	sec = sec % 86400

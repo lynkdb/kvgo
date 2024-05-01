@@ -364,7 +364,7 @@ func (it *dbServer) jobReplicaRebalanceSetup(force bool) error {
 			return
 		}
 
-		trep, err := NewDatabase(store, tm.data.Id, tm.data.Name, reEntry.shard.Id, reEntry.dstReplica.Id, tm.cfg)
+		trep, err := NewDatabase(store, tm.data.Id, tm.data.Name, reEntry.shard.Id, reEntry.dstReplica.Id, tm.cfg, tm.incrMgr)
 		if err != nil {
 			return
 		}

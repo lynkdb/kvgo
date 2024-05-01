@@ -19,24 +19,32 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/hooto/htoml4g/htoml"
 
 	"github.com/lynkdb/kvgo/v2/internal/server"
+	"github.com/lynkdb/kvgo/v2/pkg/client"
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
 
 var (
 	Prefix      string
-	client      kvapi.Client
+	kvclient    kvapi.Client
 	adminClient kvapi.AdminClient
-	cfg         server.ClientConfig
+	cfg         client.Config
 	err         error
 )
 
 func Setup() error {
 
-	{
+	if len(os.Args) == 2 && strings.HasSuffix(os.Args[1], ".toml") {
+
+		if err = htoml.DecodeFromFile(os.Args[1], &cfg); err != nil {
+			return err
+		}
+
+	} else {
 		if Prefix, err = filepath.Abs(filepath.Dir(os.Args[0]) + "/.."); err != nil {
 			Prefix = "/opt/lynkdb/kvgo/v2"
 		}
@@ -54,24 +62,23 @@ func Setup() error {
 		if srvConf.Server.AccessKey == nil {
 			return fmt.Errorf("access-key not found (%s)", confFile)
 		}
+		cfg.Addr = srvConf.Server.Bind
 		cfg.AccessKey = srvConf.Server.AccessKey
-
-		if _, port, err := net.SplitHostPort(srvConf.Server.Bind); err != nil {
-			return err
-		} else {
-			cfg.Addr = fmt.Sprintf("127.0.0.1:%v", port)
-		}
-
-		if adminClient, err = cfg.NewAdminClient(); err != nil {
-			return err
-		}
-
-		if client, err = cfg.NewClient(); err != nil {
-			return err
-		}
-
-		fmt.Printf("connect to %s\n", cfg.Addr)
 	}
+
+	if _, _, err := net.SplitHostPort(cfg.Addr); err != nil {
+		return err
+	}
+
+	if adminClient, err = cfg.NewAdminClient(); err != nil {
+		return err
+	}
+
+	if kvclient, err = cfg.NewClient(); err != nil {
+		return err
+	}
+
+	fmt.Printf("connect to %s\n", cfg.Addr)
 
 	return nil
 }

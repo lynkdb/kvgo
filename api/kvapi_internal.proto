@@ -20,6 +20,7 @@ option optimize_for = LITE_RUNTIME;
 option go_package = "./;kvapi";
 
 import "kvapi.proto";
+// import "google/protobuf/any.proto";
 
 message LogMeta {
   uint64 id = 1;
@@ -30,6 +31,9 @@ message LogMeta {
   int32 size = 6;
   bytes key = 7;
   uint64 replica_id = 8;
+
+  // value checksum
+  uint64 checksum = 9;
 }
 
 message RawKeyValue {
@@ -83,12 +87,20 @@ message DatabaseMapStatus {
   }
   message Replica {
     uint64 map_version = 1;
+    uint64 log_version = 2;
     uint64 action = 7;
     int64 used = 8;
     // map<uint64, SyncPull> pulls = 9;
     int64 updated = 15;
   }
+  message IncrOffset {
+    uint32 id = 1;
+    string ns = 2;
+    uint64 offset = 3;
+    uint64 cutset = 4;
+  }
   map<uint64, Replica> replicas = 9;
+  repeated IncrOffset incr_offsets = 10;
 }
 
 message SysNode {
@@ -104,6 +116,10 @@ message SysStoreStatus {
   int64 replica_bounds = 11;
   map<string, string> options = 14;
   int64 updated = 15;
+  int64 log_used = 16;
+  int64 meta_used = 17;
+  int64 data_used = 18;
+  int64 ttl_used = 19;
 }
 
 message SysNodeStatus {
@@ -143,19 +159,25 @@ message DeleteProposalRequest {
 }
 
 message LogRangeRequest {
-  string db_id = 1;
+  string database = 1;
   uint64 shard_id = 2;
   uint64 replica_id = 3;
   uint64 lower_log = 4;
   uint64 upper_log = 5;
+  string offset_token = 12;
 }
 
 message LogRangeResponse {
+  Status status = 1;
+  string server_id = 2;
+  string database_id = 3;
   // uint64 log_left = 7;
   uint64 log_offset = 8;
   repeated LogMeta items = 9;
   bool next_result_set = 10;
   bool log_offset_outrange = 11;
+  string next_offset_token = 12;
+  string transfer_jod_id = 13;
 }
 
 message LogKeyRangeRequest {
@@ -178,4 +200,43 @@ message AuditLog {
   int64 created = 14;
 }
 
-service KvgoInternal {}
+message InnerReadRequest {
+  string database = 1;
+  repeated bytes keys = 3;
+  uint64 attrs = 5;
+  string log_range_token = 6;
+}
+
+// message TransferJob {
+//   message Source {
+//     string addr = 1;
+//     string database = 2;
+//     // access_key =3;
+//   }
+//   string uid = 1;
+//   Source source = 2;
+//   string sink_database = 3;
+//
+//   int64 interval_seconds = 6;
+// }
+//
+// message Job {
+//   // Output only. unique identifier for job
+//   string uid = 1;
+//
+//   // description
+//   string desc = 2;
+//
+//   google.protobuf.Any spec = 6;
+//
+//   map<string, string> options = 9;
+//
+//   int64 created = 14;
+//   int64 updated = 15;
+// }
+
+service KvgoInternal {
+  rpc LogRange(LogRangeRequest) returns (LogRangeResponse) {}
+  rpc Read(InnerReadRequest) returns (ResultSet) {}
+  rpc Range(RangeRequest) returns (ResultSet) {}
+}

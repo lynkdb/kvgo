@@ -1,15 +1,17 @@
 module github.com/lynkdb/kvgo/v2
 
-go 1.22
+go 1.22.0
+
+toolchain go1.22.2
 
 require (
 	github.com/cespare/xxhash/v2 v2.2.0
 	github.com/chzyer/readline v1.5.1
 	github.com/cockroachdb/pebble v1.1.0
-	github.com/hooto/hauth v0.1.0
+	github.com/hooto/hauth v0.1.2
 	github.com/hooto/hlog4g v0.9.4
 	github.com/hooto/hmetrics v0.0.1
-	github.com/hooto/htoml4g v0.9.4
+	github.com/hooto/htoml4g v0.9.5
 	github.com/olekukonko/tablewriter v0.0.6-0.20230925090304-df64c4bbad77
 	github.com/shirou/gopsutil/v3 v3.24.2
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d
@@ -35,7 +37,6 @@ require (
 	github.com/klauspost/compress v1.17.4 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
-	github.com/lessos/lessgo v1.0.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/mattn/go-runewidth v0.0.15 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
@@ -54,5 +55,5 @@ require (
 	golang.org/x/net v0.22.0 // indirect
 	golang.org/x/sys v0.18.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240314234333-6e1732d8331c // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240325203815-454cdb8f5daa // indirect
 )

@@ -174,3 +174,74 @@ func (ProtoCodec) Decode(bs []byte, obj proto.Message) error {
 }
 
 var StdProto = &ProtoCodec{}
+
+func rawValueEncode(value interface{}) ([]byte, error) {
+
+	if value == nil {
+		return nil, nil
+	}
+
+	fmtUint := func(num uint64) []byte {
+		return []byte(strconv.FormatUint(num, 10))
+	}
+
+	fmtInt := func(num int64) []byte {
+		return []byte(strconv.FormatInt(num, 10))
+	}
+
+	var encValue []byte
+
+	switch value.(type) {
+
+	case []byte:
+		return value.([]byte), nil
+
+	case string:
+		return []byte(value.(string)), nil
+
+	// uint ...
+	case uint:
+		encValue = fmtUint(uint64(value.(uint)))
+
+	case uint8:
+		encValue = fmtUint(uint64(value.(uint8)))
+
+	case uint16:
+		encValue = fmtUint(uint64(value.(uint16)))
+
+	case uint32:
+		encValue = fmtUint(uint64(value.(uint32)))
+
+	case uint64:
+		encValue = fmtUint(value.(uint64))
+
+	// int ...
+	case int:
+		encValue = fmtInt(int64(value.(int)))
+
+	case int8:
+		encValue = fmtInt(int64(value.(int8)))
+
+	case int16:
+		encValue = fmtInt(int64(value.(int16)))
+
+	case int32:
+		encValue = fmtInt(int64(value.(int32)))
+
+	case int64:
+		encValue = fmtInt(value.(int64))
+
+	// json
+	case interface{}, struct{}, map[string]interface{}:
+		if js, err := json.Marshal(value); err == nil {
+			return js, nil
+		} else {
+			return nil, errors.New("invalid JSON : " + err.Error())
+		}
+
+	default:
+		return nil, errors.New("invalid value type")
+	}
+
+	return encValue, nil
+}

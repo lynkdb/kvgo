@@ -106,10 +106,9 @@ func (it *dbReplica) _jobCleanTTL() error {
 func (it *dbReplica) _jobCleanLog() error {
 
 	var (
-		tn        = time.Now()
 		offset    = keyLogEncode(0, it.replicaId, 0)
 		cutset    = keyLogEncode(1<<61, it.replicaId, 0)
-		retenTime = (tn.UnixNano() / 1e6) - (kLogRetentionSeconds * 1e3)
+		retenTime = timems() - (kLogRetentionSeconds * 1e3)
 		retenId   uint64
 		statsKeys int64
 	)
@@ -128,12 +127,12 @@ func (it *dbReplica) _jobCleanLog() error {
 	for ok := iter.SeekToFirst(); ok && !it.close; ok = iter.Next() {
 
 		if bytes.Compare(iter.Key(), offset) < 0 {
-			hlog.Printf("info", "ttl skip %v", iter.Key())
+			hlog.Printf("info", "log-ttl skip %v", iter.Key())
 			continue
 		}
 
 		if bytes.Compare(iter.Key(), cutset) > 0 {
-			hlog.Printf("info", "ttl break %v", iter.Key())
+			hlog.Printf("info", "log-ttl break %v", iter.Key())
 			break
 		}
 
@@ -148,10 +147,10 @@ func (it *dbReplica) _jobCleanLog() error {
 
 		if batch.Len() >= 10000 {
 
-			hlog.Printf("info", "database %s, ttl clean %d, stats %d", it.dbName, batch.Len(), statsKeys)
+			hlog.Printf("info", "database %s, log-ttl clean %d, stats %d", it.dbName, batch.Len(), statsKeys)
 
 			if ss := batch.Apply(nil); !ss.OK() {
-				hlog.Printf("info", "database %s, ttl clean fail %s", it.dbName, ss.Error().Error())
+				hlog.Printf("info", "database %s, log-ttl clean fail %s", it.dbName, ss.Error().Error())
 				return ss.Error()
 			}
 			batch.Clear()
@@ -159,9 +158,9 @@ func (it *dbReplica) _jobCleanLog() error {
 	}
 
 	if batch.Len() > 0 {
-		hlog.Printf("info", "database %s, ttl clean %d, stats %d", it.dbName, batch.Len(), statsKeys)
+		// hlog.Printf("info", "database %s, log-ttl clean %d, stats %d", it.dbName, batch.Len(), statsKeys)
 		if ss := batch.Apply(nil); !ss.OK() {
-			hlog.Printf("info", "database %s, ttl clean fail %s", it.dbName, ss.Error().Error())
+			hlog.Printf("info", "database %s, log-ttl clean fail %s", it.dbName, ss.Error().Error())
 			return ss.Error()
 		}
 	}

@@ -19,7 +19,10 @@ import (
 	mrand "math/rand"
 	"time"
 
+	// "github.com/hooto/hlog4g/hlog"
+
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/storage"
 )
 
 type pQueItem struct {
@@ -33,8 +36,8 @@ func (it *dbServer) apiWrite(req *kvapi.WriteRequest, selectShard *dbMapSelectSh
 		return newResultSetWithServerError("server not ready : shard init")
 	}
 
-	if selectShard.replicaNum < 1 ||
-		selectShard.replicaNum > 5 ||
+	if selectShard.replicaNum < minReplicaCap ||
+		selectShard.replicaNum > maxReplicaCap ||
 		len(selectShard.replicas)*2 < selectShard.replicaNum {
 
 		return newResultSetWithServerError("server not ready : replicas %d/%d",
@@ -68,7 +71,9 @@ func (it *dbServer) apiWrite(req *kvapi.WriteRequest, selectShard *dbMapSelectSh
 		req.Meta = &kvapi.Meta{}
 	}
 
-	req.Meta.Updated = t0.UnixNano() / 1e6
+	if req.Meta.Updated <= 0 || !kvapi.AttrAllow(req.Attrs, kvapi.Write_Attrs_InnerSync) {
+		req.Meta.Updated = t0.UnixNano() / 1e6
+	}
 
 	if meta != nil {
 
@@ -85,7 +90,7 @@ func (it *dbServer) apiWrite(req *kvapi.WriteRequest, selectShard *dbMapSelectSh
 		}
 
 		if req.PrevIncrId > 0 && req.PrevIncrId != meta.IncrId {
-			return newResultSetWithClientError("invalid prev.incrIdr_id")
+			return newResultSetWithClientError("invalid prev_incr_id (prev %d, req %d)", meta.IncrId, req.PrevIncrId)
 		}
 
 		if req.CreateOnly ||
@@ -98,6 +103,7 @@ func (it *dbServer) apiWrite(req *kvapi.WriteRequest, selectShard *dbMapSelectSh
 			rs := newResultSetOK()
 			resultSetAppend(rs, req.Key, &kvapi.Meta{
 				Version: meta.Version,
+				IncrNs:  meta.IncrNs,
 				IncrId:  meta.IncrId,
 				Updated: meta.Updated,
 				// Created: meta.Created,
@@ -105,11 +111,15 @@ func (it *dbServer) apiWrite(req *kvapi.WriteRequest, selectShard *dbMapSelectSh
 			return rs
 		}
 
+		if req.Meta.IncrNs == 0 && meta.IncrNs > 0 {
+			req.Meta.IncrNs = meta.IncrNs
+		}
+
 		if req.Meta.IncrId == 0 && meta.IncrId > 0 {
 			req.Meta.IncrId = meta.IncrId
 		}
 
-		if meta.Attrs > 0 {
+		if meta.Attrs > 0 && !kvapi.AttrAllow(req.Attrs, kvapi.Write_Attrs_InnerSync) {
 			req.Meta.Attrs |= meta.Attrs
 		}
 
@@ -260,8 +270,8 @@ func (it *dbServer) apiDelete(req *kvapi.DeleteRequest, selectShard *dbMapSelect
 		return newResultSetWithServerError("server not ready : shard init")
 	}
 
-	if selectShard.replicaNum < 1 ||
-		selectShard.replicaNum > 5 ||
+	if selectShard.replicaNum < minReplicaCap ||
+		selectShard.replicaNum > maxReplicaCap ||
 		len(selectShard.replicas)*2 < selectShard.replicaNum {
 
 		return newResultSetWithServerError("server not ready : replicas %d/%d",
@@ -437,8 +447,8 @@ func (it *dbServer) apiReadShard(req *kvapi.ReadRequest, selectShard *dbMapSelec
 		return newResultSetWithServerError("server not ready : shard init")
 	}
 
-	if selectShard.replicaNum < 1 ||
-		selectShard.replicaNum > 5 ||
+	if selectShard.replicaNum < minReplicaCap ||
+		selectShard.replicaNum > maxReplicaCap ||
 		len(selectShard.replicas)*2 < selectShard.replicaNum {
 
 		return newResultSetWithServerError("server not ready : replicas %d/%d",
@@ -587,6 +597,151 @@ func (it *dbServer) apiRange(req *kvapi.RangeRequest, selectShards []*dbMapSelec
 		rs.StatusCode = kvapi.Status_NotFound
 	} else {
 		rs.StatusCode = kvapi.Status_OK
+	}
+
+	return rs
+}
+
+type innerLogRangeFilter struct {
+	index int
+	size  int
+	meta  *kvapi.LogMeta
+}
+
+func (it *dbServer) apiInnerLogRange(req *kvapi.LogRangeRequest,
+	dm *dbMap, token *logRangeToken) *kvapi.LogRangeResponse {
+
+	var (
+		t0        = timeNow()
+		sz        int
+		limitNum  = 10000
+		limitSize = 2 << 20
+		readSize  int
+		rs        = &kvapi.LogRangeResponse{
+			ServerId:   it.cfg.Server.ID,
+			DatabaseId: dm.data.Id,
+		}
+		keyLogMap = map[string]*innerLogRangeFilter{}
+	)
+
+	if it.cfg.Server.MetricsEnable {
+		defer func() {
+			metricCounter.Add(metricService, "Log.Range", 1)
+			metricLatency.Add(metricService, "Log.Range", time.Since(t0).Seconds())
+			metricCounter.Add(metricServiceSize, "Log.Range", float64(sz))
+			metricCounter.Add(metricService, "Log.RangeN", float64(len(rs.Items)))
+		}()
+	}
+
+	storeIter := func(store storage.Conn, tokenItem *logRangeTokenItem, rs *kvapi.LogRangeResponse) error {
+
+		var (
+			lowerKey = keyLogEncode(tokenItem.offset+1, 0, 0)
+			upperKey = keyLogEncode(1<<63, 0, 0)
+			hitNum   = 0
+		)
+
+		iter, err := store.NewIterator(&storage.IterOptions{
+			LowerKey: lowerKey,
+			UpperKey: upperKey,
+		})
+		if err != nil {
+			return err
+		}
+		defer iter.Release()
+
+		for ok := iter.SeekToFirst(); ok; ok = iter.Next() {
+
+			if len(rs.Items) > 0 && readSize+len(iter.Value()) > limitSize {
+				break
+			}
+
+			logMeta, err := kvapi.LogDecode(bytesClone(iter.Value()))
+			if err != nil {
+				continue
+			}
+
+			if hitNum == 0 && logMeta.Id > (tokenItem.offset+1) {
+				rs.LogOffsetOutrange = true
+				// hlog.Printf("info", "out range")
+				break
+			}
+
+			if logMeta.Id <= tokenItem.offset {
+				continue
+			}
+
+			tokenItem.offset = logMeta.Id
+
+			readSize += len(iter.Value())
+			hitNum += 1
+
+			if p, ok := keyLogMap[string(logMeta.Key)]; ok {
+
+				if logMeta.Version > p.meta.Version {
+
+					readSize -= p.size
+					p.size = len(iter.Value())
+					p.meta = logMeta
+					rs.Items[p.index] = logMeta
+				}
+
+			} else {
+				keyLogMap[string(logMeta.Key)] = &innerLogRangeFilter{
+					index: len(rs.Items),
+					size:  len(iter.Value()),
+					meta:  logMeta,
+				}
+				rs.Items = append(rs.Items, logMeta)
+			}
+
+			if len(rs.Items) >= limitNum || readSize >= limitSize {
+				break
+			}
+		}
+
+		return nil
+	}
+
+	for _, v := range token.nextIndex {
+		store := it.storeMgr.store(v.store)
+		if store == nil {
+			rs.Status = newServiceStatus(kvapi.Status_ServerError, "store not setup")
+			break
+		}
+
+		if err := storeIter(store, v, rs); err != nil {
+			rs.Status = newServiceStatus(kvapi.Status_ServerError, err.Error())
+			break
+		}
+
+		if len(rs.Items) >= limitNum || readSize >= limitSize || rs.LogOffsetOutrange {
+			break
+		}
+	}
+
+	if rs.LogOffsetOutrange {
+
+		storeLogOffsets, err := dm.lookupAllStoreLogOffsets()
+		if err != nil {
+			rs.Status = newServiceStatus(kvapi.Status_ServerError, "")
+			return rs
+		}
+
+		logToken := newLogRangeToken("")
+		logToken.indexApply(storeLogOffsets)
+
+		rs.NextOffsetToken = logToken.encode()
+		// hlog.Printf("info", "log out-range with token %v", logToken.data1)
+	} else {
+		rs.NextOffsetToken = token.encode()
+		// hlog.Printf("info", "log next token %v", token.data1)
+	}
+
+	if len(rs.Items) == 0 && !rs.LogOffsetOutrange {
+		rs.Status = newServiceStatus(kvapi.Status_NotFound, "")
+	} else {
+		rs.Status = newServiceStatus(kvapi.Status_OK, "")
 	}
 
 	return rs

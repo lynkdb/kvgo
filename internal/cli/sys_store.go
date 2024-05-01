@@ -28,18 +28,18 @@ import (
 )
 
 func init() {
-	register(new(cmdStoreInfo))
+	register(new(cmdSysStoreInfo))
 }
 
-type cmdStoreInfo struct{}
+type cmdSysStoreInfo struct{}
 
-func (cmdStoreInfo) Spec() baseCommandSpec {
+func (cmdSysStoreInfo) Spec() baseCommandSpec {
 	return baseCommandSpec{
-		Path: "store info",
+		Path: "sys-store-info",
 	}
 }
 
-func (cmdStoreInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
+func (cmdSysStoreInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
 
 	req := &kvapi.SysGetRequest{
 		Name: "store-info",
@@ -73,8 +73,8 @@ func (cmdStoreInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
 	)
 
 	table.SetHeader([]string{
-		"ID", "Uni ID", "Rep Bounds",
-		"Free", "Used", "Used Percent", "Options",
+		"ID", "UID", "Reps",
+		"Free", "Used/Percent", "Block (Data,Meta,Log,TTL)", "Options",
 		"Updated"})
 
 	table.SetCenterSeparator("|")
@@ -117,8 +117,13 @@ func (cmdStoreInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
 			item.UniId,
 			fmt.Sprintf("%d", item.ReplicaBounds),
 			kvapi.BytesHumanDisplay(item.CapacityFree * kvapi.MiB),
-			kvapi.BytesHumanDisplay(item.CapacityUsed * kvapi.MiB),
-			rate,
+			kvapi.BytesHumanDisplay(item.CapacityUsed*kvapi.MiB) + "/" + rate,
+			fmt.Sprintf("%s, %s, %s, %s",
+				kvapi.BytesHumanDisplay(item.DataUsed*kvapi.MiB),
+				kvapi.BytesHumanDisplay(item.MetaUsed*kvapi.MiB),
+				kvapi.BytesHumanDisplay(item.LogUsed*kvapi.MiB),
+				kvapi.BytesHumanDisplay(item.TtlUsed*kvapi.MiB),
+			),
 			strings.Join(opts, ", "),
 			time.Unix(item.Updated, 0).Format(time.DateTime),
 		})
@@ -126,8 +131,8 @@ func (cmdStoreInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
 
 	table.SetFooter([]string{"", "", "",
 		kvapi.BytesHumanDisplay(sumFree * kvapi.MiB),
-		kvapi.BytesHumanDisplay(sumUsed * kvapi.MiB),
-		fmt.Sprintf("%.2f %%", float64(sumUsed)*100/float64(sumUsed+sumFree+1)),
+		kvapi.BytesHumanDisplay(sumUsed*kvapi.MiB) + "/" +
+			fmt.Sprintf("%.2f %%", float64(sumUsed)*100/float64(sumUsed+sumFree+1)),
 		"", ""})
 
 	table.Render()

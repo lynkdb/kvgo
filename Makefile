@@ -1,7 +1,7 @@
 # Copyright 2015 Eryx <evorui at gmail dot com>, All rights reserved.
 
-EXE_SERVER = bin/kvgo-server
-EXE_CLI = bin/kvgo-cli
+EXE_SERVER = bin/kvgod
+EXE_CLI = bin/kvgo
 APP_HOME = /opt/lynkdb/kvgo
 APP_USER = kvgo
 
@@ -11,19 +11,18 @@ PROTOC_ARGS = --proto_path=./api/ --go_opt=paths=source_relative --go_out=./pkg/
 HTOML_TAG_FIX_CMD = htoml-tag-fix
 HTOML_TAG_FIX_ARGS = pkg/kvapi
 
-.PHONY: cli cli-install cli-run install test test-v2 api clean code-stats
+.PHONY: server server-run cli cli-install cli-run install test api clean code-stats
 
-all:
-	go build -o ${EXE_SERVER} cmd/server/main.go
+all: server cli
 	@echo ""
 	@echo "build complete"
 	@echo ""
 
 server:
-	go build -o ${EXE_SERVER} cmd/server/main.go
+	go build -trimpath -o ${EXE_SERVER} cmd/server/main.go
 
 cli:
-	go build -o ${EXE_CLI} cmd/cli/main.go
+	go build -trimpath -ldflags="-s -w" -tags="disable_storage" -o ${EXE_CLI} cmd/cli/main.go
 
 cli-install: cli
 	mkdir -p ${APP_HOME}/bin
@@ -50,7 +49,7 @@ install: server
 	systemctl restart kvgo
 
 test:
-	go test -count=1 .
+	go test -count=1 ./internal/server -v
 
 code-stats:
 	find ./pkg -type f -name "*.go" -not -path "*_test2.go" -not -path "*.pb.go" | xargs wc -l|sort -n

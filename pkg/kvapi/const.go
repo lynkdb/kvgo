@@ -21,7 +21,7 @@ import (
 var (
 	DatabaseNameRX = regexp.MustCompile("^[a-z]{1}[a-z0-9\\-\\_\\/\\:\\.]{3,63}$")
 
-	IncrNamespaceRX = regexp.MustCompile("^[a-z]{1}[a-z0-9_]{3,31}$")
+	IncrNamespaceRX = regexp.MustCompile("^[a-z]{1}[a-z0-9_]{1,31}$")
 )
 
 // Status Code defines
@@ -47,6 +47,8 @@ const (
 	Write_Attrs_IgnoreData uint64 = 1 << 9
 
 	Write_Attrs_Sync uint64 = 1 << 10
+
+	Write_Attrs_InnerSync uint64 = 1 << 33
 )
 
 const (

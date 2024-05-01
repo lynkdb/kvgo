@@ -16,6 +16,7 @@ package server
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -34,6 +35,8 @@ type dbMapMgr struct {
 	databases    map[string]*dbMap
 	arrDatabases []*dbMap
 
+	incrMgr *dbIncrManager
+
 	// database name -> id
 	indexes map[string]string
 }
@@ -50,6 +53,12 @@ type dbMapSelectShard struct {
 
 	replicas   []*dbReplica
 	replicaNum int
+}
+
+type dbMapSelectStore struct {
+	mapVersion uint64
+
+	stores []*dbReplica
 }
 
 type dbMapShardStats struct {
@@ -75,6 +84,8 @@ type dbMap struct {
 	replicas    map[uint64]*dbReplica
 	arrReplicas []*dbReplica
 	rmReplicas  map[uint64]int64
+
+	incrMgr *dbIncrDatabase
 
 	stmut  sync.RWMutex
 	status kvapi.DatabaseMapStatus
@@ -110,7 +121,7 @@ func (it *dbMap) tryInitReplica(shard *kvapi.DatabaseMap_Shard, rep *kvapi.Datab
 
 	trep, ok := it.replicas[rep.Id]
 	if !ok {
-		trep, err = NewDatabase(store, it.data.Id, it.data.Name, shard.Id, rep.Id, it.cfg)
+		trep, err = NewDatabase(store, it.data.Id, it.data.Name, shard.Id, rep.Id, it.cfg, it.incrMgr)
 		if err != nil {
 			return nil
 		}
@@ -210,6 +221,12 @@ func (it *dbMapMgr) syncDatabase(meta *kvapi.Meta, data *kvapi.Database) *dbMap 
 	if meta == nil || data == nil {
 		return nil
 	}
+
+	dbIncr, err := it.incrMgr.db(data.Id)
+	if err != nil {
+		return nil
+	}
+
 	it.mu.Lock()
 	defer it.mu.Unlock()
 	pt, ok := it.databases[data.Id]
@@ -221,6 +238,7 @@ func (it *dbMapMgr) syncDatabase(meta *kvapi.Meta, data *kvapi.Database) *dbMap 
 			data:       data,
 			replicas:   map[uint64]*dbReplica{},
 			rmReplicas: map[uint64]int64{},
+			incrMgr:    dbIncr,
 		}
 		it.databases[data.Id] = pt
 		it.arrDatabases = append(it.arrDatabases, pt)
@@ -323,7 +341,7 @@ func (it *dbMap) _hitShardConv(hit *kvapi.DatabaseMap_Shard) *dbMapSelectShard {
 		}
 		trep, ok := it.replicas[rep.Id]
 		if !ok {
-			trep, err = NewDatabase(store, it.data.Id, it.data.Name, hit.Id, rep.Id, it.cfg)
+			trep, err = NewDatabase(store, it.data.Id, it.data.Name, hit.Id, rep.Id, it.cfg, it.incrMgr)
 			if err != nil {
 				continue
 			}
@@ -354,7 +372,8 @@ func (it *dbMap) lookupByKey(key []byte) *dbMapSelectShard {
 	it.mu.RLock()
 	defer it.mu.RUnlock()
 
-	if it.data.ReplicaNum == 0 {
+	if it.data == nil || it.data.ReplicaNum == 0 ||
+		it.mapData == nil {
 		return &dbMapSelectShard{}
 	}
 
@@ -398,7 +417,8 @@ func (it *dbMap) lookupByKeys(keys [][]byte) []*dbMapSelectShard {
 	it.mu.RLock()
 	defer it.mu.RUnlock()
 
-	if it.data.ReplicaNum == 0 {
+	if it.data.ReplicaNum == 0 ||
+		it.mapData == nil {
 		return nil
 	}
 
@@ -465,7 +485,8 @@ func (it *dbMap) lookupByRange(lowerKey, upperKey []byte, rev bool) []*dbMapSele
 	it.mu.RLock()
 	defer it.mu.RUnlock()
 
-	if it.data.ReplicaNum == 0 {
+	if it.data.ReplicaNum == 0 ||
+		it.mapData == nil {
 		return nil
 	}
 
@@ -536,6 +557,73 @@ func (it *dbMap) lookupByRange(lowerKey, upperKey []byte, rev bool) []*dbMapSele
 	return selectShards
 }
 
+func (it *dbMap) lookupAllStores() map[uint64]uint64 {
+	it.mu.RLock()
+	defer it.mu.RUnlock()
+
+	var (
+		rs = map[uint64]uint64{}
+	)
+
+	if it.data.ReplicaNum == 0 ||
+		it.mapData == nil {
+		return nil
+	}
+
+	for _, shard := range it.mapData.Shards {
+
+		if !kvapi.AttrAllow(shard.Action, kShardSetup_In) {
+			continue
+		}
+
+		for _, rep := range shard.Replicas {
+			if _, ok := rs[rep.StoreId]; !ok {
+				rs[rep.StoreId] = 0
+			}
+		}
+	}
+
+	return rs
+}
+
+func (it *dbMap) lookupAllStoreLogOffsets() (map[uint64]uint64, error) {
+	it.mu.RLock()
+	defer it.mu.RUnlock()
+
+	if it.data.ReplicaNum == 0 ||
+		it.mapData == nil {
+		return nil, errors.New("un-init")
+	}
+
+	var rs = map[uint64]uint64{}
+
+	for _, shard := range it.mapData.Shards {
+
+		if !kvapi.AttrAllow(shard.Action, kShardSetup_In) {
+			continue
+		}
+
+		for _, rep := range shard.Replicas {
+
+			trep, ok := it.replicas[rep.Id]
+			if !ok {
+				return nil, errors.New("un-init")
+			}
+
+			logVer, err := trep.logSync(0, 0)
+			if err != nil {
+				return nil, err
+			}
+
+			if ver, ok := rs[rep.StoreId]; !ok || ver < logVer {
+				rs[rep.StoreId] = logVer
+			}
+		}
+	}
+
+	return rs, nil
+}
+
 func dbMapShardIter(mapData *kvapi.DatabaseMap, fn func(prev, curr, next *kvapi.DatabaseMap_Shard)) {
 
 	var shards []*kvapi.DatabaseMap_Shard
@@ -598,12 +686,12 @@ func (it *dbMap) shardStatus(
 	return ss
 }
 
-func (it *dbMap) syncStatusReplica(repId, action uint64) *kvapi.DatabaseMapStatus_Replica {
-	rep := it.statusReplica(repId)
-	rep.Action = action
-	rep.Updated = timesec()
-	return rep
-}
+// func (it *dbMap) syncStatusReplica(repId, action uint64) *kvapi.DatabaseMapStatus_Replica {
+// 	rep := it.statusReplica(repId)
+// 	rep.Action = action
+// 	rep.Updated = timesec()
+// 	return rep
+// }
 
 func (it *dbMap) setReplicaStatus(repId uint64, fn func(*kvapi.DatabaseMapStatus_Replica)) {
 	it.stmut.Lock()
@@ -652,5 +740,6 @@ func (it *dbMap) shardReplicaStatusList(shard *kvapi.DatabaseMap_Shard) map[uint
 }
 
 func (it *dbMap) Close() error {
+	it.incrMgr.flush()
 	return nil
 }

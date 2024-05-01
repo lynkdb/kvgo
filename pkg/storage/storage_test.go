@@ -100,7 +100,7 @@ func Test_Common(t *testing.T) {
 	{
 		batch := db.NewBatch()
 		batch.Put(key0, value0)
-		if rs := batch.Apply(); !rs.OK() {
+		if rs := batch.Apply(&storage.WriteOptions{}); !rs.OK() {
 			t.Fatal(rs.Error())
 		} else if rs2 := db.Get(key0, nil); !rs2.OK() {
 			t.Fatal(rs2.Error())
@@ -109,7 +109,7 @@ func Test_Common(t *testing.T) {
 
 		batch.Delete(key0)
 		batch.Put(key1, value1)
-		if rs := batch.Apply(); !rs.OK() {
+		if rs := batch.Apply(&storage.WriteOptions{}); !rs.OK() {
 			t.Fatal(rs.Error())
 		} else if batch.Len() != 2 {
 			t.Fatal("len fail")
@@ -131,11 +131,11 @@ func Test_Common(t *testing.T) {
 		for i := 0; i < num; i++ {
 			batch.Put([]byte(fmt.Sprintf("iter-%010d", i)), []byte(fmt.Sprintf("value-%d", i)))
 		}
-		if rs := batch.Apply(); !rs.OK() {
+		if rs := batch.Apply(&storage.WriteOptions{}); !rs.OK() {
 			t.Fatal(rs.Error())
 		}
 
-		iter := db.NewIterator(&storage.IterOptions{
+		iter, _ := db.NewIterator(&storage.IterOptions{
 			LowerKey: []byte("iter-"),
 			UpperKey: []byte("iter-z"),
 		})
@@ -154,7 +154,7 @@ func Test_Common(t *testing.T) {
 		}
 		iter.Release()
 
-		iter = db.NewIterator(&storage.IterOptions{
+		iter, _ = db.NewIterator(&storage.IterOptions{
 			LowerKey: []byte("iter-"),
 			UpperKey: []byte("iter-z"),
 		})
@@ -231,7 +231,8 @@ func testConnOpen(drvname string, samples int) (storage.Conn, error) {
 		testDir = filepath.Clean(fmt.Sprintf("%s/kvgo-test/data", testDir))
 	}
 
-	db, err := storage.Open(drvname, testDir, &storage.Options{
+	db, err := storage.Open(drvname, &storage.Options{
+		DataDirectory:   testDir,
 		WriteBufferSize: 16,
 	})
 	if err != nil {
@@ -309,7 +310,7 @@ func benchmarkStorageRangeRead(b *testing.B, drvname string, samples int) {
 			offset  = []byte(fmt.Sprintf("%032d", offseti))
 			cutset  = []byte(fmt.Sprintf("%032d", offseti+10))
 		)
-		iter := db.NewIterator(&storage.IterOptions{
+		iter, _ := db.NewIterator(&storage.IterOptions{
 			UpperKey: offset,
 			LowerKey: cutset,
 		})
@@ -367,7 +368,7 @@ func benchmarkStorageBatchWrite(b *testing.B, drvname string) {
 		batch.Put([]byte(fmt.Sprintf("log-%032d", i)), randBytes(20+mrand.Intn(50)))
 		batch.Put([]byte(fmt.Sprintf("meta-%032d", id)), randBytes(20+mrand.Intn(50)))
 		batch.Put([]byte(fmt.Sprintf("data-%032d", id)), randBytes(100+mrand.Intn(900)))
-		if rs := batch.Apply(); rs.Error() != nil {
+		if rs := batch.Apply(&storage.WriteOptions{}); rs.Error() != nil {
 			b.Fatalf("batch apply ER!, Err %v", rs.Error())
 		}
 	}

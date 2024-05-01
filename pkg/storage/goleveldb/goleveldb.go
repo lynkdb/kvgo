@@ -165,6 +165,13 @@ func (it *engine) SizeOf(args []*storage.IterOptions) ([]int64, error) {
 	return it.db.SizeOf(opts)
 }
 
+func (it *engine) Info() *storage.Info {
+	return &storage.Info{
+		Dir:     it.opts.DataDirectory,
+		Options: map[string]string{},
+	}
+}
+
 func (it *engine) Flush() error {
 	return nil
 }
