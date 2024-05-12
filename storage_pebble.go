@@ -45,7 +45,7 @@ func StoragePebbleOpen(path string, opts *kv2.StorageOptions) (kv2.StorageEngine
 		MaxConcurrentCompactions: func() int {
 			return 1
 		},
-		MemTableSize:                opts.WriteBufferSize << 20,
+		MemTableSize:                uint64(opts.WriteBufferSize) << 20,
 		MemTableStopWritesThreshold: 4,
 		Cache:                       pebble.NewCache(int64(opts.BlockCacheSize << 20)),
 		MaxOpenFiles:                opts.MaxOpenFiles,
@@ -225,11 +225,12 @@ type pebbleStorageIterator struct {
 
 func newPebbleStorageIterator(db *pebble.DB,
 	opts *kv2.StorageIteratorRange) *pebbleStorageIterator {
+	iter, _ := db.NewIter(&pebble.IterOptions{
+		LowerBound: opts.Start,
+		UpperBound: opts.Limit,
+	})
 	return &pebbleStorageIterator{
-		Iterator: db.NewIter(&pebble.IterOptions{
-			LowerBound: opts.Start,
-			UpperBound: opts.Limit,
-		}),
+		Iterator: iter,
 	}
 }
 
