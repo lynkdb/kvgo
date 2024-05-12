@@ -820,8 +820,8 @@ func (it *dbReplicaWriter) SetPrevVersion(v uint64) kvapi.ClientWriter {
 	return it
 }
 
-func (it *dbReplicaWriter) SetPrevChecksum(v uint64) kvapi.ClientWriter {
-	it.req.PrevChecksum = v
+func (it *dbReplicaWriter) SetPrevChecksum(v interface{}) kvapi.ClientWriter {
+	it.req.SetPrevChecksum(v)
 	return it
 }
 
@@ -844,8 +844,8 @@ func (it *dbReplicaDeleter) SetPrevVersion(v uint64) kvapi.ClientDeleter {
 	return it
 }
 
-func (it *dbReplicaDeleter) SetPrevChecksum(v uint64) kvapi.ClientDeleter {
-	it.req.PrevChecksum = v
+func (it *dbReplicaDeleter) SetPrevChecksum(v interface{}) kvapi.ClientDeleter {
+	it.req.SetPrevChecksum(v)
 	return it
 }
 

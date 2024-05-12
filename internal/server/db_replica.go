@@ -15,7 +15,6 @@
 package server
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 	"sync"
@@ -168,7 +167,7 @@ func NewDatabase(
 	if rs := dt.store.Get(keySysInstanceId, nil); rs.OK() {
 		dt.dbId = string(rs.Bytes())
 		if dt.dbId != dbId {
-			return nil, errors.New("database id conflict")
+			return nil, fmt.Errorf("database id conflict, db %s, mem %s, store info %v", dt.dbId, dbId, *dt.store.Info())
 		}
 	} else if rs.NotFound() {
 		dt.dbId = dbId

@@ -37,6 +37,25 @@ const (
 )
 
 const (
+	JobSpec_Bool   = "bool"
+	JobSpec_Int    = "int"
+	JobSpec_Uint   = "uint"
+	JobSpec_Float  = "float"
+	JobSpec_String = "string"
+	JobSpec_Struct = "struct"
+
+	JobSpec_Array = "array"
+	JobSpec_Bytes = "bytes"
+
+	JobSpec_ArrayBool   = "array/bool"
+	JobSpec_ArrayInt    = "array/int"
+	JobSpec_ArrayUint   = "array/uint"
+	JobSpec_ArrayFloat  = "array/float"
+	JobSpec_ArrayString = "array/string"
+	JobSpec_ArrayStruct = "array/struct"
+)
+
+const (
 	Read_Attrs_MetaOnly uint64 = 1 << 2
 	Read_Attrs_RevRange uint64 = 1 << 3
 

@@ -19,7 +19,7 @@ import (
 	mrand "math/rand"
 	"time"
 
-	// "github.com/hooto/hlog4g/hlog"
+	"github.com/hooto/hlog4g/hlog"
 
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 	"github.com/lynkdb/kvgo/v2/pkg/storage"
@@ -663,7 +663,8 @@ func (it *dbServer) apiInnerLogRange(req *kvapi.LogRangeRequest,
 
 			if hitNum == 0 && logMeta.Id > (tokenItem.offset+1) {
 				rs.LogOffsetOutrange = true
-				// hlog.Printf("info", "out range")
+				hlog.Printf("info", "log-range out range, req offset %d, local offset %d",
+					tokenItem.offset, logMeta.Id)
 				break
 			}
 
@@ -704,7 +705,7 @@ func (it *dbServer) apiInnerLogRange(req *kvapi.LogRangeRequest,
 	}
 
 	for _, v := range token.nextIndex {
-		store := it.storeMgr.store(v.store)
+		store := it.storeMgr.store(v.store, dm.data.Id)
 		if store == nil {
 			rs.Status = newServiceStatus(kvapi.Status_ServerError, "store not setup")
 			break

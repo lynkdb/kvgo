@@ -245,7 +245,7 @@ func (dbInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
 
 	table.SetHeader([]string{
 		"Shard", "Action", "Ver", "Updated",
-		"Rep ID", "Rep Action", "Rep Store", "Ver",
+		"Rep ID", "Rep Action", "Rep Store", "Log",
 		"Offset"})
 
 	table.SetAutoMergeCellsByColumnIndex([]int{0, 1, 2, 3, 7})
@@ -268,8 +268,15 @@ func (dbInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
 
 	for _, shard := range dbMap.Shards {
 
+		var idflow string
+		if shard.Prev > 0 {
+			idflow = fmt.Sprintf("%d -> %d", shard.Prev, shard.Id)
+		} else {
+			idflow = fmt.Sprintf("%d", shard.Id)
+		}
+
 		cols := []string{
-			fmt.Sprintf("%d -> %d", shard.Prev, shard.Id),
+			idflow,
 			server.ShardActionDisplay(shard.Action),
 			fmt.Sprintf("%d", shard.Version),
 			time.Unix(shard.Updated, 0).Format(time.DateTime),
@@ -288,13 +295,13 @@ func (dbInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
 			var (
 				statusAction uint64
 				statusUsed   int64
-				statusVer    uint64
+				statusLog    uint64
 			)
 
 			if repStatus, ok := dbStatus.Replicas[rep.Id]; ok {
 				statusAction = repStatus.Action
 				statusUsed = repStatus.Used
-				statusVer = repStatus.LogVersion
+				statusLog = repStatus.LogVersion
 			}
 
 			var idArrow string
@@ -310,7 +317,7 @@ func (dbInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
 					server.ReplicaActionDisplay(statusAction),
 				fmt.Sprintf("%d : %s", rep.StoreId,
 					kvapi.BytesHumanDisplay(statusUsed*(1<<20))),
-				fmt.Sprintf("%d", statusVer),
+				fmt.Sprintf("%d", statusLog),
 			}...), attrs...))
 		}
 	}
@@ -318,7 +325,7 @@ func (dbInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
 	table.Render()
 	msg := tbuf.String()
 
-	msg += fmt.Sprintf("\n  Shards %d\n", len(dbMap.Shards))
+	msg += fmt.Sprintf("\n Shards %d\n", len(dbMap.Shards))
 
 	return msg, nil
 }

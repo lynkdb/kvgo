@@ -33,6 +33,23 @@ func NewWriteRequest(key []byte, value interface{}) *WriteRequest {
 	return req
 }
 
+func (it *WriteRequest) SetValue(value interface{}) error {
+	if value != nil {
+		it.Value, _ = rawValueEncode(value)
+		it.Meta.Checksum = bytesCrc32Checksum(it.Value)
+		it.Meta.Size = int32(len(it.Value))
+	}
+	return nil
+}
+
+func (it *WriteRequest) SetPrevChecksum(value interface{}) error {
+	if value != nil {
+		b, _ := rawValueEncode(value)
+		it.PrevChecksum = bytesCrc32Checksum(b)
+	}
+	return nil
+}
+
 func (it *WriteRequest) SetValueEncode(o interface{}, c ValueCodec) error {
 	if o == nil || c == nil {
 		return errors.New("data or codec not found")
@@ -178,6 +195,14 @@ func (it *DeleteRequest) Valid() error {
 		return fmt.Errorf("Invalid Key (len %d)", len(it.Key))
 	}
 
+	return nil
+}
+
+func (it *DeleteRequest) SetPrevChecksum(value interface{}) error {
+	if value != nil {
+		b, _ := rawValueEncode(value)
+		it.PrevChecksum = bytesCrc32Checksum(b)
+	}
 	return nil
 }
 

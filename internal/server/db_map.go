@@ -21,6 +21,8 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/hooto/hlog4g/hlog"
+
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 	"github.com/lynkdb/kvgo/v2/pkg/storage"
 )
@@ -114,7 +116,7 @@ func (it *dbMap) tryInitReplica(shard *kvapi.DatabaseMap_Shard, rep *kvapi.Datab
 		return nil
 	}
 
-	store := it.storeMgr.store(rep.StoreId)
+	store := it.storeMgr.store(rep.StoreId, it.data.Id)
 	if store == nil {
 		return nil
 	}
@@ -286,7 +288,7 @@ func (it *dbMap) shardSize() int64 {
 }
 
 func (it *dbMap) getStore(id uint64) (store storage.Conn) {
-	return it.storeMgr.store(id)
+	return it.storeMgr.store(id, it.data.Id)
 }
 
 func (it *dbMap) syncMap(meta *kvapi.Meta, data *kvapi.DatabaseMap) {
@@ -303,7 +305,7 @@ func (it *dbMap) syncMap(meta *kvapi.Meta, data *kvapi.DatabaseMap) {
 }
 
 func (it *dbMap) syncStore(id uint64, store storage.Conn) {
-	it.storeMgr.syncStore(id, store)
+	it.storeMgr.syncStore(id, it.data.Id, store)
 }
 
 func (it *dbMap) getShard(id uint64) (*kvapi.DatabaseMap_Shard, *kvapi.DatabaseMap_Shard) {
@@ -335,7 +337,7 @@ func (it *dbMap) _hitShardConv(hit *kvapi.DatabaseMap_Shard) *dbMapSelectShard {
 		if !kvapi.AttrAllow(rep.Action, kReplicaSetup_In) {
 			continue
 		}
-		store := it.storeMgr.store(rep.StoreId)
+		store := it.storeMgr.store(rep.StoreId, it.data.Id)
 		if store == nil {
 			continue
 		}
@@ -343,6 +345,7 @@ func (it *dbMap) _hitShardConv(hit *kvapi.DatabaseMap_Shard) *dbMapSelectShard {
 		if !ok {
 			trep, err = NewDatabase(store, it.data.Id, it.data.Name, hit.Id, rep.Id, it.cfg, it.incrMgr)
 			if err != nil {
+				hlog.Printf("info", "new database err %s", err.Error())
 				continue
 			}
 

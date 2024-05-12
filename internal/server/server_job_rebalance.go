@@ -359,7 +359,7 @@ func (it *dbServer) jobReplicaRebalanceSetup(force bool) error {
 			return
 		}
 
-		store := tm.storeMgr.store(reEntry.dstReplica.StoreId)
+		store := tm.storeMgr.store(reEntry.dstReplica.StoreId, tm.data.Id)
 		if store == nil {
 			return
 		}

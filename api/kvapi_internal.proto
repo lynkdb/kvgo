@@ -207,34 +207,6 @@ message InnerReadRequest {
   string log_range_token = 6;
 }
 
-// message TransferJob {
-//   message Source {
-//     string addr = 1;
-//     string database = 2;
-//     // access_key =3;
-//   }
-//   string uid = 1;
-//   Source source = 2;
-//   string sink_database = 3;
-//
-//   int64 interval_seconds = 6;
-// }
-//
-// message Job {
-//   // Output only. unique identifier for job
-//   string uid = 1;
-//
-//   // description
-//   string desc = 2;
-//
-//   google.protobuf.Any spec = 6;
-//
-//   map<string, string> options = 9;
-//
-//   int64 created = 14;
-//   int64 updated = 15;
-// }
-
 service KvgoInternal {
   rpc LogRange(LogRangeRequest) returns (LogRangeResponse) {}
   rpc Read(InnerReadRequest) returns (ResultSet) {}

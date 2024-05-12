@@ -502,7 +502,7 @@ func (it *dbServer) jobDatabaseAutoClean() {
 	for !it.close {
 		tr.Reset(1e9)
 		t := <-tr.C
-		if lastCleanTime+5 > t.Unix() {
+		if lastCleanTime+600 > t.Unix() {
 			continue
 		}
 
@@ -780,13 +780,13 @@ func (it *dbServer) jobStoreStatusRefresh() error {
 			used  = int64(st.Used) / (1 << 20)
 			total = int64(st.Total) / (1 << 20)
 
-			logUsed  int64 = -1
-			metaUsed int64 = -1
-			dataUsed int64 = -1
-			ttlUsed  int64 = -1
+			logUsed  int64 = 0
+			metaUsed int64 = 0
+			dataUsed int64 = 0
+			ttlUsed  int64 = 0
 		)
 
-		if store := it.storeMgr.store(vol.StoreId); store != nil {
+		it.storeMgr.iter(vol.StoreId, func(store storage.Conn) {
 
 			sizeIter := func(ns byte) int64 {
 				if rs, err := store.SizeOf([]*storage.IterOptions{
@@ -797,30 +797,30 @@ func (it *dbServer) jobStoreStatusRefresh() error {
 				}); err == nil {
 					return rs[0] / (1 << 20)
 				}
-				return -1
+				return 0
 			}
 
-			logUsed = sizeIter(nsKeyLog)
-			metaUsed = sizeIter(nsKeyMeta)
-			dataUsed = sizeIter(nsKeyData)
-			ttlUsed = sizeIter(nsKeyTtl)
-		}
+			logUsed += sizeIter(nsKeyLog)
+			metaUsed += sizeIter(nsKeyMeta)
+			dataUsed += sizeIter(nsKeyData)
+			ttlUsed += sizeIter(nsKeyTtl)
+		})
 
 		it.storeMgr.setStatus(vol.UniId, vol.StoreId, func(s *kvapi.SysStoreStatus) {
 			s.CapacityUsed = used
 			s.CapacityFree = total - used
 			s.Updated = timesec()
 			s.Options["fstype"] = st.Fstype
-			if logUsed >= 0 {
+			if logUsed > 0 {
 				s.LogUsed = logUsed
 			}
-			if metaUsed >= 0 {
+			if metaUsed > 0 {
 				s.MetaUsed = metaUsed
 			}
-			if dataUsed >= 0 {
+			if dataUsed > 0 {
 				s.DataUsed = dataUsed
 			}
-			if ttlUsed >= 0 {
+			if ttlUsed > 0 {
 				s.TtlUsed = ttlUsed
 			}
 		})

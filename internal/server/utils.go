@@ -107,6 +107,14 @@ func bytesToHexString(bs []byte) string {
 	return hex.EncodeToString(bs)
 }
 
+func hexToUint32(s string) uint32 {
+	b, err := hex.DecodeString(s)
+	if err != nil || len(b) != 4 {
+		return 0
+	}
+	return binary.BigEndian.Uint32(b)
+}
+
 func randUint64() uint64 {
 	return mrand.Uint64()
 }

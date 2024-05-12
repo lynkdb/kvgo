@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/hooto/hlog4g/hlog"
 	"google.golang.org/grpc"
 
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
@@ -70,7 +71,7 @@ func (it *serviceApiInternalImpl) Read(
 
 	var (
 		readSize  int
-		limitSize = 2 << 20
+		limitSize = 1 << 20
 	)
 
 	rs = newResultSetOK()
@@ -84,13 +85,18 @@ func (it *serviceApiInternalImpl) Read(
 		}
 
 		ss := hit.replicas[0].store.Get(keyEncode(nsKeyData, key), nil)
+		if ss.NotFound() {
+			// TODO
+			hlog.Printf("info", "key(%s) not found", string(key))
+			continue
+		}
 
 		item2, err := kvapi.KeyValueDecode(ss.Bytes())
-		item2.Key = key
-
 		if err != nil {
+			hlog.Printf("info", "decode key(%s) meta fail %s", string(key), err.Error())
 			return nil, err
 		}
+		item2.Key = key
 
 		readSize += len(ss.Bytes())
 		rs.Items = append(rs.Items, item2)

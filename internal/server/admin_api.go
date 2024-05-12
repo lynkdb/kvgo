@@ -23,6 +23,7 @@ import (
 	"github.com/hooto/hlog4g/hlog"
 	"google.golang.org/grpc"
 
+	"github.com/lynkdb/kvgo/v2/internal/utils"
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 	"github.com/lynkdb/kvgo/v2/pkg/storage"
 )
@@ -69,8 +70,10 @@ func (it *serviceAdminImpl) DatabaseCreate(
 		return newResultSetWithClientError("invalid database name"), nil
 	}
 
-	if req.Engine != storage.DefaultDriver {
+	if req.Engine != "" && req.Engine != storage.DefaultDriver {
 		return newResultSetWithClientError("invalid database engine " + req.Engine), nil
+	} else if req.Engine == "" {
+		req.Engine = storage.DefaultDriver
 	}
 
 	if !it.dbServer.cfg.Server.IsStandaloneMode() {
@@ -212,6 +215,49 @@ func (it *serviceAdminImpl) DatabaseUpdate(
 	}
 
 	hlog.Printf("info", "database update : %v", tmap.data)
+
+	return rs, nil
+}
+
+func (it *serviceAdminImpl) JobList(
+	ctx context.Context,
+	req *kvapi.JobListRequest,
+) (*kvapi.ResultSet, error) {
+
+	if !it.dbServer.cfg.Server.IsStandaloneMode() {
+		return newResultSetWithServerError("runtime mode not setup"), nil
+	}
+
+	if err := it.auth(ctx); err != nil {
+		return newResultSetWithAuthDeny(err.Error()), nil
+	}
+
+	rs := newResultSetOK()
+
+	confset := map[string]ConfigTransferJob{}
+	for _, c := range it.dbServer.cfg.TransferJobs {
+		confset[c.UniId] = c
+	}
+
+	it.dbServer.transferMgr.iter(func(jobOffset *jobTransferInOffset) {
+
+		conf, ok := confset[jobOffset.UniId]
+		if !ok {
+			return
+		}
+
+		spec, err := utils.ParseJobSpec(conf)
+		if err != nil {
+			return
+		}
+
+		resultSetAppendWithJsonObject(rs, []byte(fmt.Sprintf("job/transfer/in/%s", jobOffset.UniId)), &kvapi.Meta{}, &kvapi.Job{
+			Spec: spec,
+			Status: &kvapi.JobStatus{
+				Items: utils.TryParseMap(*jobOffset),
+			},
+		})
+	})
 
 	return rs, nil
 }

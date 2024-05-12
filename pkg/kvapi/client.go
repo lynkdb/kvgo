@@ -37,7 +37,7 @@ type ClientWriter interface {
 	SetIncr(id uint64, ns string) ClientWriter
 
 	SetPrevVersion(v uint64) ClientWriter
-	SetPrevChecksum(v uint64) ClientWriter
+	SetPrevChecksum(v interface{}) ClientWriter
 
 	Exec() *ResultSet
 }
@@ -46,7 +46,7 @@ type ClientDeleter interface {
 	SetRetainMeta(b bool) ClientDeleter
 
 	SetPrevVersion(v uint64) ClientDeleter
-	SetPrevChecksum(v uint64) ClientDeleter
+	SetPrevChecksum(v interface{}) ClientDeleter
 
 	Exec() *ResultSet
 }
@@ -72,6 +72,7 @@ type AdminClient interface {
 	DatabaseList(req *DatabaseListRequest) *ResultSet
 	DatabaseCreate(req *DatabaseCreateRequest) *ResultSet
 	DatabaseUpdate(req *DatabaseUpdateRequest) *ResultSet
+	JobList(req *JobListRequest) *ResultSet
 	SysGet(req *SysGetRequest) *ResultSet
 	Close() error
 }

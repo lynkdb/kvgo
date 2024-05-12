@@ -326,7 +326,7 @@ func (it *dbServer) jobShardSplitSetup() error {
 				continue
 			}
 
-			store := tm.storeMgr.store(rep.StoreId)
+			store := tm.storeMgr.store(rep.StoreId, tm.data.Id)
 			if store == nil {
 				continue
 			}

@@ -52,7 +52,7 @@ type jobTransferInOffset struct {
 	UniId    string `json:"uni_id"`
 	LogToken string `json:"log_token"`
 
-	FullScan  bool   `json:"full_scan"`
+	FullScan  bool   `json:"full_scan,omitempty"`
 	KeyOffset []byte `json:"key_offset,omitempty"`
 
 	Updated int64 `json:"updated"`

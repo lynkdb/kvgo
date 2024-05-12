@@ -22,11 +22,17 @@ import (
 	"github.com/lynkdb/kvgo/v2/pkg/storage"
 )
 
+type storeDatabase struct {
+	id         uint64
+	databaseId string
+	store      storage.Conn
+}
+
 type storeManager struct {
 	mu sync.RWMutex
 
 	configs map[uint64]*ConfigStore
-	stores  map[uint64]storage.Conn
+	stores  map[uint64]*storeDatabase //storage.Conn
 
 	status storeStatusManager
 
@@ -48,15 +54,29 @@ type storeStatusManager struct {
 func newStoreManager() *storeManager {
 	return &storeManager{
 		configs: map[uint64]*ConfigStore{},
-		stores:  map[uint64]storage.Conn{},
+		stores:  map[uint64]*storeDatabase{}, //storage.Conn{},
 	}
 }
 
-func (it *storeManager) store(id uint64) storage.Conn {
+func (it *storeManager) iter(id uint64, fn func(store storage.Conn)) {
 	it.mu.Lock()
 	defer it.mu.Unlock()
-	if s, ok := it.stores[id]; ok {
-		return s
+	for _, s := range it.stores {
+		if s.id == id {
+			fn(s.store)
+		}
+	}
+}
+
+func (it *storeManager) store(id uint64, databaseId string) storage.Conn {
+	did := uint64(hexToUint32(databaseId))
+	if did == 0 {
+		return nil
+	}
+	it.mu.Lock()
+	defer it.mu.Unlock()
+	if s, ok := it.stores[(did<<32)+id]; ok {
+		return s.store
 	}
 	return nil
 }
@@ -87,11 +107,19 @@ func (it *storeManager) setConfig(cfg *ConfigStore) {
 	}
 }
 
-func (it *storeManager) syncStore(id uint64, store storage.Conn) {
+func (it *storeManager) syncStore(id uint64, databaseId string, store storage.Conn) {
+	did := uint64(hexToUint32(databaseId))
+	if did == 0 {
+		return
+	}
 	it.mu.Lock()
 	defer it.mu.Unlock()
-	if _, ok := it.stores[id]; !ok {
-		it.stores[id] = store
+	if _, ok := it.stores[(did<<32)+id]; !ok {
+		it.stores[(did<<32)+id] = &storeDatabase{
+			id:         id,
+			databaseId: databaseId,
+			store:      store,
+		}
 	}
 }
 
@@ -170,9 +198,9 @@ func (it *storeManager) closeAll() error {
 	it.mu.Lock()
 	defer it.mu.Unlock()
 	for _, s := range it.stores {
-		s.Close()
+		s.store.Close()
 	}
-	it.stores = map[uint64]storage.Conn{}
+	it.stores = map[uint64]*storeDatabase{} //storage.Conn{}
 	return nil
 }
 

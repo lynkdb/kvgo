@@ -23,6 +23,7 @@ import (
 
 	"github.com/hooto/hauth/go/hauth/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/encoding/gzip"
 
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
@@ -70,6 +71,7 @@ func (it *ConfigTransferSource) newClient() (*internalClientConn, error) {
 
 		if it.Options == nil {
 			it.Options = kvapi.DefaultClientOptions()
+			it.Options.Timeout = 20000
 		}
 
 		dbConn = &internalClientConn{
@@ -87,6 +89,7 @@ func (it *ConfigTransferSource) newClient() (*internalClientConn, error) {
 func (it *ConfigTransferSource) timeout() time.Duration {
 	if it.Options == nil {
 		it.Options = kvapi.DefaultClientOptions()
+		it.Options.Timeout = 20000
 	}
 	return time.Millisecond * time.Duration(it.Options.Timeout)
 }
@@ -100,7 +103,7 @@ func (it *internalClientConn) innerLogRange(req *kvapi.LogRangeRequest) *kvapi.L
 		req.Database = it.database
 	}
 
-	rs, err := it.kvClient.LogRange(ctx, req)
+	rs, err := it.kvClient.LogRange(ctx, req, grpc.UseCompressor(gzip.Name))
 	if err != nil {
 		return newLogRangeResponse(kvapi.Status_ServerError, err.Error())
 	}
@@ -117,7 +120,7 @@ func (it *internalClientConn) innerRead(req *kvapi.InnerReadRequest) *kvapi.Resu
 		req.Database = it.database
 	}
 
-	rs, err := it.kvClient.Read(ctx, req)
+	rs, err := it.kvClient.Read(ctx, req, grpc.UseCompressor(gzip.Name))
 	if err != nil {
 		return newResultSet(kvapi.Status_ServerError, err.Error())
 	}
@@ -134,7 +137,7 @@ func (it *internalClientConn) innerRange(req *kvapi.RangeRequest) *kvapi.ResultS
 		req.Database = it.database
 	}
 
-	rs, err := it.kvClient.Range(ctx, req)
+	rs, err := it.kvClient.Range(ctx, req, grpc.UseCompressor(gzip.Name))
 	if err != nil {
 		return newResultSet(kvapi.Status_ServerError, err.Error())
 	}

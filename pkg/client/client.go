@@ -104,7 +104,7 @@ func (it *Config) NewClient() (kvapi.Client, error) {
 		dbConns[ak] = dbConn
 	}
 
-	return dbConn, nil
+	return dbConn.setDatabase(it.Database), nil
 }
 
 func (it *Config) NewAdminClient() (kvapi.AdminClient, error) {
@@ -249,24 +249,29 @@ func (it *clientConn) Batch(req *kvapi.BatchRequest) *kvapi.BatchResponse {
 	return rs
 }
 
+func (it *clientConn) setDatabase(name string) kvapi.Client {
+	if name == "" || name == it.database {
+		return it
+	}
+	dbConn, ok := dbConns[it._ak+":"+name]
+	if ok {
+		return dbConn
+	}
+	dbConn = &clientConn{
+		_ak:      it._ak,
+		database: name,
+		cfg:      it.cfg,
+		rpcConn:  it.rpcConn,
+		kvClient: it.kvClient,
+	}
+	dbConns[it._ak+":"+name] = dbConn
+	return dbConn
+}
+
 func (it *clientConn) SetDatabase(name string) kvapi.Client {
 	dbMut.Lock()
 	defer dbMut.Unlock()
-	if name != "" && name != it.database {
-
-		if _, ok := dbConns[it._ak+":"+name]; !ok {
-			dbConns[it._ak+":"+name] = &clientConn{
-				_ak:      it._ak,
-				database: name,
-				cfg:      it.cfg,
-				rpcConn:  it.rpcConn,
-				kvClient: it.kvClient,
-			}
-		}
-
-		it.database = name
-	}
-	return it
+	return it.setDatabase(name)
 }
 
 func (it *clientConn) NewReader(key []byte, keys ...[]byte) kvapi.ClientReader {
@@ -381,8 +386,8 @@ func (it *clientWriter) SetPrevVersion(v uint64) kvapi.ClientWriter {
 	return it
 }
 
-func (it *clientWriter) SetPrevChecksum(v uint64) kvapi.ClientWriter {
-	it.req.PrevChecksum = v
+func (it *clientWriter) SetPrevChecksum(v interface{}) kvapi.ClientWriter {
+	it.req.SetPrevChecksum(v)
 	return it
 }
 
@@ -405,8 +410,8 @@ func (it *clientDeleter) SetPrevVersion(v uint64) kvapi.ClientDeleter {
 	return it
 }
 
-func (it *clientDeleter) SetPrevChecksum(v uint64) kvapi.ClientDeleter {
-	it.req.PrevChecksum = v
+func (it *clientDeleter) SetPrevChecksum(v interface{}) kvapi.ClientDeleter {
+	it.req.SetPrevChecksum(v)
 	return it
 }
 
@@ -444,6 +449,18 @@ func (it *adminClientConn) DatabaseUpdate(req *kvapi.DatabaseUpdateRequest) *kva
 	defer fc()
 
 	rs, err := it.ac.DatabaseUpdate(ctx, req)
+	if err != nil {
+		return newResultSetWithClientError(err.Error())
+	}
+	return rs
+}
+
+func (it *adminClientConn) JobList(req *kvapi.JobListRequest) *kvapi.ResultSet {
+
+	ctx, fc := context.WithTimeout(context.Background(), it.cfg.timeout())
+	defer fc()
+
+	rs, err := it.ac.JobList(ctx, req)
 	if err != nil {
 		return newResultSetWithClientError(err.Error())
 	}

@@ -33,6 +33,7 @@ import (
 	ps_cpu "github.com/shirou/gopsutil/v3/cpu"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	_ "google.golang.org/grpc/encoding/gzip"
 
 	"github.com/lynkdb/kvgo/v2/internal/utils"
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
@@ -327,7 +328,7 @@ func (it *dbServer) dbSystemSetup() error {
 		},
 	})
 
-	it.storeMgr.syncStore(sysDatabaseStoreId, store)
+	it.storeMgr.syncStore(sysDatabaseStoreId, sysDatabaseId, store)
 
 	return nil
 }
@@ -369,6 +370,8 @@ func (it *dbServer) netSetup() error {
 		grpc.MaxMsgSize(grpcMsgByteMax * 2),
 		grpc.MaxSendMsgSize(grpcMsgByteMax * 2),
 		grpc.MaxRecvMsgSize(grpcMsgByteMax * 2),
+		// testing
+		grpc.ConnectionTimeout(61 * time.Second),
 	}
 
 	if it.cfg.Server.AuthTLSCert != nil {

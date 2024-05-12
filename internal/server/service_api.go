@@ -52,7 +52,7 @@ func (it *serviceApiImpl) Write(
 		return it.dbServer.apiWrite(req, hit), nil
 	}
 
-	return newResultSetWithServerError("write: server not ready"), nil
+	return newResultSetWithServerError("db(%s) write: server not ready", req.Database), nil
 }
 
 func (it *serviceApiImpl) Delete(
