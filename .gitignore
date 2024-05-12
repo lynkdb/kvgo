@@ -10,7 +10,6 @@ go.sum
 bin/
 var/
 *.go0
-pkg/object/
 todo.md
 debug-run.sh
 test-n1s4.sh
