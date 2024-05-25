@@ -1,8 +1,8 @@
 module github.com/lynkdb/kvgo/v2
 
-go 1.22.0
+go 1.22.3
 
-toolchain go1.22.2
+replace github.com/lynkdb/lynkx v0.0.1 => /opt/workspace/src/github.com/lynkdb/lynkx
 
 require (
 	github.com/cespare/xxhash/v2 v2.2.0
@@ -12,16 +12,18 @@ require (
 	github.com/hooto/hlog4g v0.9.4
 	github.com/hooto/hmetrics v0.0.1
 	github.com/hooto/htoml4g v0.9.5
+	github.com/lynkdb/lynkx v0.0.1
 	github.com/olekukonko/tablewriter v0.0.6-0.20230925090304-df64c4bbad77
 	github.com/shirou/gopsutil/v3 v3.24.2
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d
-	google.golang.org/grpc v1.62.1
-	google.golang.org/protobuf v1.33.0
+	google.golang.org/grpc v1.63.2
+	google.golang.org/protobuf v1.34.1
 )
 
 require (
 	github.com/DataDog/zstd v1.5.5 // indirect
 	github.com/ServiceWeaver/weaver v0.15.0 // indirect
+	github.com/andybalholm/brotli v1.1.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cockroachdb/errors v1.11.1 // indirect
 	github.com/cockroachdb/logtags v0.0.0-20230118201751-21c54148d20b // indirect
@@ -30,10 +32,10 @@ require (
 	github.com/getsentry/sentry-go v0.26.0 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
-	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hooto/hflag4g v0.10.0 // indirect
+	github.com/hooto/httpsrv v0.12.4 // indirect
 	github.com/klauspost/compress v1.17.4 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect

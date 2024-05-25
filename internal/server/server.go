@@ -35,6 +35,8 @@ import (
 	"google.golang.org/grpc/credentials"
 	_ "google.golang.org/grpc/encoding/gzip"
 
+	"github.com/lynkdb/lynkx/datax"
+
 	"github.com/lynkdb/kvgo/v2/internal/utils"
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 	"github.com/lynkdb/kvgo/v2/pkg/storage"
@@ -211,6 +213,7 @@ func dbServerSetup(cfgFile string, cfg Config) (*dbServer, error) {
 			dbServer:       srv,
 			serviceApiImpl: srv.api,
 		}
+
 	}
 
 	{
@@ -421,6 +424,15 @@ func (it *dbServer) netSetup() error {
 	kvapi.RegisterKvgoServer(grpcServer, it.api)
 	kvapi.RegisterKvgoAdminServer(grpcServer, it.apiAdmin)
 	kvapi.RegisterKvgoInternalServer(grpcServer, it.apiInternal)
+
+	{
+		dx := datax.NewService()
+		dx.RegisterService(&AdminService{
+			dbServer: it,
+		})
+
+		datax.RegisterDataxServiceServer(grpcServer, dx)
+	}
 
 	go grpcServer.Serve(lis)
 

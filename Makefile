@@ -2,18 +2,19 @@
 
 EXE_SERVER = bin/kvgod
 EXE_CLI = bin/kvgo
+EXE_CLIX = bin/kvgox
 APP_HOME = /opt/lynkdb/kvgo
 APP_USER = kvgo
 
 PROTOC_CMD = protoc
 PROTOC_ARGS = --proto_path=./api/ --go_opt=paths=source_relative --go_out=./pkg/kvapi --go-grpc_out=./pkg/kvapi ./api/*.proto
 
-HTOML_TAG_FIX_CMD = htoml-tag-fix
-HTOML_TAG_FIX_ARGS = pkg/kvapi
+LYNKX_FITTER_CMD = lynkx-fitter
+LYNKX_FITTER_ARGS = pkg/kvapi
 
-.PHONY: server server-run cli cli-install cli-run install test api clean code-stats
+.PHONY: server server-run cli clix cli-install cli-run install test api clean code-stats
 
-all: server cli
+all: server cli clix
 	@echo ""
 	@echo "build complete"
 	@echo ""
@@ -23,6 +24,9 @@ server:
 
 cli:
 	go build -trimpath -ldflags="-s -w" -tags="disable_storage" -o ${EXE_CLI} cmd/cli/main.go
+
+clix:
+	go build -trimpath -ldflags="-s -w" -tags="disable_storage" -o ${EXE_CLIX} cmd/clix/main.go
 
 cli-install: cli
 	mkdir -p ${APP_HOME}/bin
@@ -59,8 +63,9 @@ api:
 	##  go install github.com/golang/protobuf/protoc-gen-go
 	##  go install google.golang.org/grpc/cmd/protoc-gen-go-grpc
 	##  go install github.com/hooto/htoml4g/cmd/htoml-tag-fix
+	go install github.com/lynkdb/lynkx/cmd/lynkx-fitter
 	$(PROTOC_CMD) $(PROTOC_ARGS)
-	$(HTOML_TAG_FIX_CMD) $(HTOML_TAG_FIX_ARGS)
+	$(LYNKX_FITTER_CMD) $(LYNKX_FITTER_ARGS)
 
 clean:
 	rm -f ${EXE_SERVER}

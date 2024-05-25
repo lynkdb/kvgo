@@ -21,7 +21,6 @@ import (
 
 	hauth "github.com/hooto/hauth/go/hauth/v1"
 
-	"github.com/lynkdb/kvgo/v2/internal/utils"
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 	"github.com/lynkdb/kvgo/v2/pkg/storage"
 )
@@ -44,7 +43,7 @@ type Config struct {
 	Cluster ConfigCluster `toml:"cluster" json:"cluster" desc:"Cluster Settings"`
 
 	// Data Transfer Settings
-	TransferJobs []ConfigTransferJob `toml:"transfer_jobs" json:"transfer_jobs"`
+	TransferJobs []*ConfigTransferJob `toml:"transfer_jobs" json:"transfer_jobs"`
 }
 
 type ConfigStorage struct {
@@ -130,6 +129,9 @@ type ConfigTransferJob struct {
 
 	// Interval between the start of each scheduled Transfer Job.
 	RepeatIntervalSeconds int64 `toml:"repeat_interval_seconds" json:"repeat_interval_seconds"`
+
+	// description
+	Desc string `toml:"desc,omitempty" json:"desc,omitempty"`
 }
 
 type ConfigCluster struct {
@@ -270,37 +272,6 @@ func (it *Config) Reset() *Config {
 			if bs, err := ioutil.ReadFile(it.Server.AuthTLSCert.ServerCertFile); err == nil {
 				it.Server.AuthTLSCert.ServerCertData = strings.TrimSpace(string(bs))
 			}
-		}
-	}
-
-	if it.Server.DebugMode && len(it.TransferJobs) == 0 {
-		it.TransferJobs = append(it.TransferJobs, ConfigTransferJob{
-			Source: ConfigTransferSource{
-				Addr:     "49.232.65.177:9566",
-				Database: "test",
-				AccessKey: &hauth.AccessKey{
-					Id:     "00000000",
-					Secret: "jOR3tZusw5wVzkZH8VqH3T4hAcbB/l0yVIMld5yz",
-				},
-			},
-			SinkDatabase:          "test",
-			RepeatIntervalSeconds: 60,
-		})
-
-	} else {
-		// it.TransferJobs = nil
-	}
-
-	for i, v := range it.TransferJobs {
-		if !hex12_32.MatchString(v.UniId) {
-			it.TransferJobs[i].UniId = utils.RandUint64HexString()
-		}
-		if v.RepeatIntervalSeconds == 0 {
-			it.TransferJobs[i].RepeatIntervalSeconds = kJobTransfer_IntervalSeconds_Def
-		} else if v.RepeatIntervalSeconds < kJobTransfer_IntervalSeconds_Min {
-			it.TransferJobs[i].RepeatIntervalSeconds = kJobTransfer_IntervalSeconds_Min
-		} else if v.RepeatIntervalSeconds > kJobTransfer_IntervalSeconds_Max {
-			it.TransferJobs[i].RepeatIntervalSeconds = kJobTransfer_IntervalSeconds_Max
 		}
 	}
 

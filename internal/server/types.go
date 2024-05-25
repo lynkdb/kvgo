@@ -48,7 +48,25 @@ type logRangeToken struct {
 	nextIndex []*logRangeTokenItem
 }
 
-type jobTransferInOffset struct {
+type JobTransferInOffsetStats struct {
+	DeltaLogRead   int64 `json:"delta_log_read"`
+	DeltaDataRead  int64 `json:"delta_data_read"`
+	DeltaDataFlush int64 `json:"delta_data_flush"`
+
+	FullPull      int64 `json:"full_pull"`
+	FullMetaRead  int64 `json:"full_meta_read"`
+	FullDataRead  int64 `json:"full_data_read"`
+	FullDataFlush int64 `json:"full_data_flush"`
+
+	LocalMetaRead int64 `json:"local_meta_read"`
+	LocalMetaSkip int64 `json:"local_meta_skip"`
+	LocalDelete   int64 `json:"local_delete"`
+
+	MergeDeny int64 `json:"merge_deny"`
+	MergeSkip int64 `json:"merge_skip"`
+}
+
+type JobTransferInOffset struct {
 	UniId    string `json:"uni_id"`
 	LogToken string `json:"log_token"`
 
@@ -57,23 +75,7 @@ type jobTransferInOffset struct {
 
 	Updated int64 `json:"updated"`
 
-	Stats struct {
-		DeltaLogRead   int64 `json:"delta_log_read"`
-		DeltaDataRead  int64 `json:"delta_data_read"`
-		DeltaDataFlush int64 `json:"delta_data_flush"`
-
-		FullPull      int64 `json:"full_pull"`
-		FullMetaRead  int64 `json:"full_meta_read"`
-		FullDataRead  int64 `json:"full_data_read"`
-		FullDataFlush int64 `json:"full_data_flush"`
-
-		LocalMetaRead int64 `json:"local_meta_read"`
-		LocalMetaSkip int64 `json:"local_meta_skip"`
-		LocalDelete   int64 `json:"local_delete"`
-
-		MergeDeny int64 `json:"merge_deny"`
-		MergeSkip int64 `json:"merge_skip"`
-	} `json:"stats"`
+	Stats JobTransferInOffsetStats `json:"stats"`
 }
 
 func newLogRangeToken(s string) *logRangeToken {

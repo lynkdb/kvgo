@@ -16,6 +16,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -23,7 +24,8 @@ import (
 	"github.com/hooto/hlog4g/hlog"
 	"google.golang.org/grpc"
 
-	"github.com/lynkdb/kvgo/v2/internal/utils"
+	"github.com/lynkdb/lynkx/datax"
+
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 	"github.com/lynkdb/kvgo/v2/pkg/storage"
 )
@@ -219,49 +221,6 @@ func (it *serviceAdminImpl) DatabaseUpdate(
 	return rs, nil
 }
 
-func (it *serviceAdminImpl) JobList(
-	ctx context.Context,
-	req *kvapi.JobListRequest,
-) (*kvapi.ResultSet, error) {
-
-	if !it.dbServer.cfg.Server.IsStandaloneMode() {
-		return newResultSetWithServerError("runtime mode not setup"), nil
-	}
-
-	if err := it.auth(ctx); err != nil {
-		return newResultSetWithAuthDeny(err.Error()), nil
-	}
-
-	rs := newResultSetOK()
-
-	confset := map[string]ConfigTransferJob{}
-	for _, c := range it.dbServer.cfg.TransferJobs {
-		confset[c.UniId] = c
-	}
-
-	it.dbServer.transferMgr.iter(func(jobOffset *jobTransferInOffset) {
-
-		conf, ok := confset[jobOffset.UniId]
-		if !ok {
-			return
-		}
-
-		spec, err := utils.ParseJobSpec(conf)
-		if err != nil {
-			return
-		}
-
-		resultSetAppendWithJsonObject(rs, []byte(fmt.Sprintf("job/transfer/in/%s", jobOffset.UniId)), &kvapi.Meta{}, &kvapi.Job{
-			Spec: spec,
-			Status: &kvapi.JobStatus{
-				Items: utils.TryParseMap(*jobOffset),
-			},
-		})
-	})
-
-	return rs, nil
-}
-
 func (it *serviceAdminImpl) SysGet(
 	ctx context.Context,
 	req *kvapi.SysGetRequest,
@@ -355,11 +314,6 @@ func (it *serviceAdminImpl) SysGet(
 		})
 		resultSetAppendWithJsonObject(rs, []byte("store/status"), &kvapi.Meta{}, it.dbServer.storeMgr.status)
 
-	case "transfer-info":
-		it.dbServer.transferMgr.iter(func(jobOffset *jobTransferInOffset) {
-			resultSetAppendWithJsonObject(rs, []byte("transfer/in/"+jobOffset.UniId), &kvapi.Meta{}, jobOffset)
-		})
-
 	default:
 		return nil, fmt.Errorf("name (%s) not match", req.Name)
 	}
@@ -386,4 +340,117 @@ func (it *serviceAdminImpl) auth(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+type AdminService struct {
+	dbServer *dbServer
+}
+
+func (it *AdminService) PreMethod(ctx context.Context) error {
+
+	if !it.dbServer.cfg.Server.IsStandaloneMode() {
+		return errors.New("runtime mode not setup")
+	}
+
+	if ctx != nil {
+
+		av, err := appAuthParse(ctx, it.dbServer.keyMgr)
+		if err != nil {
+			return err
+		}
+
+		if err := av.SignValid(nil); err != nil {
+			return err
+		}
+
+		if err := av.Allow(authPermSysAll); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+type JobListRequest struct{}
+
+type JobListResponse struct {
+	Items []*JobItem `json:"items" x_attrs:"rows"`
+}
+
+type JobItem struct {
+	Job    *ConfigTransferJob   `json:"job"`
+	Offset *JobTransferInOffset `json:"offset"`
+}
+
+func (it *AdminService) JobList(
+	ctx datax.Context,
+	req *JobListRequest,
+) (*JobListResponse, error) {
+
+	rs := &JobListResponse{}
+
+	it.dbServer.transferMgr.iter(func(jobEntry *transferJobEntry) {
+		rs.Items = append(rs.Items, &JobItem{
+			Job:    jobEntry.job,
+			Offset: jobEntry.inOffset,
+		})
+	})
+
+	return rs, nil
+}
+
+type JobUpdateTransferRequest struct {
+	UniId                 string                  `json:"uni_id" x_attrs:"primary_key"`
+	Action                string                  `json:"action" x_attrs:"create_required" x_enums:"enable,disable" x_value_limits:"enable"`
+	Source                JobUpdateTransferSource `json:"source" x_attrs:"create_required"`
+	SinkDatabase          string                  `json:"sink_database" x_attrs:"create_required"`
+	RepeatIntervalSeconds int64                   `json:"repeat_interval_seconds" x_value_limits:"60,60,3600"`
+	Desc                  string                  `json:"desc,omitempty"`
+}
+
+type JobUpdateTransferAccessKey struct {
+	Id     string `json:"id" x_attrs:"create_required"`
+	Secret string `json:"secret" x_attrs:"create_required"`
+}
+
+type JobUpdateTransferSource struct {
+	Addr      string                     `json:"addr" x_attrs:"create_required"`
+	Database  string                     `json:"database" x_attrs:"create_required"`
+	AccessKey JobUpdateTransferAccessKey `json:"access_key" x_attrs:"create_required"`
+	Desc      string                     `json:"desc,omitempty"`
+}
+
+func (it *AdminService) JobUpdate(
+	ctx datax.Context,
+	req *JobUpdateTransferRequest,
+) (*ConfigTransferJob, error) {
+
+	jobEntry := it.dbServer.transferMgr.jobEntry(req.UniId)
+	if jobEntry == nil || jobEntry.job == nil {
+		return nil, datax.NewNotFoundError(fmt.Sprintf("job (%s) not found", req.UniId))
+	}
+
+	if chg, err := ctx.RequestSpec().DataMerge(jobEntry.job, req); err != nil {
+		return nil, datax.NewBadRequestError(fmt.Sprintf("data merge fail : %s", err.Error()))
+	} else if chg {
+		it.dbServer.ConfigFlush()
+	}
+
+	return jobEntry.job, nil
+}
+
+func (it *AdminService) DatabaseList(
+	ctx datax.Context,
+	req *kvapi.DatabaseListRequest,
+) (*kvapi.ResultSet, error) {
+
+	rs := newResultSetOK()
+
+	it.dbServer.dbMapMgr.iter(func(tbl *dbMap) {
+		if tbl.data != nil {
+			resultSetAppendWithJsonObject(rs, []byte(tbl.data.Name), tbl.meta, tbl.data)
+		}
+	})
+
+	return rs, nil
 }

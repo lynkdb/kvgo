@@ -274,7 +274,6 @@ const (
 	KvgoAdmin_DatabaseList_FullMethodName   = "/lynkdb.kvapi.v2.KvgoAdmin/DatabaseList"
 	KvgoAdmin_DatabaseCreate_FullMethodName = "/lynkdb.kvapi.v2.KvgoAdmin/DatabaseCreate"
 	KvgoAdmin_DatabaseUpdate_FullMethodName = "/lynkdb.kvapi.v2.KvgoAdmin/DatabaseUpdate"
-	KvgoAdmin_JobList_FullMethodName        = "/lynkdb.kvapi.v2.KvgoAdmin/JobList"
 	KvgoAdmin_SysGet_FullMethodName         = "/lynkdb.kvapi.v2.KvgoAdmin/SysGet"
 )
 
@@ -285,8 +284,6 @@ type KvgoAdminClient interface {
 	DatabaseList(ctx context.Context, in *DatabaseListRequest, opts ...grpc.CallOption) (*ResultSet, error)
 	DatabaseCreate(ctx context.Context, in *DatabaseCreateRequest, opts ...grpc.CallOption) (*ResultSet, error)
 	DatabaseUpdate(ctx context.Context, in *DatabaseUpdateRequest, opts ...grpc.CallOption) (*ResultSet, error)
-	JobList(ctx context.Context, in *JobListRequest, opts ...grpc.CallOption) (*ResultSet, error)
-	// rpc JobUpdate(JobUpdateRequest) returns (ResultSet) {}
 	SysGet(ctx context.Context, in *SysGetRequest, opts ...grpc.CallOption) (*ResultSet, error)
 }
 
@@ -325,15 +322,6 @@ func (c *kvgoAdminClient) DatabaseUpdate(ctx context.Context, in *DatabaseUpdate
 	return out, nil
 }
 
-func (c *kvgoAdminClient) JobList(ctx context.Context, in *JobListRequest, opts ...grpc.CallOption) (*ResultSet, error) {
-	out := new(ResultSet)
-	err := c.cc.Invoke(ctx, KvgoAdmin_JobList_FullMethodName, in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *kvgoAdminClient) SysGet(ctx context.Context, in *SysGetRequest, opts ...grpc.CallOption) (*ResultSet, error) {
 	out := new(ResultSet)
 	err := c.cc.Invoke(ctx, KvgoAdmin_SysGet_FullMethodName, in, out, opts...)
@@ -350,8 +338,6 @@ type KvgoAdminServer interface {
 	DatabaseList(context.Context, *DatabaseListRequest) (*ResultSet, error)
 	DatabaseCreate(context.Context, *DatabaseCreateRequest) (*ResultSet, error)
 	DatabaseUpdate(context.Context, *DatabaseUpdateRequest) (*ResultSet, error)
-	JobList(context.Context, *JobListRequest) (*ResultSet, error)
-	// rpc JobUpdate(JobUpdateRequest) returns (ResultSet) {}
 	SysGet(context.Context, *SysGetRequest) (*ResultSet, error)
 	mustEmbedUnimplementedKvgoAdminServer()
 }
@@ -368,9 +354,6 @@ func (UnimplementedKvgoAdminServer) DatabaseCreate(context.Context, *DatabaseCre
 }
 func (UnimplementedKvgoAdminServer) DatabaseUpdate(context.Context, *DatabaseUpdateRequest) (*ResultSet, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DatabaseUpdate not implemented")
-}
-func (UnimplementedKvgoAdminServer) JobList(context.Context, *JobListRequest) (*ResultSet, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method JobList not implemented")
 }
 func (UnimplementedKvgoAdminServer) SysGet(context.Context, *SysGetRequest) (*ResultSet, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SysGet not implemented")
@@ -442,24 +425,6 @@ func _KvgoAdmin_DatabaseUpdate_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
-func _KvgoAdmin_JobList_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(JobListRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(KvgoAdminServer).JobList(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: KvgoAdmin_JobList_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(KvgoAdminServer).JobList(ctx, req.(*JobListRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _KvgoAdmin_SysGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SysGetRequest)
 	if err := dec(in); err != nil {
@@ -496,10 +461,6 @@ var KvgoAdmin_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DatabaseUpdate",
 			Handler:    _KvgoAdmin_DatabaseUpdate_Handler,
-		},
-		{
-			MethodName: "JobList",
-			Handler:    _KvgoAdmin_JobList_Handler,
 		},
 		{
 			MethodName: "SysGet",

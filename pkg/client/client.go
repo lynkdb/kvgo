@@ -455,18 +455,6 @@ func (it *adminClientConn) DatabaseUpdate(req *kvapi.DatabaseUpdateRequest) *kva
 	return rs
 }
 
-func (it *adminClientConn) JobList(req *kvapi.JobListRequest) *kvapi.ResultSet {
-
-	ctx, fc := context.WithTimeout(context.Background(), it.cfg.timeout())
-	defer fc()
-
-	rs, err := it.ac.JobList(ctx, req)
-	if err != nil {
-		return newResultSetWithClientError(err.Error())
-	}
-	return rs
-}
-
 func (it *adminClientConn) SysGet(req *kvapi.SysGetRequest) *kvapi.ResultSet {
 
 	ctx, fc := context.WithTimeout(context.Background(), it.cfg.timeout())

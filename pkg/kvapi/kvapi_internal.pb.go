@@ -91,16 +91,16 @@ type LogMeta struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Id        uint64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty"`
-	Version   uint64 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty" toml:"version,omitempty"`
-	Attrs     uint64 `protobuf:"varint,3,opt,name=attrs,proto3" json:"attrs,omitempty" toml:"attrs,omitempty"`
-	Expired   int64  `protobuf:"varint,4,opt,name=expired,proto3" json:"expired,omitempty" toml:"expired,omitempty"`
-	Created   int64  `protobuf:"varint,5,opt,name=created,proto3" json:"created,omitempty" toml:"created,omitempty"`
-	Size      int32  `protobuf:"varint,6,opt,name=size,proto3" json:"size,omitempty" toml:"size,omitempty"`
-	Key       []byte `protobuf:"bytes,7,opt,name=key,proto3" json:"key,omitempty" toml:"key,omitempty"`
-	ReplicaId uint64 `protobuf:"varint,8,opt,name=replica_id,json=replicaId,proto3" json:"replica_id,omitempty" toml:"replica_id,omitempty"`
+	Id        uint64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty" yaml:"id,omitempty"`
+	Version   uint64 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty" toml:"version,omitempty" yaml:"version,omitempty"`
+	Attrs     uint64 `protobuf:"varint,3,opt,name=attrs,proto3" json:"attrs,omitempty" toml:"attrs,omitempty" yaml:"attrs,omitempty"`
+	Expired   int64  `protobuf:"varint,4,opt,name=expired,proto3" json:"expired,omitempty" toml:"expired,omitempty" yaml:"expired,omitempty"`
+	Created   int64  `protobuf:"varint,5,opt,name=created,proto3" json:"created,omitempty" toml:"created,omitempty" yaml:"created,omitempty"`
+	Size      int32  `protobuf:"varint,6,opt,name=size,proto3" json:"size,omitempty" toml:"size,omitempty" yaml:"size,omitempty"`
+	Key       []byte `protobuf:"bytes,7,opt,name=key,proto3" json:"key,omitempty" toml:"key,omitempty" yaml:"key,omitempty"`
+	ReplicaId uint64 `protobuf:"varint,8,opt,name=replica_id,json=replicaId,proto3" json:"replica_id,omitempty" toml:"replica_id,omitempty" yaml:"replica_id,omitempty"`
 	// value checksum
-	Checksum uint64 `protobuf:"varint,9,opt,name=checksum,proto3" json:"checksum,omitempty" toml:"checksum,omitempty"`
+	Checksum uint64 `protobuf:"varint,9,opt,name=checksum,proto3" json:"checksum,omitempty" toml:"checksum,omitempty" yaml:"checksum,omitempty"`
 }
 
 func (x *LogMeta) Reset() {
@@ -203,8 +203,8 @@ type RawKeyValue struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Key   []byte `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty" toml:"key,omitempty"`
-	Value []byte `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty" toml:"value,omitempty"`
+	Key   []byte `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty" toml:"key,omitempty" yaml:"key,omitempty"`
+	Value []byte `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty" toml:"value,omitempty" yaml:"value,omitempty"`
 }
 
 func (x *RawKeyValue) Reset() {
@@ -258,12 +258,12 @@ type DatabaseMap struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Id      string                       `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty"`
-	Version uint64                       `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty" toml:"version,omitempty"`
-	Shards  []*DatabaseMap_Shard         `protobuf:"bytes,9,rep,name=shards,proto3" json:"shards,omitempty" toml:"shards,omitempty"`
-	Jobs    []*DatabaseMap_JobDescriptor `protobuf:"bytes,10,rep,name=jobs,proto3" json:"jobs,omitempty" toml:"jobs,omitempty"`
-	IncrId  uint64                       `protobuf:"varint,13,opt,name=incr_id,json=incrId,proto3" json:"incr_id,omitempty" toml:"incr_id,omitempty"`
-	Updated int64                        `protobuf:"varint,15,opt,name=updated,proto3" json:"updated,omitempty" toml:"updated,omitempty"`
+	Id      string                       `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty" yaml:"id,omitempty"`
+	Version uint64                       `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty" toml:"version,omitempty" yaml:"version,omitempty"`
+	Shards  []*DatabaseMap_Shard         `protobuf:"bytes,9,rep,name=shards,proto3" json:"shards,omitempty" toml:"shards,omitempty" yaml:"shards,omitempty"`
+	Jobs    []*DatabaseMap_JobDescriptor `protobuf:"bytes,10,rep,name=jobs,proto3" json:"jobs,omitempty" toml:"jobs,omitempty" yaml:"jobs,omitempty"`
+	IncrId  uint64                       `protobuf:"varint,13,opt,name=incr_id,json=incrId,proto3" json:"incr_id,omitempty" toml:"incr_id,omitempty" yaml:"incr_id,omitempty"`
+	Updated int64                        `protobuf:"varint,15,opt,name=updated,proto3" json:"updated,omitempty" toml:"updated,omitempty" yaml:"updated,omitempty"`
 }
 
 func (x *DatabaseMap) Reset() {
@@ -345,8 +345,8 @@ type DatabaseMapStatus struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Replicas    map[uint64]*DatabaseMapStatus_Replica `protobuf:"bytes,9,rep,name=replicas,proto3" json:"replicas,omitempty" toml:"replicas,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	IncrOffsets []*DatabaseMapStatus_IncrOffset       `protobuf:"bytes,10,rep,name=incr_offsets,json=incrOffsets,proto3" json:"incr_offsets,omitempty" toml:"incr_offsets,omitempty"`
+	Replicas    map[uint64]*DatabaseMapStatus_Replica `protobuf:"bytes,9,rep,name=replicas,proto3" json:"replicas,omitempty" toml:"replicas,omitempty" yaml:"replicas,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	IncrOffsets []*DatabaseMapStatus_IncrOffset       `protobuf:"bytes,10,rep,name=incr_offsets,json=incrOffsets,proto3" json:"incr_offsets,omitempty" toml:"incr_offsets,omitempty" yaml:"incr_offsets,omitempty"`
 }
 
 func (x *DatabaseMapStatus) Reset() {
@@ -400,7 +400,7 @@ type SysNode struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty"`
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty" yaml:"id,omitempty"`
 }
 
 func (x *SysNode) Reset() {
@@ -447,18 +447,18 @@ type SysStoreStatus struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Id             uint64            `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty"`
-	UniId          string            `protobuf:"bytes,2,opt,name=uni_id,json=uniId,proto3" json:"uni_id,omitempty" toml:"uni_id,omitempty"`
-	CapacityUsed   int64             `protobuf:"varint,8,opt,name=capacity_used,json=capacityUsed,proto3" json:"capacity_used,omitempty" toml:"capacity_used,omitempty"`
-	CapacityFree   int64             `protobuf:"varint,9,opt,name=capacity_free,json=capacityFree,proto3" json:"capacity_free,omitempty" toml:"capacity_free,omitempty"`
-	LoadCycleCount int64             `protobuf:"varint,10,opt,name=load_cycle_count,json=loadCycleCount,proto3" json:"load_cycle_count,omitempty" toml:"load_cycle_count,omitempty"`
-	ReplicaBounds  int64             `protobuf:"varint,11,opt,name=replica_bounds,json=replicaBounds,proto3" json:"replica_bounds,omitempty" toml:"replica_bounds,omitempty"`
-	Options        map[string]string `protobuf:"bytes,14,rep,name=options,proto3" json:"options,omitempty" toml:"options,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	Updated        int64             `protobuf:"varint,15,opt,name=updated,proto3" json:"updated,omitempty" toml:"updated,omitempty"`
-	LogUsed        int64             `protobuf:"varint,16,opt,name=log_used,json=logUsed,proto3" json:"log_used,omitempty" toml:"log_used,omitempty"`
-	MetaUsed       int64             `protobuf:"varint,17,opt,name=meta_used,json=metaUsed,proto3" json:"meta_used,omitempty" toml:"meta_used,omitempty"`
-	DataUsed       int64             `protobuf:"varint,18,opt,name=data_used,json=dataUsed,proto3" json:"data_used,omitempty" toml:"data_used,omitempty"`
-	TtlUsed        int64             `protobuf:"varint,19,opt,name=ttl_used,json=ttlUsed,proto3" json:"ttl_used,omitempty" toml:"ttl_used,omitempty"`
+	Id             uint64            `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty" yaml:"id,omitempty"`
+	UniId          string            `protobuf:"bytes,2,opt,name=uni_id,json=uniId,proto3" json:"uni_id,omitempty" toml:"uni_id,omitempty" yaml:"uni_id,omitempty"`
+	CapacityUsed   int64             `protobuf:"varint,8,opt,name=capacity_used,json=capacityUsed,proto3" json:"capacity_used,omitempty" toml:"capacity_used,omitempty" yaml:"capacity_used,omitempty"`
+	CapacityFree   int64             `protobuf:"varint,9,opt,name=capacity_free,json=capacityFree,proto3" json:"capacity_free,omitempty" toml:"capacity_free,omitempty" yaml:"capacity_free,omitempty"`
+	LoadCycleCount int64             `protobuf:"varint,10,opt,name=load_cycle_count,json=loadCycleCount,proto3" json:"load_cycle_count,omitempty" toml:"load_cycle_count,omitempty" yaml:"load_cycle_count,omitempty"`
+	ReplicaBounds  int64             `protobuf:"varint,11,opt,name=replica_bounds,json=replicaBounds,proto3" json:"replica_bounds,omitempty" toml:"replica_bounds,omitempty" yaml:"replica_bounds,omitempty"`
+	Options        map[string]string `protobuf:"bytes,14,rep,name=options,proto3" json:"options,omitempty" toml:"options,omitempty" yaml:"options,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	Updated        int64             `protobuf:"varint,15,opt,name=updated,proto3" json:"updated,omitempty" toml:"updated,omitempty" yaml:"updated,omitempty"`
+	LogUsed        int64             `protobuf:"varint,16,opt,name=log_used,json=logUsed,proto3" json:"log_used,omitempty" toml:"log_used,omitempty" yaml:"log_used,omitempty"`
+	MetaUsed       int64             `protobuf:"varint,17,opt,name=meta_used,json=metaUsed,proto3" json:"meta_used,omitempty" toml:"meta_used,omitempty" yaml:"meta_used,omitempty"`
+	DataUsed       int64             `protobuf:"varint,18,opt,name=data_used,json=dataUsed,proto3" json:"data_used,omitempty" toml:"data_used,omitempty" yaml:"data_used,omitempty"`
+	TtlUsed        int64             `protobuf:"varint,19,opt,name=ttl_used,json=ttlUsed,proto3" json:"ttl_used,omitempty" toml:"ttl_used,omitempty" yaml:"ttl_used,omitempty"`
 }
 
 func (x *SysStoreStatus) Reset() {
@@ -582,12 +582,12 @@ type SysNodeStatus struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Id      string                  `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty"`
-	Addr    string                  `protobuf:"bytes,2,opt,name=addr,proto3" json:"addr,omitempty" toml:"addr,omitempty"`
-	Version string                  `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty" toml:"version,omitempty"`
-	Uptime  int64                   `protobuf:"varint,8,opt,name=uptime,proto3" json:"uptime,omitempty" toml:"uptime,omitempty"`
-	Caps    map[string]*SysCapacity `protobuf:"bytes,9,rep,name=caps,proto3" json:"caps,omitempty" toml:"caps,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	Updated int64                   `protobuf:"varint,15,opt,name=updated,proto3" json:"updated,omitempty" toml:"updated,omitempty"`
+	Id      string                  `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty" yaml:"id,omitempty"`
+	Addr    string                  `protobuf:"bytes,2,opt,name=addr,proto3" json:"addr,omitempty" toml:"addr,omitempty" yaml:"addr,omitempty"`
+	Version string                  `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty" toml:"version,omitempty" yaml:"version,omitempty"`
+	Uptime  int64                   `protobuf:"varint,8,opt,name=uptime,proto3" json:"uptime,omitempty" toml:"uptime,omitempty" yaml:"uptime,omitempty"`
+	Caps    map[string]*SysCapacity `protobuf:"bytes,9,rep,name=caps,proto3" json:"caps,omitempty" toml:"caps,omitempty" yaml:"caps,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	Updated int64                   `protobuf:"varint,15,opt,name=updated,proto3" json:"updated,omitempty" toml:"updated,omitempty" yaml:"updated,omitempty"`
 }
 
 func (x *SysNodeStatus) Reset() {
@@ -669,9 +669,9 @@ type SysCapacity struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Use int64 `protobuf:"varint,1,opt,name=use,proto3" json:"use,omitempty" toml:"use,omitempty"`
-	Min int64 `protobuf:"varint,2,opt,name=min,proto3" json:"min,omitempty" toml:"min,omitempty"`
-	Max int64 `protobuf:"varint,3,opt,name=max,proto3" json:"max,omitempty" toml:"max,omitempty"`
+	Use int64 `protobuf:"varint,1,opt,name=use,proto3" json:"use,omitempty" toml:"use,omitempty" yaml:"use,omitempty"`
+	Min int64 `protobuf:"varint,2,opt,name=min,proto3" json:"min,omitempty" toml:"min,omitempty" yaml:"min,omitempty"`
+	Max int64 `protobuf:"varint,3,opt,name=max,proto3" json:"max,omitempty" toml:"max,omitempty" yaml:"max,omitempty"`
 }
 
 func (x *SysCapacity) Reset() {
@@ -732,10 +732,10 @@ type SysStoreDescriptor struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Id      uint64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty"`
-	UniId   string `protobuf:"bytes,2,opt,name=uni_id,json=uniId,proto3" json:"uni_id,omitempty" toml:"uni_id,omitempty"`
-	NodeId  uint64 `protobuf:"varint,3,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty" toml:"node_id,omitempty"`
-	Created int64  `protobuf:"varint,14,opt,name=created,proto3" json:"created,omitempty" toml:"created,omitempty"`
+	Id      uint64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty" yaml:"id,omitempty"`
+	UniId   string `protobuf:"bytes,2,opt,name=uni_id,json=uniId,proto3" json:"uni_id,omitempty" toml:"uni_id,omitempty" yaml:"uni_id,omitempty"`
+	NodeId  uint64 `protobuf:"varint,3,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty" toml:"node_id,omitempty" yaml:"node_id,omitempty"`
+	Created int64  `protobuf:"varint,14,opt,name=created,proto3" json:"created,omitempty" toml:"created,omitempty" yaml:"created,omitempty"`
 }
 
 func (x *SysStoreDescriptor) Reset() {
@@ -803,8 +803,8 @@ type WriteProposalRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Id    uint64        `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty"`
-	Write *WriteRequest `protobuf:"bytes,2,opt,name=write,proto3" json:"write,omitempty" toml:"write,omitempty"` // uint64 expired = 3;
+	Id    uint64        `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty" yaml:"id,omitempty"`
+	Write *WriteRequest `protobuf:"bytes,2,opt,name=write,proto3" json:"write,omitempty" toml:"write,omitempty" yaml:"write,omitempty"` // uint64 expired = 3;
 }
 
 func (x *WriteProposalRequest) Reset() {
@@ -858,10 +858,10 @@ type DeleteProposalRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Id    uint64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty"`
-	Key   []byte `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty" toml:"key,omitempty"`
-	Meta  *Meta  `protobuf:"bytes,3,opt,name=meta,proto3" json:"meta,omitempty" toml:"meta,omitempty"`
-	Attrs uint64 `protobuf:"varint,4,opt,name=attrs,proto3" json:"attrs,omitempty" toml:"attrs,omitempty"` // uint64 expired = 4;
+	Id    uint64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty" yaml:"id,omitempty"`
+	Key   []byte `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty" toml:"key,omitempty" yaml:"key,omitempty"`
+	Meta  *Meta  `protobuf:"bytes,3,opt,name=meta,proto3" json:"meta,omitempty" toml:"meta,omitempty" yaml:"meta,omitempty"`
+	Attrs uint64 `protobuf:"varint,4,opt,name=attrs,proto3" json:"attrs,omitempty" toml:"attrs,omitempty" yaml:"attrs,omitempty"` // uint64 expired = 4;
 }
 
 func (x *DeleteProposalRequest) Reset() {
@@ -929,12 +929,12 @@ type LogRangeRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Database    string `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty" toml:"database,omitempty"`
-	ShardId     uint64 `protobuf:"varint,2,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty" toml:"shard_id,omitempty"`
-	ReplicaId   uint64 `protobuf:"varint,3,opt,name=replica_id,json=replicaId,proto3" json:"replica_id,omitempty" toml:"replica_id,omitempty"`
-	LowerLog    uint64 `protobuf:"varint,4,opt,name=lower_log,json=lowerLog,proto3" json:"lower_log,omitempty" toml:"lower_log,omitempty"`
-	UpperLog    uint64 `protobuf:"varint,5,opt,name=upper_log,json=upperLog,proto3" json:"upper_log,omitempty" toml:"upper_log,omitempty"`
-	OffsetToken string `protobuf:"bytes,12,opt,name=offset_token,json=offsetToken,proto3" json:"offset_token,omitempty" toml:"offset_token,omitempty"`
+	Database    string `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty" toml:"database,omitempty" yaml:"database,omitempty"`
+	ShardId     uint64 `protobuf:"varint,2,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty" toml:"shard_id,omitempty" yaml:"shard_id,omitempty"`
+	ReplicaId   uint64 `protobuf:"varint,3,opt,name=replica_id,json=replicaId,proto3" json:"replica_id,omitempty" toml:"replica_id,omitempty" yaml:"replica_id,omitempty"`
+	LowerLog    uint64 `protobuf:"varint,4,opt,name=lower_log,json=lowerLog,proto3" json:"lower_log,omitempty" toml:"lower_log,omitempty" yaml:"lower_log,omitempty"`
+	UpperLog    uint64 `protobuf:"varint,5,opt,name=upper_log,json=upperLog,proto3" json:"upper_log,omitempty" toml:"upper_log,omitempty" yaml:"upper_log,omitempty"`
+	OffsetToken string `protobuf:"bytes,12,opt,name=offset_token,json=offsetToken,proto3" json:"offset_token,omitempty" toml:"offset_token,omitempty" yaml:"offset_token,omitempty"`
 }
 
 func (x *LogRangeRequest) Reset() {
@@ -1016,16 +1016,16 @@ type LogRangeResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Status     *Status `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty" toml:"status,omitempty"`
-	ServerId   string  `protobuf:"bytes,2,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty" toml:"server_id,omitempty"`
-	DatabaseId string  `protobuf:"bytes,3,opt,name=database_id,json=databaseId,proto3" json:"database_id,omitempty" toml:"database_id,omitempty"`
+	Status     *Status `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty" toml:"status,omitempty" yaml:"status,omitempty"`
+	ServerId   string  `protobuf:"bytes,2,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty" toml:"server_id,omitempty" yaml:"server_id,omitempty"`
+	DatabaseId string  `protobuf:"bytes,3,opt,name=database_id,json=databaseId,proto3" json:"database_id,omitempty" toml:"database_id,omitempty" yaml:"database_id,omitempty"`
 	// uint64 log_left = 7;
-	LogOffset         uint64     `protobuf:"varint,8,opt,name=log_offset,json=logOffset,proto3" json:"log_offset,omitempty" toml:"log_offset,omitempty"`
-	Items             []*LogMeta `protobuf:"bytes,9,rep,name=items,proto3" json:"items,omitempty" toml:"items,omitempty"`
-	NextResultSet     bool       `protobuf:"varint,10,opt,name=next_result_set,json=nextResultSet,proto3" json:"next_result_set,omitempty" toml:"next_result_set,omitempty"`
-	LogOffsetOutrange bool       `protobuf:"varint,11,opt,name=log_offset_outrange,json=logOffsetOutrange,proto3" json:"log_offset_outrange,omitempty" toml:"log_offset_outrange,omitempty"`
-	NextOffsetToken   string     `protobuf:"bytes,12,opt,name=next_offset_token,json=nextOffsetToken,proto3" json:"next_offset_token,omitempty" toml:"next_offset_token,omitempty"`
-	TransferJodId     string     `protobuf:"bytes,13,opt,name=transfer_jod_id,json=transferJodId,proto3" json:"transfer_jod_id,omitempty" toml:"transfer_jod_id,omitempty"`
+	LogOffset         uint64     `protobuf:"varint,8,opt,name=log_offset,json=logOffset,proto3" json:"log_offset,omitempty" toml:"log_offset,omitempty" yaml:"log_offset,omitempty"`
+	Items             []*LogMeta `protobuf:"bytes,9,rep,name=items,proto3" json:"items,omitempty" toml:"items,omitempty" yaml:"items,omitempty"`
+	NextResultSet     bool       `protobuf:"varint,10,opt,name=next_result_set,json=nextResultSet,proto3" json:"next_result_set,omitempty" toml:"next_result_set,omitempty" yaml:"next_result_set,omitempty"`
+	LogOffsetOutrange bool       `protobuf:"varint,11,opt,name=log_offset_outrange,json=logOffsetOutrange,proto3" json:"log_offset_outrange,omitempty" toml:"log_offset_outrange,omitempty" yaml:"log_offset_outrange,omitempty"`
+	NextOffsetToken   string     `protobuf:"bytes,12,opt,name=next_offset_token,json=nextOffsetToken,proto3" json:"next_offset_token,omitempty" toml:"next_offset_token,omitempty" yaml:"next_offset_token,omitempty"`
+	TransferJodId     string     `protobuf:"bytes,13,opt,name=transfer_jod_id,json=transferJodId,proto3" json:"transfer_jod_id,omitempty" toml:"transfer_jod_id,omitempty" yaml:"transfer_jod_id,omitempty"`
 }
 
 func (x *LogRangeResponse) Reset() {
@@ -1128,11 +1128,11 @@ type LogKeyRangeRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	DbId      string `protobuf:"bytes,1,opt,name=db_id,json=dbId,proto3" json:"db_id,omitempty" toml:"db_id,omitempty"`
-	ShardId   uint64 `protobuf:"varint,2,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty" toml:"shard_id,omitempty"`
-	ReplicaId uint64 `protobuf:"varint,3,opt,name=replica_id,json=replicaId,proto3" json:"replica_id,omitempty" toml:"replica_id,omitempty"`
-	LowerKey  []byte `protobuf:"bytes,4,opt,name=lower_key,json=lowerKey,proto3" json:"lower_key,omitempty" toml:"lower_key,omitempty"`
-	UpperKey  []byte `protobuf:"bytes,5,opt,name=upper_key,json=upperKey,proto3" json:"upper_key,omitempty" toml:"upper_key,omitempty"`
+	DbId      string `protobuf:"bytes,1,opt,name=db_id,json=dbId,proto3" json:"db_id,omitempty" toml:"db_id,omitempty" yaml:"db_id,omitempty"`
+	ShardId   uint64 `protobuf:"varint,2,opt,name=shard_id,json=shardId,proto3" json:"shard_id,omitempty" toml:"shard_id,omitempty" yaml:"shard_id,omitempty"`
+	ReplicaId uint64 `protobuf:"varint,3,opt,name=replica_id,json=replicaId,proto3" json:"replica_id,omitempty" toml:"replica_id,omitempty" yaml:"replica_id,omitempty"`
+	LowerKey  []byte `protobuf:"bytes,4,opt,name=lower_key,json=lowerKey,proto3" json:"lower_key,omitempty" toml:"lower_key,omitempty" yaml:"lower_key,omitempty"`
+	UpperKey  []byte `protobuf:"bytes,5,opt,name=upper_key,json=upperKey,proto3" json:"upper_key,omitempty" toml:"upper_key,omitempty" yaml:"upper_key,omitempty"`
 }
 
 func (x *LogKeyRangeRequest) Reset() {
@@ -1207,8 +1207,8 @@ type LogKeyRangeResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Items         []*Meta `protobuf:"bytes,9,rep,name=items,proto3" json:"items,omitempty" toml:"items,omitempty"`
-	NextResultSet bool    `protobuf:"varint,10,opt,name=next_result_set,json=nextResultSet,proto3" json:"next_result_set,omitempty" toml:"next_result_set,omitempty"`
+	Items         []*Meta `protobuf:"bytes,9,rep,name=items,proto3" json:"items,omitempty" toml:"items,omitempty" yaml:"items,omitempty"`
+	NextResultSet bool    `protobuf:"varint,10,opt,name=next_result_set,json=nextResultSet,proto3" json:"next_result_set,omitempty" toml:"next_result_set,omitempty" yaml:"next_result_set,omitempty"`
 }
 
 func (x *LogKeyRangeResponse) Reset() {
@@ -1262,10 +1262,10 @@ type AuditLog struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Id      string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty"`
-	Name    string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty" toml:"name,omitempty"`
-	Content string `protobuf:"bytes,3,opt,name=content,proto3" json:"content,omitempty" toml:"content,omitempty"`
-	Created int64  `protobuf:"varint,14,opt,name=created,proto3" json:"created,omitempty" toml:"created,omitempty"`
+	Id      string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty" yaml:"id,omitempty"`
+	Name    string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty" toml:"name,omitempty" yaml:"name,omitempty"`
+	Content string `protobuf:"bytes,3,opt,name=content,proto3" json:"content,omitempty" toml:"content,omitempty" yaml:"content,omitempty"`
+	Created int64  `protobuf:"varint,14,opt,name=created,proto3" json:"created,omitempty" toml:"created,omitempty" yaml:"created,omitempty"`
 }
 
 func (x *AuditLog) Reset() {
@@ -1333,10 +1333,10 @@ type InnerReadRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Database      string   `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty" toml:"database,omitempty"`
-	Keys          [][]byte `protobuf:"bytes,3,rep,name=keys,proto3" json:"keys,omitempty" toml:"keys,omitempty"`
-	Attrs         uint64   `protobuf:"varint,5,opt,name=attrs,proto3" json:"attrs,omitempty" toml:"attrs,omitempty"`
-	LogRangeToken string   `protobuf:"bytes,6,opt,name=log_range_token,json=logRangeToken,proto3" json:"log_range_token,omitempty" toml:"log_range_token,omitempty"`
+	Database      string   `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty" toml:"database,omitempty" yaml:"database,omitempty"`
+	Keys          [][]byte `protobuf:"bytes,3,rep,name=keys,proto3" json:"keys,omitempty" toml:"keys,omitempty" yaml:"keys,omitempty"`
+	Attrs         uint64   `protobuf:"varint,5,opt,name=attrs,proto3" json:"attrs,omitempty" toml:"attrs,omitempty" yaml:"attrs,omitempty"`
+	LogRangeToken string   `protobuf:"bytes,6,opt,name=log_range_token,json=logRangeToken,proto3" json:"log_range_token,omitempty" toml:"log_range_token,omitempty" yaml:"log_range_token,omitempty"`
 }
 
 func (x *InnerReadRequest) Reset() {
@@ -1404,10 +1404,10 @@ type DatabaseMap_Replica struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Id      uint64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty"`
-	StoreId uint64 `protobuf:"varint,3,opt,name=store_id,json=storeId,proto3" json:"store_id,omitempty" toml:"store_id,omitempty"`
-	Prev    uint64 `protobuf:"varint,4,opt,name=prev,proto3" json:"prev,omitempty" toml:"prev,omitempty"`
-	Action  uint64 `protobuf:"varint,7,opt,name=action,proto3" json:"action,omitempty" toml:"action,omitempty"`
+	Id      uint64 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty" yaml:"id,omitempty"`
+	StoreId uint64 `protobuf:"varint,3,opt,name=store_id,json=storeId,proto3" json:"store_id,omitempty" toml:"store_id,omitempty" yaml:"store_id,omitempty"`
+	Prev    uint64 `protobuf:"varint,4,opt,name=prev,proto3" json:"prev,omitempty" toml:"prev,omitempty" yaml:"prev,omitempty"`
+	Action  uint64 `protobuf:"varint,7,opt,name=action,proto3" json:"action,omitempty" toml:"action,omitempty" yaml:"action,omitempty"`
 }
 
 func (x *DatabaseMap_Replica) Reset() {
@@ -1475,13 +1475,13 @@ type DatabaseMap_Shard struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Id       uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty"`
-	Version  uint64                 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty" toml:"version,omitempty"`
-	Prev     uint64                 `protobuf:"varint,4,opt,name=prev,proto3" json:"prev,omitempty" toml:"prev,omitempty"`
-	LowerKey []byte                 `protobuf:"bytes,5,opt,name=lower_key,json=lowerKey,proto3" json:"lower_key,omitempty" toml:"lower_key,omitempty"`
-	Action   uint64                 `protobuf:"varint,7,opt,name=action,proto3" json:"action,omitempty" toml:"action,omitempty"`
-	Replicas []*DatabaseMap_Replica `protobuf:"bytes,9,rep,name=replicas,proto3" json:"replicas,omitempty" toml:"replicas,omitempty"`
-	Updated  int64                  `protobuf:"varint,15,opt,name=updated,proto3" json:"updated,omitempty" toml:"updated,omitempty"`
+	Id       uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty" yaml:"id,omitempty"`
+	Version  uint64                 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty" toml:"version,omitempty" yaml:"version,omitempty"`
+	Prev     uint64                 `protobuf:"varint,4,opt,name=prev,proto3" json:"prev,omitempty" toml:"prev,omitempty" yaml:"prev,omitempty"`
+	LowerKey []byte                 `protobuf:"bytes,5,opt,name=lower_key,json=lowerKey,proto3" json:"lower_key,omitempty" toml:"lower_key,omitempty" yaml:"lower_key,omitempty"`
+	Action   uint64                 `protobuf:"varint,7,opt,name=action,proto3" json:"action,omitempty" toml:"action,omitempty" yaml:"action,omitempty"`
+	Replicas []*DatabaseMap_Replica `protobuf:"bytes,9,rep,name=replicas,proto3" json:"replicas,omitempty" toml:"replicas,omitempty" yaml:"replicas,omitempty"`
+	Updated  int64                  `protobuf:"varint,15,opt,name=updated,proto3" json:"updated,omitempty" toml:"updated,omitempty" yaml:"updated,omitempty"`
 }
 
 func (x *DatabaseMap_Shard) Reset() {
@@ -1570,12 +1570,12 @@ type DatabaseMap_JobDescriptor struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Id           string              `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty"`
-	Version      uint64              `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty" toml:"version,omitempty"`
-	Type         DatabaseMap_JobType `protobuf:"varint,3,opt,name=type,proto3,enum=lynkdb.kvapi.v2.DatabaseMap_JobType" json:"type,omitempty" toml:"type,omitempty"`
-	ShardIds     []uint64            `protobuf:"varint,4,rep,packed,name=shard_ids,json=shardIds,proto3" json:"shard_ids,omitempty" toml:"shard_ids,omitempty"`
-	ReplicaMoves map[uint64]uint64   `protobuf:"bytes,5,rep,name=replica_moves,json=replicaMoves,proto3" json:"replica_moves,omitempty" toml:"replica_moves,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"varint,2,opt,name=value,proto3"`
-	Updated      int64               `protobuf:"varint,15,opt,name=updated,proto3" json:"updated,omitempty" toml:"updated,omitempty"`
+	Id           string              `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty" yaml:"id,omitempty"`
+	Version      uint64              `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty" toml:"version,omitempty" yaml:"version,omitempty"`
+	Type         DatabaseMap_JobType `protobuf:"varint,3,opt,name=type,proto3,enum=lynkdb.kvapi.v2.DatabaseMap_JobType" json:"type,omitempty" toml:"type,omitempty" yaml:"type,omitempty"`
+	ShardIds     []uint64            `protobuf:"varint,4,rep,packed,name=shard_ids,json=shardIds,proto3" json:"shard_ids,omitempty" toml:"shard_ids,omitempty" yaml:"shard_ids,omitempty"`
+	ReplicaMoves map[uint64]uint64   `protobuf:"bytes,5,rep,name=replica_moves,json=replicaMoves,proto3" json:"replica_moves,omitempty" toml:"replica_moves,omitempty" yaml:"replica_moves,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"varint,2,opt,name=value,proto3"`
+	Updated      int64               `protobuf:"varint,15,opt,name=updated,proto3" json:"updated,omitempty" toml:"updated,omitempty" yaml:"updated,omitempty"`
 }
 
 func (x *DatabaseMap_JobDescriptor) Reset() {
@@ -1657,9 +1657,9 @@ type DatabaseMapStatus_SyncPull struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	MapVersion uint64 `protobuf:"varint,1,opt,name=map_version,json=mapVersion,proto3" json:"map_version,omitempty" toml:"map_version,omitempty"`
-	Version    uint64 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty" toml:"version,omitempty"`
-	Action     uint64 `protobuf:"varint,3,opt,name=action,proto3" json:"action,omitempty" toml:"action,omitempty"`
+	MapVersion uint64 `protobuf:"varint,1,opt,name=map_version,json=mapVersion,proto3" json:"map_version,omitempty" toml:"map_version,omitempty" yaml:"map_version,omitempty"`
+	Version    uint64 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty" toml:"version,omitempty" yaml:"version,omitempty"`
+	Action     uint64 `protobuf:"varint,3,opt,name=action,proto3" json:"action,omitempty" toml:"action,omitempty" yaml:"action,omitempty"`
 }
 
 func (x *DatabaseMapStatus_SyncPull) Reset() {
@@ -1720,12 +1720,12 @@ type DatabaseMapStatus_Replica struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	MapVersion uint64 `protobuf:"varint,1,opt,name=map_version,json=mapVersion,proto3" json:"map_version,omitempty" toml:"map_version,omitempty"`
-	LogVersion uint64 `protobuf:"varint,2,opt,name=log_version,json=logVersion,proto3" json:"log_version,omitempty" toml:"log_version,omitempty"`
-	Action     uint64 `protobuf:"varint,7,opt,name=action,proto3" json:"action,omitempty" toml:"action,omitempty"`
-	Used       int64  `protobuf:"varint,8,opt,name=used,proto3" json:"used,omitempty" toml:"used,omitempty"`
+	MapVersion uint64 `protobuf:"varint,1,opt,name=map_version,json=mapVersion,proto3" json:"map_version,omitempty" toml:"map_version,omitempty" yaml:"map_version,omitempty"`
+	LogVersion uint64 `protobuf:"varint,2,opt,name=log_version,json=logVersion,proto3" json:"log_version,omitempty" toml:"log_version,omitempty" yaml:"log_version,omitempty"`
+	Action     uint64 `protobuf:"varint,7,opt,name=action,proto3" json:"action,omitempty" toml:"action,omitempty" yaml:"action,omitempty"`
+	Used       int64  `protobuf:"varint,8,opt,name=used,proto3" json:"used,omitempty" toml:"used,omitempty" yaml:"used,omitempty"`
 	// map<uint64, SyncPull> pulls = 9;
-	Updated int64 `protobuf:"varint,15,opt,name=updated,proto3" json:"updated,omitempty" toml:"updated,omitempty"`
+	Updated int64 `protobuf:"varint,15,opt,name=updated,proto3" json:"updated,omitempty" toml:"updated,omitempty" yaml:"updated,omitempty"`
 }
 
 func (x *DatabaseMapStatus_Replica) Reset() {
@@ -1800,10 +1800,10 @@ type DatabaseMapStatus_IncrOffset struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Id     uint32 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty"`
-	Ns     string `protobuf:"bytes,2,opt,name=ns,proto3" json:"ns,omitempty" toml:"ns,omitempty"`
-	Offset uint64 `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty" toml:"offset,omitempty"`
-	Cutset uint64 `protobuf:"varint,4,opt,name=cutset,proto3" json:"cutset,omitempty" toml:"cutset,omitempty"`
+	Id     uint32 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty" toml:"id,omitempty" yaml:"id,omitempty"`
+	Ns     string `protobuf:"bytes,2,opt,name=ns,proto3" json:"ns,omitempty" toml:"ns,omitempty" yaml:"ns,omitempty"`
+	Offset uint64 `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty" toml:"offset,omitempty" yaml:"offset,omitempty"`
+	Cutset uint64 `protobuf:"varint,4,opt,name=cutset,proto3" json:"cutset,omitempty" toml:"cutset,omitempty" yaml:"cutset,omitempty"`
 }
 
 func (x *DatabaseMapStatus_IncrOffset) Reset() {

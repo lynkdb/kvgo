@@ -25,45 +25,49 @@ import (
 )
 
 type transferManager struct {
-	mu        sync.Mutex
-	jobs      []*ConfigTransferJob
-	inOffsets map[string]*jobTransferInOffset
+	mu   sync.Mutex
+	jobs map[string]*transferJobEntry
+}
+
+type transferJobEntry struct {
+	job      *ConfigTransferJob   `json:"job"`
+	inOffset *JobTransferInOffset `json:"status"`
 }
 
 func newTransferManager() *transferManager {
 	return &transferManager{
-		inOffsets: map[string]*jobTransferInOffset{},
+		jobs: map[string]*transferJobEntry{},
 	}
 }
 
-func (it *transferManager) setJobOffset(offset *jobTransferInOffset) *jobTransferInOffset {
+func (it *transferManager) setJobEntry(job *transferJobEntry) *transferJobEntry {
 	it.mu.Lock()
 	defer it.mu.Unlock()
-	if it.inOffsets == nil {
-		it.inOffsets = map[string]*jobTransferInOffset{}
+	if it.jobs == nil {
+		it.jobs = map[string]*transferJobEntry{}
 	}
-	it.inOffsets[offset.UniId] = offset
-	return offset
+	it.jobs[job.job.UniId] = job
+	return job
 }
 
-func (it *transferManager) jobOffset(uid string) *jobTransferInOffset {
+func (it *transferManager) jobEntry(uid string) *transferJobEntry {
 	it.mu.Lock()
 	defer it.mu.Unlock()
-	if it.inOffsets == nil {
-		it.inOffsets = map[string]*jobTransferInOffset{}
+	if it.jobs == nil {
+		it.jobs = map[string]*transferJobEntry{}
 	}
-	if offset, ok := it.inOffsets[uid]; ok {
-		return offset
+	if job, ok := it.jobs[uid]; ok {
+		return job
 	}
 	return nil
 }
 
-func (it *transferManager) iter(fn func(jobOffset *jobTransferInOffset)) {
+func (it *transferManager) iter(fn func(jobEntry *transferJobEntry)) {
 	it.mu.Lock()
 	defer it.mu.Unlock()
-	if len(it.inOffsets) > 0 {
-		for _, v := range it.inOffsets {
-			fn(v)
+	if len(it.jobs) > 0 {
+		for _, job := range it.jobs {
+			fn(job)
 		}
 	}
 }
@@ -85,7 +89,7 @@ func (it *dbServer) jobDatabaseTransferSetup() error {
 
 	batchPull := func(
 		job *ConfigTransferJob,
-		jobOffset *jobTransferInOffset,
+		jobOffset *JobTransferInOffset,
 		logMetas map[string]*kvapi.LogMeta,
 		client *internalClientConn, dmSink *dbMap) error {
 
@@ -261,12 +265,12 @@ func (it *dbServer) jobDatabaseTransferSetup() error {
 
 		var (
 			jobStorKey = nsSysTransferJob(job.UniId)
-			jobOffset  = it.transferMgr.jobOffset(job.UniId)
+			jobEntry   = it.transferMgr.jobEntry(job.UniId)
 		)
 
-		if jobOffset == nil {
+		if jobEntry == nil {
 
-			var obj jobTransferInOffset
+			var obj JobTransferInOffset
 
 			if ss := it.dbSystem.store.Get(jobStorKey, nil); ss.NotFound() {
 				//
@@ -278,30 +282,35 @@ func (it *dbServer) jobDatabaseTransferSetup() error {
 				hlog.Printf("info", "job-transfer load state %s", string(ss.Bytes()))
 			}
 
+			jobEntry = &transferJobEntry{
+				job:      job,
+				inOffset: &obj,
+			}
+
 			obj.UniId = job.UniId
-			jobOffset = it.transferMgr.setJobOffset(&obj)
-			// jobOffset.LogToken = ""
-			// jobOffset.Updated = 0
+			it.transferMgr.setJobEntry(jobEntry)
+			// jobEntry.inOffset.LogToken = ""
+			// jobEntry.inOffset.Updated = 0
 		}
 
-		if jobOffset.Updated+job.RepeatIntervalSeconds > tn {
+		if jobEntry.inOffset.Updated+job.RepeatIntervalSeconds > tn {
 			return nil
 		}
 
-		prevDataFlush := jobOffset.Stats.FullDataFlush +
-			jobOffset.Stats.DeltaDataFlush
+		prevDataFlush := jobEntry.inOffset.Stats.FullDataFlush +
+			jobEntry.inOffset.Stats.DeltaDataFlush
 
-		for !it.close && !jobOffset.FullScan {
+		for !it.close && !jobEntry.inOffset.FullScan {
 
 			req := &kvapi.LogRangeRequest{
 				Database:    job.Source.Database,
-				OffsetToken: jobOffset.LogToken,
+				OffsetToken: jobEntry.inOffset.LogToken,
 			}
 
 			rs := client.innerLogRange(req)
 
 			// hlog.Printf("info", "internal log-range req token %v, resp token %v, out-range %v",
-			// 	jobOffset.LogToken, rs.NextOffsetToken, rs.LogOffsetOutrange)
+			// 	jobEntry.inOffset.LogToken, rs.NextOffsetToken, rs.LogOffsetOutrange)
 
 			if !rs.OK() {
 				if !rs.NotFound() {
@@ -315,10 +324,10 @@ func (it *dbServer) jobDatabaseTransferSetup() error {
 			}
 
 			if rs.LogOffsetOutrange {
-				jobOffset.LogToken = rs.NextOffsetToken
-				jobOffset.FullScan = true
-				jobOffset.KeyOffset = nil
-				hlog.Printf("info", "internal log-range out-range %s", string(jsonEncode(jobOffset)))
+				jobEntry.inOffset.LogToken = rs.NextOffsetToken
+				jobEntry.inOffset.FullScan = true
+				jobEntry.inOffset.KeyOffset = nil
+				hlog.Printf("info", "internal log-range out-range %s", string(jsonEncode(jobEntry.inOffset)))
 				break
 			}
 
@@ -335,29 +344,29 @@ func (it *dbServer) jobDatabaseTransferSetup() error {
 				}
 			}
 
-			jobOffset.Stats.DeltaLogRead += int64(len(rs.Items))
+			jobEntry.inOffset.Stats.DeltaLogRead += int64(len(rs.Items))
 
-			if err := batchPull(job, jobOffset, logMetas, client, dmSink); err != nil {
+			if err := batchPull(job, jobEntry.inOffset, logMetas, client, dmSink); err != nil {
 				return err
 			}
 
-			jobOffset.LogToken = rs.NextOffsetToken
+			jobEntry.inOffset.LogToken = rs.NextOffsetToken
 
-			if ss := it.dbSystem.store.Put(jobStorKey, jsonEncode(jobOffset), nil); !ss.OK() {
+			if ss := it.dbSystem.store.Put(jobStorKey, jsonEncode(jobEntry.inOffset), nil); !ss.OK() {
 				return ss.Error()
 			}
 		}
 
-		if jobOffset.FullScan {
-			jobOffset.Stats.FullPull += 1
+		if jobEntry.inOffset.FullScan {
+			jobEntry.inOffset.Stats.FullPull += 1
 		}
 
-		for rn := int64(1); !it.close && jobOffset.FullScan; rn++ {
+		for rn := int64(1); !it.close && jobEntry.inOffset.FullScan; rn++ {
 
 			var (
 				req = &kvapi.RangeRequest{
 					Database: job.Source.Database,
-					LowerKey: jobOffset.KeyOffset,
+					LowerKey: jobEntry.inOffset.KeyOffset,
 					UpperKey: bytes.Repeat([]byte{0xff}, 128),
 					Limit:    1000,
 					Attrs:    kvapi.Read_Attrs_MetaOnly,
@@ -368,7 +377,7 @@ func (it *dbServer) jobDatabaseTransferSetup() error {
 				logMetas = map[string]*kvapi.LogMeta{}
 			)
 
-			jobOffset.Stats.FullMetaRead += int64(len(rs.Items))
+			jobEntry.inOffset.Stats.FullMetaRead += int64(len(rs.Items))
 			// hlog.Printf("info", "full-pull meta count %d", len(rs.Items))
 
 			for _, item := range rs.Items {
@@ -384,51 +393,51 @@ func (it *dbServer) jobDatabaseTransferSetup() error {
 				logMetas[string(item.Key)] = logMeta
 			}
 
-			if err := batchPull(job, jobOffset, logMetas, client, dmSink); err != nil {
+			if err := batchPull(job, jobEntry.inOffset, logMetas, client, dmSink); err != nil {
 				return err
 			}
 
 			if !it.close {
 				if len(rs.Items) > 0 {
-					jobOffset.KeyOffset = rs.Items[len(rs.Items)-1].Key
+					jobEntry.inOffset.KeyOffset = rs.Items[len(rs.Items)-1].Key
 				} else {
-					jobOffset.FullScan = false
-					jobOffset.KeyOffset = nil
+					jobEntry.inOffset.FullScan = false
+					jobEntry.inOffset.KeyOffset = nil
 				}
 			}
 
-			if ss := it.dbSystem.store.Put(jobStorKey, jsonEncode(jobOffset), nil); !ss.OK() {
+			if ss := it.dbSystem.store.Put(jobStorKey, jsonEncode(jobEntry.inOffset), nil); !ss.OK() {
 				return ss.Error()
 			}
 		}
 
-		jobOffset.Updated = tn
+		jobEntry.inOffset.Updated = tn
 
-		if n := (jobOffset.Stats.FullDataFlush + jobOffset.Stats.DeltaDataFlush) - prevDataFlush; n > 0 {
-			hlog.Printf("info", "job-transfer %s, flush %d, offsets %s", job.UniId, n, string(jsonEncode(jobOffset)))
+		if n := (jobEntry.inOffset.Stats.FullDataFlush + jobEntry.inOffset.Stats.DeltaDataFlush) - prevDataFlush; n > 0 {
+			hlog.Printf("info", "job-transfer %s, flush %d, offsets %s", job.UniId, n, string(jsonEncode(jobEntry.inOffset)))
 		}
 
 		return nil
 	}
 
-	for _, tr := range it.cfg.TransferJobs {
+	for _, jobEntry := range it.cfg.TransferJobs {
 
-		if tr.UniId == "" || tr.Action != "enable" {
+		if jobEntry.UniId == "" || jobEntry.Action != "enable" {
 			continue
 		}
 
-		dmSink := it.dbMapMgr.getByName(tr.SinkDatabase)
+		dmSink := it.dbMapMgr.getByName(jobEntry.SinkDatabase)
 		if dmSink == nil {
 			continue
 		}
 
-		c, err := tr.Source.newClient()
+		c, err := jobEntry.Source.newClient()
 		if err != nil {
-			hlog.Printf("info", "transfer source %s, connect fail %s", tr.Source.Addr, err.Error())
+			hlog.Printf("info", "jobEntryansfer source %s, connect fail %s", jobEntry.Source.Addr, err.Error())
 			continue
 		}
 
-		jobAction(&tr, c, dmSink)
+		jobAction(jobEntry, c, dmSink)
 	}
 
 	return nil

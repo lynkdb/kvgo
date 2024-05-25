@@ -19,8 +19,7 @@ package lynkdb.kvapi.v2;
 option optimize_for = LITE_RUNTIME;
 option go_package = "./;kvapi";
 
-import "google/protobuf/any.proto";
-import "google/protobuf/struct.proto";
+// import "google/protobuf/struct.proto";
 
 // KeyValue is a pair of Key and Value for returned Key/Value pairs
 message KeyValue {
@@ -124,7 +123,7 @@ message BatchResponse {
   uint32 status_code = 1;
   string status_message = 2;
 
-  repeated ResultSet items = 9;
+  repeated ResultSet items = 9;  // `x_attrs:"rows"`
 }
 
 message Status {
@@ -136,7 +135,7 @@ message ResultSet {
   uint32 status_code = 1;
   string status_message = 2;
 
-  repeated KeyValue items = 9;
+  repeated KeyValue items = 9;  // `x_attrs:"rows"`
   uint64 max_version = 10;
 
   repeated bytes next_keys = 16;
@@ -154,7 +153,7 @@ service Kvgo {
 
 // message DatabaseDescriptor {
 message Database {
-  string id = 1;
+  string id = 1;  // `x_attrs:"primary_key"`
   string name = 2;
   string engine = 3;
   uint32 replica_num = 4;
@@ -165,73 +164,24 @@ message Database {
 message DatabaseListRequest {}
 
 message DatabaseCreateRequest {
-  string name = 2;
-  string engine = 3;
-  uint32 replica_num = 4;
-  string desc = 5;
-  int64 shard_size = 6;  // unit in MiB
+  string name = 2;         // `x_attrs:"create_required"`
+  string engine = 3;       // `x_value_limits:"v2" x_enums:"v2"`
+  uint32 replica_num = 4;  // `x_value_limits:"1,1,5"`
+  string desc = 5;         //
+  int64 shard_size = 6;    // unit in MiB `x_value_limits:"64,8192,524288"`
   map<string, string> options = 9;
 }
 
 message DatabaseUpdateRequest {
-  string name = 2;
-  string engine = 3;
-  uint32 replica_num = 4;
-  string desc = 5;
-  int64 shard_size = 6;  // unit in MiB
+  string name = 2;         // `x_attrs:"update_required"`
+  string engine = 3;       // `x_value_limits:"v2" x_enums:"v2"`
+  uint32 replica_num = 4;  // `x_value_limits:"1,1,5"`
+  string desc = 5;         //
+  int64 shard_size = 6;    // unit in MiB `x_value_limits:"64,8192,524288"`
 }
 
 message DatabaseListResponse {
-  repeated Database items = 9;
-}
-
-message JobSpec {
-  message Option {
-    // unique name
-    string name = 1;
-
-    // description
-    // string desc = 2;
-
-    string type = 2;
-
-    google.protobuf.Value default_value = 3;
-
-    repeated Option options = 9;
-  }
-
-  string kind = 1;
-  string version = 2;
-
-  repeated Option options = 3;
-}
-
-message JobStatus {
-  map<string, google.protobuf.Value> items = 3;
-  int64 update = 15;
-}
-
-message Job {
-  // Output only. unique identifier for job
-  string uid = 1;
-
-  // description
-  string desc = 2;
-
-  JobSpec spec = 3;
-
-  map<string, google.protobuf.Value> options = 9;
-
-  JobStatus status = 10;
-
-  int64 created = 14;
-  int64 updated = 15;
-}
-
-message JobListRequest {}
-
-message JobUpdateRequest {
-  string id = 1;
+  repeated Database items = 9;  // `x_attrs:"rows"`
 }
 
 message StatusRequest {}
@@ -246,7 +196,5 @@ service KvgoAdmin {
   rpc DatabaseList(DatabaseListRequest) returns (ResultSet) {}
   rpc DatabaseCreate(DatabaseCreateRequest) returns (ResultSet) {}
   rpc DatabaseUpdate(DatabaseUpdateRequest) returns (ResultSet) {}
-  rpc JobList(JobListRequest) returns (ResultSet) {}
-  // rpc JobUpdate(JobUpdateRequest) returns (ResultSet) {}
   rpc SysGet(SysGetRequest) returns (ResultSet) {}
 }

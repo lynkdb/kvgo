@@ -72,7 +72,7 @@ type AdminClient interface {
 	DatabaseList(req *DatabaseListRequest) *ResultSet
 	DatabaseCreate(req *DatabaseCreateRequest) *ResultSet
 	DatabaseUpdate(req *DatabaseUpdateRequest) *ResultSet
-	JobList(req *JobListRequest) *ResultSet
+	// JobList(req *JobListRequest) *ResultSet
 	SysGet(req *SysGetRequest) *ResultSet
 	Close() error
 }
