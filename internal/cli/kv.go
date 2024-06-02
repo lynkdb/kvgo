@@ -21,33 +21,34 @@ import (
 	"strconv"
 
 	"github.com/chzyer/readline"
+	"github.com/lynkdb/lynkapi/go/lynkcli"
 	"github.com/olekukonko/tablewriter"
 
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
 
 func init() {
-	register(new(kvRange))
-	register(new(kvRead))
+	lynkcli.RegisterCommonCommand(new(kvRange))
+	lynkcli.RegisterCommonCommand(new(kvRead))
 }
 
 type kvRange struct{}
 
-func (kvRange) Spec() baseCommandSpec {
-	return baseCommandSpec{
+func (kvRange) Spec() lynkcli.BaseCommandSpec {
+	return lynkcli.BaseCommandSpec{
 		Path: "kv-range",
 		Desc: "kv-range <database name> <lower key> <upper key> [-limit N]",
 	}
 }
 
-func (kvRange) Action(fg flagSet, l *readline.Instance) (string, error) {
+func (kvRange) Action(fg lynkcli.FlagSet, l *readline.Instance) (string, error) {
 
 	req := &kvapi.RangeRequest{}
 
-	if len(fg.varArgs) == 3 {
-		req.Database = fg.varArgs[0]
-		req.LowerKey = []byte(fg.varArgs[1])
-		req.UpperKey = []byte(fg.varArgs[2])
+	if len(fg.VarArgs) == 3 {
+		req.Database = fg.VarArgs[0]
+		req.LowerKey = []byte(fg.VarArgs[1])
+		req.UpperKey = []byte(fg.VarArgs[2])
 	} else {
 
 		l.SetPrompt("database name: ")
@@ -117,19 +118,19 @@ func (kvRange) Action(fg flagSet, l *readline.Instance) (string, error) {
 
 type kvRead struct{}
 
-func (kvRead) Spec() baseCommandSpec {
-	return baseCommandSpec{
+func (kvRead) Spec() lynkcli.BaseCommandSpec {
+	return lynkcli.BaseCommandSpec{
 		Path: "kv-read",
 		Desc: "kv-read <database name> <key>",
 	}
 }
 
-func (kvRead) Action(fg flagSet, l *readline.Instance) (string, error) {
+func (kvRead) Action(fg lynkcli.FlagSet, l *readline.Instance) (string, error) {
 
 	req := &kvapi.ReadRequest{}
 
-	if len(fg.varArgs) > 0 {
-		req.Database = fg.varArgs[0]
+	if len(fg.VarArgs) > 0 {
+		req.Database = fg.VarArgs[0]
 	} else {
 		l.SetPrompt("database name: ")
 		dbName, err := l.Readline()
@@ -139,8 +140,8 @@ func (kvRead) Action(fg flagSet, l *readline.Instance) (string, error) {
 		req.Database = dbName
 	}
 
-	if len(fg.varArgs) > 1 {
-		req.Keys = append(req.Keys, []byte(fg.varArgs[1]))
+	if len(fg.VarArgs) > 1 {
+		req.Keys = append(req.Keys, []byte(fg.VarArgs[1]))
 	} else {
 		l.SetPrompt("key: ")
 		key, err := l.Readline()

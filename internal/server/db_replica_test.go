@@ -21,6 +21,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lynkdb/lynkapi/go/lynkapi"
+
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 	"github.com/lynkdb/kvgo/v2/pkg/storage"
 	_ "github.com/lynkdb/kvgo/v2/pkg/storage/pebble"
@@ -50,14 +52,16 @@ func Test_DatabaseReplica_Task(t *testing.T) {
 	defer sess.release()
 
 	{
-		if rs := sess.ac.DatabaseCreate(&kvapi.DatabaseCreateRequest{
+		req, _ := lynkapi.NewRequestFromObject("AdminService", "DatabaseCreate", &kvapi.DatabaseCreateRequest{
 			Name:       test_DatabaseReplica_Task,
 			Engine:     storage.DefaultDriver,
 			ReplicaNum: 3,
-		}); !rs.OK() {
-			t.Fatal(rs.StatusMessage)
+		})
+
+		if rs := sess.ac.Exec(req); !rs.OK() {
+			t.Fatal(rs.Err())
 		} else {
-			t.Logf("database create ok, meta %v", rs.Meta())
+			t.Logf("database create ok, meta %v", *rs.Data)
 		}
 	}
 

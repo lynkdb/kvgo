@@ -12,9 +12,9 @@ PROTOC_ARGS = --proto_path=./api/ --go_opt=paths=source_relative --go_out=./pkg/
 LYNKX_FITTER_CMD = lynkx-fitter
 LYNKX_FITTER_ARGS = pkg/kvapi
 
-.PHONY: server server-run cli clix cli-install cli-run install test api clean code-stats
+.PHONY: server server-run cli cli-install cli-run install test api clean code-stats
 
-all: server cli clix
+all: server cli
 	@echo ""
 	@echo "build complete"
 	@echo ""
@@ -24,9 +24,6 @@ server:
 
 cli:
 	go build -trimpath -ldflags="-s -w" -tags="disable_storage" -o ${EXE_CLI} cmd/cli/main.go
-
-clix:
-	go build -trimpath -ldflags="-s -w" -tags="disable_storage" -o ${EXE_CLIX} cmd/clix/main.go
 
 cli-install: cli
 	mkdir -p ${APP_HOME}/bin

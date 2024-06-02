@@ -15,70 +15,29 @@
 package cli
 
 import (
-	"fmt"
-	"net"
-	"os"
-	"path/filepath"
-	"strings"
+	"github.com/lynkdb/lynkapi/go/lynkapi"
 
-	"github.com/hooto/htoml4g/htoml"
-
-	"github.com/lynkdb/kvgo/v2/internal/server"
 	"github.com/lynkdb/kvgo/v2/pkg/client"
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
 
 var (
-	Prefix      string
-	kvclient    kvapi.Client
-	adminClient kvapi.AdminClient
-	cfg         client.Config
-	err         error
+	Prefix   string
+	kvclient kvapi.Client
+	cfg      client.Config
+	err      error
 )
 
-func Setup() error {
+func Setup(c lynkapi.ClientConfig) error {
 
-	if len(os.Args) == 2 && strings.HasSuffix(os.Args[1], ".toml") {
-
-		if err = htoml.DecodeFromFile(os.Args[1], &cfg); err != nil {
-			return err
-		}
-
-	} else {
-		if Prefix, err = filepath.Abs(filepath.Dir(os.Args[0]) + "/.."); err != nil {
-			Prefix = "/opt/lynkdb/kvgo/v2"
-		}
-
-		var (
-			confFile = Prefix + "/etc/kvgo-server.toml"
-			srvConf  server.Config
-		)
-
-		if err = htoml.DecodeFromFile(confFile, &srvConf); err != nil {
-			srvConf.Server.Bind = "127.0.0.1:9566"
-			return err
-		}
-
-		if srvConf.Server.AccessKey == nil {
-			return fmt.Errorf("access-key not found (%s)", confFile)
-		}
-		cfg.Addr = srvConf.Server.Bind
-		cfg.AccessKey = srvConf.Server.AccessKey
-	}
-
-	if _, _, err := net.SplitHostPort(cfg.Addr); err != nil {
-		return err
-	}
-
-	if adminClient, err = cfg.NewAdminClient(); err != nil {
-		return err
+	cfg = client.Config{
+		Addr:      c.Addr,
+		AccessKey: c.AccessKey,
 	}
 
 	if kvclient, err = cfg.NewClient(); err != nil {
 		return err
 	}
-
-	fmt.Printf("connect to %s\n", cfg.Addr)
 
 	return nil
 }

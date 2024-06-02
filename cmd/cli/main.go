@@ -16,72 +16,12 @@ package main
 
 import (
 	"fmt"
-	"io"
-	"log"
-	"strings"
 
-	"github.com/chzyer/readline"
+	"github.com/lynkdb/lynkapi/go/lynkcli"
 
 	"github.com/lynkdb/kvgo/v2/internal/cli"
 )
 
-func filterInput(r rune) (rune, bool) {
-	switch r {
-	// block CtrlZ feature
-	case readline.CharCtrlZ:
-		return r, false
-	}
-	return r, true
-}
-
-func resetPrompt(l *readline.Instance) {
-	l.SetPrompt("kvgo cli : ")
-}
-
-var (
-	version = ""
-)
-
 func main() {
-
-	if err := cli.Setup(); err != nil {
-		log.Fatal(err)
-	}
-
-	l, err := readline.NewEx(&readline.Config{
-		AutoComplete:        nil, // completer,
-		HistoryFile:         fmt.Sprintf("~/.kvgo_history"),
-		InterruptPrompt:     "^C",
-		EOFPrompt:           "exit",
-		HistorySearchFold:   true,
-		FuncFilterInputRune: filterInput,
-	})
-	if err != nil {
-		panic(err)
-	}
-	defer l.Close()
-
-	for {
-		resetPrompt(l)
-
-		line, err := l.Readline()
-
-		if err == readline.ErrInterrupt {
-			if len(line) == 0 {
-				break
-			} else {
-				continue
-			}
-		} else if err == io.EOF {
-			break
-		}
-
-		out, err := cli.Invoke(strings.TrimSpace(line), l)
-
-		if err != nil {
-			fmt.Println("Error:", err)
-		} else if out != "" {
-			fmt.Println(out)
-		}
-	}
+	fmt.Println(lynkcli.Run(lynkcli.SetupFunc(cli.Setup)))
 }

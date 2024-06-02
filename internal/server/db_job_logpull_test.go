@@ -19,6 +19,8 @@ import (
 	mrand "math/rand"
 	"testing"
 
+	"github.com/lynkdb/lynkapi/go/lynkapi"
+
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 	"github.com/lynkdb/kvgo/v2/pkg/storage"
 	_ "github.com/lynkdb/kvgo/v2/pkg/storage/pebble"
@@ -37,22 +39,31 @@ func Test_DatabaseJob_LogPull(t *testing.T) {
 	defer sess.release()
 
 	{
-		if rs := sess.ac.DatabaseCreate(&kvapi.DatabaseCreateRequest{
+		req, _ := lynkapi.NewRequestFromObject("AdminService", "DatabaseCreate", &kvapi.DatabaseCreateRequest{
 			Name:       test_DatabaseJob_LogPull_Database,
 			Engine:     storage.DefaultDriver,
 			ReplicaNum: 2,
-		}); !rs.OK() {
-			t.Fatal(rs.StatusMessage)
+		})
+
+		if rs := sess.ac.Exec(req); !rs.OK() {
+			t.Fatal(rs.Err())
 		} else {
-			t.Logf("database create ok, meta %v", rs.Meta())
+			t.Logf("database create ok, meta %v", *rs.Data)
 		}
 
-		if rs := sess.ac.DatabaseList(&kvapi.DatabaseListRequest{}); !rs.OK() {
-			t.Fatal(rs.StatusMessage)
-		} else if len(rs.Items) != 2 {
-			t.Fatalf("database list issue %d", len(rs.Items))
+		req, _ = lynkapi.NewRequestFromObject("AdminService", "DatabaseList", &kvapi.DatabaseListRequest{})
+		if rs := sess.ac.Exec(req); !rs.OK() {
+			t.Fatal(rs.Err())
 		} else {
-			t.Logf("database list ok")
+			var data kvapi.DatabaseListResponse
+			if err := rs.Decode(&data); err != nil {
+				t.Fatal(err)
+			}
+			if len(data.Items) != 2 {
+				t.Fatalf("database list issue %d", len(data.Items))
+			} else {
+				t.Logf("database list ok")
+			}
 		}
 	}
 

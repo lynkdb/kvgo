@@ -23,10 +23,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lynkdb/kvgo/v2/pkg/client"
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 	"github.com/lynkdb/kvgo/v2/pkg/storage"
 	_ "github.com/lynkdb/kvgo/v2/pkg/storage/pebble"
+	"github.com/lynkdb/lynkapi/go/lynkapi"
 )
 
 func Test_AdminAPI(t *testing.T) {
@@ -38,41 +38,58 @@ func Test_AdminAPI(t *testing.T) {
 	defer sess.release()
 
 	{
-		if rs := sess.ac.DatabaseCreate(&kvapi.DatabaseCreateRequest{
+		req, _ := lynkapi.NewRequestFromObject("AdminService", "DatabaseCreate", &kvapi.DatabaseCreateRequest{
 			Name:   "test",
 			Engine: storage.DefaultDriver,
-		}); !rs.OK() && rs.StatusCode != kvapi.Status_Conflict {
-			t.Fatal(rs.StatusMessage)
-		} else {
-			t.Logf("database create ok, meta %v", rs.Meta())
+		})
+		if rs := sess.ac.Exec(req); !rs.Status.OK() && rs.Status.Code != lynkapi.StatusCode_Conflict {
+			t.Fatal(rs.Status.Err())
+		} else if rs.Status.OK() {
+			t.Logf("database create ok, meta %v", *rs.Data)
 		}
 
-		if rs := sess.ac.DatabaseList(&kvapi.DatabaseListRequest{}); !rs.OK() {
-			t.Fatal(rs.StatusMessage)
-		} else if len(rs.Items) != 2 {
-			t.Fatalf("database list issue %d", len(rs.Items))
+		req, _ = lynkapi.NewRequestFromObject("AdminService", "DatabaseList", &kvapi.DatabaseListRequest{})
+		if rs := sess.ac.Exec(req); !rs.Status.OK() {
+			t.Fatal(rs.Status.Err())
 		} else {
-			t.Logf("database list ok")
+			var data kvapi.DatabaseListResponse
+			if err := rs.Decode(&data); err != nil {
+				t.Fatal(err)
+			}
+			if len(data.Items) != 2 {
+				t.Fatalf("database list issue %d", len(data.Items))
+			} else {
+				t.Logf("database list ok")
+			}
 		}
 	}
 
 	{
 		time.Sleep(1e9)
-		if rs := sess.ac.DatabaseUpdate(&kvapi.DatabaseUpdateRequest{
+		req, _ := lynkapi.NewRequestFromObject("AdminService", "DatabaseUpdate", &kvapi.DatabaseUpdateRequest{
 			Name:       "test",
 			ReplicaNum: 2,
-		}); !rs.OK() {
-			t.Fatal(rs.StatusMessage)
+			Desc:       "test",
+		})
+		if rs := sess.ac.Exec(req); !rs.Status.OK() {
+			t.Fatal(rs.Status.Err())
 		} else {
-			t.Logf("database alter ok : %v", rs.Meta())
+			t.Logf("database alter ok : %v", *rs.Data)
 		}
 
-		if rs := sess.ac.DatabaseList(&kvapi.DatabaseListRequest{}); !rs.OK() {
-			t.Fatal(rs.StatusMessage)
-		} else if len(rs.Items) != 2 {
-			t.Fatal("database list issue")
+		req, _ = lynkapi.NewRequestFromObject("AdminService", "DatabaseList", &kvapi.DatabaseListRequest{})
+		if rs := sess.ac.Exec(req); !rs.Status.OK() {
+			t.Fatal(rs.Status.Err())
 		} else {
-			t.Logf("database list ok")
+			var data kvapi.DatabaseListResponse
+			if err := rs.Decode(&data); err != nil {
+				t.Fatal(err)
+			}
+			if len(data.Items) != 2 {
+				t.Fatalf("database list issue %d", len(data.Items))
+			} else {
+				t.Logf("database list ok")
+			}
 		}
 	}
 }
@@ -80,7 +97,8 @@ func Test_AdminAPI(t *testing.T) {
 type testAdminApiSession struct {
 	dbs  []*dbServer
 	dirs []string
-	ac   kvapi.AdminClient
+	// ac   kvapi.AdminClient
+	ac lynkapi.Client
 }
 
 func (it *testAdminApiSession) release() {
@@ -157,12 +175,21 @@ func test_AdminApi_Open(args ...interface{}) (*testAdminApiSession, error) {
 	}
 	sess.dbs = append(sess.dbs, db)
 
-	cc := &client.Config{
+	// cc := &client.Config{
+	// 	Addr:      fmt.Sprintf("127.0.0.1:%d", port),
+	// 	AccessKey: dbTestAccessKey,
+	// }
+
+	// sess.ac, err = cc.NewAdminClient()
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	cc := &lynkapi.ClientConfig{
 		Addr:      fmt.Sprintf("127.0.0.1:%d", port),
 		AccessKey: dbTestAccessKey,
 	}
-
-	sess.ac, err = cc.NewAdminClient()
+	sess.ac, err = cc.NewClient()
 	if err != nil {
 		return nil, err
 	}

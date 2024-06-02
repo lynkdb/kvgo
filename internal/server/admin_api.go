@@ -22,14 +22,12 @@ import (
 	"strings"
 
 	"github.com/hooto/hlog4g/hlog"
-	"google.golang.org/grpc"
-
-	"github.com/lynkdb/lynkx/datax"
+	"github.com/lynkdb/lynkapi/go/lynkapi"
 
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
-	"github.com/lynkdb/kvgo/v2/pkg/storage"
 )
 
+/**
 type serviceAdminImpl struct {
 	kvapi.UnimplementedKvgoAdminServer
 	rpcServer *grpc.Server
@@ -341,6 +339,7 @@ func (it *serviceAdminImpl) auth(ctx context.Context) error {
 
 	return nil
 }
+*/
 
 type AdminService struct {
 	dbServer *dbServer
@@ -383,7 +382,7 @@ type JobItem struct {
 }
 
 func (it *AdminService) JobList(
-	ctx datax.Context,
+	ctx lynkapi.Context,
 	req *JobListRequest,
 ) (*JobListResponse, error) {
 
@@ -421,17 +420,17 @@ type JobUpdateTransferSource struct {
 }
 
 func (it *AdminService) JobUpdate(
-	ctx datax.Context,
+	ctx lynkapi.Context,
 	req *JobUpdateTransferRequest,
 ) (*ConfigTransferJob, error) {
 
 	jobEntry := it.dbServer.transferMgr.jobEntry(req.UniId)
 	if jobEntry == nil || jobEntry.job == nil {
-		return nil, datax.NewNotFoundError(fmt.Sprintf("job (%s) not found", req.UniId))
+		return nil, lynkapi.NewNotFoundError(fmt.Sprintf("job (%s) not found", req.UniId))
 	}
 
 	if chg, err := ctx.RequestSpec().DataMerge(jobEntry.job, req); err != nil {
-		return nil, datax.NewBadRequestError(fmt.Sprintf("data merge fail : %s", err.Error()))
+		return nil, lynkapi.NewBadRequestError(fmt.Sprintf("data merge fail : %s", err.Error()))
 	} else if chg {
 		it.dbServer.ConfigFlush()
 	}
@@ -440,17 +439,216 @@ func (it *AdminService) JobUpdate(
 }
 
 func (it *AdminService) DatabaseList(
-	ctx datax.Context,
+	ctx lynkapi.Context,
 	req *kvapi.DatabaseListRequest,
-) (*kvapi.ResultSet, error) {
+) (*kvapi.DatabaseListResponse, error) {
 
-	rs := newResultSetOK()
+	rs := &kvapi.DatabaseListResponse{}
 
 	it.dbServer.dbMapMgr.iter(func(tbl *dbMap) {
-		if tbl.data != nil {
-			resultSetAppendWithJsonObject(rs, []byte(tbl.data.Name), tbl.meta, tbl.data)
+		if tbl.data != nil { //&& tbl.data.Name != sysDatabaseName {
+			rs.Items = append(rs.Items, tbl.data)
 		}
 	})
 
+	return rs, nil
+}
+
+type DatabaseInfoRequest struct {
+	Name string `json:"name" x_attrs:"query_required"`
+}
+
+type DatabaseInfo struct {
+	Map         *kvapi.DatabaseMap                    `json:"map"`
+	Status      *kvapi.DatabaseMapStatus              `json:"status"`
+	IncrOffsets []*kvapi.DatabaseMapStatus_IncrOffset `json:"incr_offsets"`
+}
+
+func (it *AdminService) DatabaseInfo(
+	ctx lynkapi.Context,
+	req *DatabaseInfoRequest,
+) (*DatabaseInfo, error) {
+
+	if !kvapi.DatabaseNameRX.MatchString(req.Name) ||
+		req.Name == sysDatabaseName {
+		return nil, lynkapi.NewClientError("invalid database name")
+	}
+
+	tmap := it.dbServer.dbMapMgr.getByName(req.Name)
+	if tmap == nil || tmap.meta == nil || tmap.data == nil {
+		return nil, lynkapi.NewNotFoundError("database not found")
+	}
+
+	return &DatabaseInfo{
+		Map:         tmap.mapData,
+		Status:      &tmap.status,
+		IncrOffsets: tmap.incrMgr.Items,
+	}, nil
+}
+
+func (it *AdminService) DatabaseCreate(
+	ctx lynkapi.Context,
+	req *kvapi.DatabaseCreateRequest,
+) (*kvapi.Database, error) {
+
+	if !kvapi.DatabaseNameRX.MatchString(req.Name) ||
+		req.Name == sysDatabaseName {
+		return nil, lynkapi.NewClientError("invalid database name " + req.Name)
+	}
+
+	if tbl := it.dbServer.dbMapMgr.getByName(req.Name); tbl != nil {
+		return nil, lynkapi.NewConflictError("database already exist " + req.Name)
+	}
+
+	var tbl kvapi.Database
+
+	_, err := ctx.RequestSpec().DataMerge(&tbl, req)
+	if err != nil {
+		return nil, lynkapi.NewClientError(err.Error())
+	}
+
+	tbl.Id = randHexString(8)
+
+	wr := kvapi.NewWriteRequest(nsSysDatabaseSpec(tbl.Id), tbl)
+	wr.Database = sysDatabaseName
+	wr.CreateOnly = true
+	wr.Attrs |= kvapi.Write_Attrs_Sync
+
+	ss, err := it.dbServer.api.Write(ctx, wr)
+	if err != nil {
+		return nil, lynkapi.NewInternalServerError(err.Error())
+	}
+	if !ss.OK() {
+		return nil, lynkapi.NewInternalServerError(ss.Error().Error())
+	}
+
+	it.dbServer.auditLogger.Put("admin-api", "database %s, engine %s, replica-num %d, created",
+		tbl.Name, tbl.Engine, tbl.ReplicaNum)
+
+	tm := it.dbServer.dbMapMgr.syncDatabase(ss.Meta(), &tbl)
+
+	if it.dbServer.cfg.Server.IsStandaloneMode() {
+		it.dbServer._jobDatabaseMapSetup(tm)
+	}
+
+	hlog.Printf("info", "database create : %v", tbl)
+
+	return &tbl, nil
+}
+
+func (it *AdminService) DatabaseUpdate(
+	ctx lynkapi.Context,
+	req *kvapi.DatabaseUpdateRequest,
+) (*kvapi.Database, error) {
+
+	if !kvapi.DatabaseNameRX.MatchString(req.Name) ||
+		req.Name == sysDatabaseName {
+		return nil, lynkapi.NewClientError("invalid database name")
+	}
+
+	tmap := it.dbServer.dbMapMgr.getByName(req.Name)
+	if tmap == nil || tmap.meta == nil || tmap.data == nil {
+		return nil, lynkapi.NewNotFoundError("database not found")
+	}
+
+	req.Desc = strings.TrimSpace(req.Desc)
+	chg, err := ctx.RequestSpec().DataMerge(tmap.data, req, lynkapi.DataMerge_Update)
+	if err != nil {
+		return nil, lynkapi.NewClientError(err.Error())
+	}
+
+	if chg {
+		wr := kvapi.NewWriteRequest(nsSysDatabaseSpec(tmap.data.Id), jsonEncode(tmap.data))
+		wr.Database = sysDatabaseName
+		wr.PrevVersion = tmap.meta.Version
+		wr.Attrs |= kvapi.Write_Attrs_Sync
+
+		rsDatabase, err := it.dbServer.api.Write(ctx, wr)
+		if err != nil {
+			return nil, lynkapi.NewInternalServerError(err.Error())
+		}
+
+		if !rsDatabase.OK() {
+			return nil, lynkapi.NewInternalServerError(rsDatabase.Error().Error())
+		}
+
+		it.dbServer.auditLogger.Put("admin-api", "database %s, replica-num %d, updated",
+			tmap.data.Name, tmap.data.ReplicaNum)
+
+		it.dbServer.dbMapMgr.syncDatabase(rsDatabase.Meta(), tmap.data)
+	}
+
+	hlog.Printf("info", "database update : %v", tmap.data)
+
+	return tmap.data, nil
+}
+
+type SysInfoRequest struct{}
+
+type SysInfoResponse struct {
+	Config      Config             `json:"config"`
+	Status      dbServerStatus     `json:"status"`
+	StoreStatus storeStatusManager `json:"store_status"`
+}
+
+func (it *AdminService) SysInfo(
+	ctx lynkapi.Context,
+	req *SysInfoRequest,
+) (*SysInfoResponse, error) {
+	return &SysInfoResponse{
+		Config:      it.dbServer.cfg,
+		Status:      it.dbServer.status,
+		StoreStatus: it.dbServer.storeMgr.status,
+	}, nil
+}
+
+type StoreInfoRequest struct{}
+
+type StoreInfoResponse struct {
+	Items []*kvapi.SysStoreStatus `json:"items" x_attrs:"rows"`
+}
+
+func (it *AdminService) StoreInfo(
+	ctx lynkapi.Context,
+	req *StoreInfoRequest,
+) (*StoreInfoResponse, error) {
+
+	sort.Slice(it.dbServer.storeMgr.status.Items, func(i, j int) bool {
+		return it.dbServer.storeMgr.status.Items[i].CapacityFree > it.dbServer.storeMgr.status.Items[j].CapacityFree
+	})
+
+	return &StoreInfoResponse{
+		Items: it.dbServer.storeMgr.status.Items,
+	}, nil
+}
+
+type AuditLogListRequest struct {
+	Limit int64 `json:"limit" x_value_limits:"1,10,1000"`
+}
+
+type AuditLogListResponse struct {
+	Items []*auditLogEntry `json:"items" x_attrs:"rows"`
+}
+
+func (it *AdminService) AuditLogList(
+	ctx lynkapi.Context,
+	req *AuditLogListRequest,
+) (*AuditLogListResponse, error) {
+	rs := &AuditLogListResponse{}
+	ds := it.dbServer.dbSystem.Range(&kvapi.RangeRequest{
+		LowerKey: nsSysAuditLog(false),
+		UpperKey: nsSysAuditLog(true),
+		Revert:   true,
+		Limit:    req.Limit,
+	})
+	if ds.OK() {
+		for _, v := range ds.Items {
+			var item auditLogEntry
+			if err := v.JsonDecode(&item); err != nil {
+				return nil, lynkapi.NewInternalServerError(err.Error())
+			}
+			rs.Items = append(rs.Items, &item)
+		}
+	}
 	return rs, nil
 }

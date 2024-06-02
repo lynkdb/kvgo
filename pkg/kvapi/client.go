@@ -68,14 +68,14 @@ type Client interface {
 	Close() error
 }
 
-type AdminClient interface {
-	DatabaseList(req *DatabaseListRequest) *ResultSet
-	DatabaseCreate(req *DatabaseCreateRequest) *ResultSet
-	DatabaseUpdate(req *DatabaseUpdateRequest) *ResultSet
-	// JobList(req *JobListRequest) *ResultSet
-	SysGet(req *SysGetRequest) *ResultSet
-	Close() error
-}
+// type AdminClient interface {
+// 	DatabaseList(req *DatabaseListRequest) *ResultSet
+// 	DatabaseCreate(req *DatabaseCreateRequest) *ResultSet
+// 	DatabaseUpdate(req *DatabaseUpdateRequest) *ResultSet
+// 	// JobList(req *JobListRequest) *ResultSet
+// 	SysGet(req *SysGetRequest) *ResultSet
+// 	Close() error
+// }
 
 type DebugClient interface {
 	RawRange(req *RangeRequest) ([]*RawKeyValue, error)

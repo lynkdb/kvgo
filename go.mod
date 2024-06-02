@@ -2,7 +2,7 @@ module github.com/lynkdb/kvgo/v2
 
 go 1.22.3
 
-replace github.com/lynkdb/lynkx v0.0.1 => /opt/workspace/src/github.com/lynkdb/lynkx
+replace github.com/lynkdb/lynkapi v0.0.1 => /opt/workspace/src/github.com/lynkdb/lynkapi
 
 require (
 	github.com/cespare/xxhash/v2 v2.2.0
@@ -12,7 +12,7 @@ require (
 	github.com/hooto/hlog4g v0.9.4
 	github.com/hooto/hmetrics v0.0.1
 	github.com/hooto/htoml4g v0.9.5
-	github.com/lynkdb/lynkx v0.0.1
+	github.com/lynkdb/lynkapi v0.0.1
 	github.com/olekukonko/tablewriter v0.0.6-0.20230925090304-df64c4bbad77
 	github.com/shirou/gopsutil/v3 v3.24.2
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d

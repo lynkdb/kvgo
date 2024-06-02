@@ -35,7 +35,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	_ "google.golang.org/grpc/encoding/gzip"
 
-	"github.com/lynkdb/lynkx/datax"
+	"github.com/lynkdb/lynkapi/go/lynkapi"
 
 	"github.com/lynkdb/kvgo/v2/internal/utils"
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
@@ -69,8 +69,8 @@ type dbServer struct {
 
 	grpcListener net.Listener
 
-	api         *serviceApiImpl
-	apiAdmin    *serviceAdminImpl
+	api *serviceApiImpl
+	// apiAdmin    *serviceAdminImpl
 	apiInternal *serviceApiInternalImpl
 
 	dbSystem *dbReplica
@@ -201,9 +201,9 @@ func dbServerSetup(cfgFile string, cfg Config) (*dbServer, error) {
 	}
 
 	{
-		srv.apiAdmin = &serviceAdminImpl{
-			dbServer: srv,
-		}
+		// srv.apiAdmin = &serviceAdminImpl{
+		// 	dbServer: srv,
+		// }
 
 		srv.api = &serviceApiImpl{
 			dbServer: srv,
@@ -393,14 +393,14 @@ func (it *dbServer) netSetup() error {
 
 	grpcServer := grpc.NewServer(serverOptions...)
 
-	if it.apiAdmin == nil {
-		it.apiAdmin = &serviceAdminImpl{
-			rpcServer: grpcServer,
-			dbServer:  it,
-		}
-	} else {
-		it.apiAdmin.rpcServer = grpcServer
-	}
+	// if it.apiAdmin == nil {
+	// 	it.apiAdmin = &serviceAdminImpl{
+	// 		rpcServer: grpcServer,
+	// 		dbServer:  it,
+	// 	}
+	// } else {
+	// 	it.apiAdmin.rpcServer = grpcServer
+	// }
 
 	if it.api == nil {
 		it.api = &serviceApiImpl{
@@ -422,16 +422,16 @@ func (it *dbServer) netSetup() error {
 	}
 
 	kvapi.RegisterKvgoServer(grpcServer, it.api)
-	kvapi.RegisterKvgoAdminServer(grpcServer, it.apiAdmin)
+	// kvapi.RegisterKvgoAdminServer(grpcServer, it.apiAdmin)
 	kvapi.RegisterKvgoInternalServer(grpcServer, it.apiInternal)
 
 	{
-		dx := datax.NewService()
+		dx := lynkapi.NewService()
 		dx.RegisterService(&AdminService{
 			dbServer: it,
 		})
 
-		datax.RegisterDataxServiceServer(grpcServer, dx)
+		lynkapi.RegisterDataxServiceServer(grpcServer, dx)
 	}
 
 	go grpcServer.Serve(lis)

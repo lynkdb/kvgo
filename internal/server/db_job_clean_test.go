@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lynkdb/lynkapi/go/lynkapi"
+
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 	"github.com/lynkdb/kvgo/v2/pkg/storage"
 	_ "github.com/lynkdb/kvgo/v2/pkg/storage/pebble"
@@ -38,26 +40,35 @@ func Test_DatabaseJob_Clean(t *testing.T) {
 	defer sess.release()
 
 	{
-		if rs := sess.ac.DatabaseCreate(&kvapi.DatabaseCreateRequest{
+		req, _ := lynkapi.NewRequestFromObject("AdminService", "DatabaseCreate", &kvapi.DatabaseCreateRequest{
 			Name:       test_DatabaseJob_Clean_Database,
 			Engine:     storage.DefaultDriver,
 			ReplicaNum: 3,
-		}); !rs.OK() {
-			t.Fatal(rs.StatusMessage)
+		})
+
+		if rs := sess.ac.Exec(req); !rs.OK() {
+			t.Fatal(rs.Err())
 		} else {
-			t.Logf("database create ok, meta %v", rs.Meta())
+			t.Logf("database create ok, meta %v", *rs.Data)
 		}
 
-		if rs := sess.ac.DatabaseList(&kvapi.DatabaseListRequest{}); !rs.OK() {
-			t.Fatal(rs.StatusMessage)
-		} else if len(rs.Items) != 2 {
-			t.Fatalf("database list issue %d", len(rs.Items))
+		req, _ = lynkapi.NewRequestFromObject("AdminService", "DatabaseList", &kvapi.DatabaseListRequest{})
+		if rs := sess.ac.Exec(req); !rs.OK() {
+			t.Fatal(rs.Err())
 		} else {
-			t.Logf("database list ok")
+			var data kvapi.DatabaseListResponse
+			if err := rs.Decode(&data); err != nil {
+				t.Fatal(err)
+			}
+			if len(data.Items) != 2 {
+				t.Fatalf("database list issue %d", len(data.Items))
+			} else {
+				t.Logf("database list ok")
+			}
 		}
 	}
 
-	sess.c.SetDatabase(test_DatabaseJob_Clean_Database)
+	sess.c = sess.c.SetDatabase(test_DatabaseJob_Clean_Database)
 
 	tm := sess.db.dbMapMgr.getByName(test_DatabaseJob_Clean_Database)
 	if tm == nil {
@@ -82,10 +93,13 @@ func Test_DatabaseJob_Clean(t *testing.T) {
 
 	//
 	for id := 0; id < testNum; id++ {
-		sess.c.Write(kvapi.NewWriteRequest(
+		rs := sess.c.Write(kvapi.NewWriteRequest(
 			[]byte(fmt.Sprintf("key-%08d", id)),
 			[]byte(fmt.Sprintf("value-%d", id))).SetTTL(1000),
 		)
+		if !rs.OK() {
+			t.Fatal(rs.StatusMessage)
+		}
 	}
 
 	tto := (time.Now().UnixNano() / 1e6) + 1000

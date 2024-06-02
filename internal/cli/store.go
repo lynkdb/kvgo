@@ -21,52 +21,32 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chzyer/readline"
+	"github.com/lynkdb/lynkapi/go/lynkapi"
+	"github.com/lynkdb/lynkapi/go/lynkcli"
 	"github.com/olekukonko/tablewriter"
+	"google.golang.org/protobuf/types/known/structpb"
 
+	"github.com/lynkdb/kvgo/v2/internal/server"
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
 
 func init() {
-	register(new(cmdSysStoreInfo))
+	lynkcli.RegisterRender("admin", "store-info", StoreInfoRender)
 }
 
-type cmdSysStoreInfo struct{}
-
-func (cmdSysStoreInfo) Spec() baseCommandSpec {
-	return baseCommandSpec{
-		Path: "sys-store-info",
-	}
-}
-
-func (cmdSysStoreInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
-
-	req := &kvapi.SysGetRequest{
-		Name: "store-info",
-	}
-
-	if fg.Value("limit").Int64() > 0 {
-		req.Limit = fg.Value("limit").Int64()
-	}
-
-	rs := adminClient.SysGet(req)
-	if !rs.OK() {
-		return "", rs.Error()
+var StoreInfoRender = func(data *structpb.Struct) (string, error) {
+	var rs server.StoreInfoResponse
+	if err := lynkapi.DecodeStruct(data, &rs); err != nil {
+		return "", err
 	}
 
 	if len(rs.Items) == 0 {
 		return "", fmt.Errorf("no response")
 	}
 
-	type storeStatusManager struct {
-		Items []*kvapi.SysStoreStatus `json:"items"`
-	}
-
 	var (
 		tbuf  bytes.Buffer
 		table = tablewriter.NewWriter(&tbuf)
-
-		status storeStatusManager
 
 		sumUsed int64
 		sumFree int64
@@ -82,11 +62,7 @@ func (cmdSysStoreInfo) Action(fg flagSet, l *readline.Instance) (string, error) 
 	table.SetRowLine(true)
 	table.SetAutoWrapText(false)
 
-	if err := rs.Lookup([]byte("store/status")).JsonDecode(&status); err != nil {
-		return "", err
-	}
-
-	for _, item := range status.Items {
+	for _, item := range rs.Items {
 
 		var (
 			rate string

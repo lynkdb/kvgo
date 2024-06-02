@@ -26,6 +26,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lynkdb/lynkapi/go/lynkapi"
+
 	"github.com/lynkdb/kvgo/v2/pkg/client"
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 	"github.com/lynkdb/kvgo/v2/pkg/storage"
@@ -45,26 +47,35 @@ func Test_ServiceApi_RepX(t *testing.T) {
 	defer sess.release()
 
 	{
-		if rs := sess.ac.DatabaseCreate(&kvapi.DatabaseCreateRequest{
+		req, _ := lynkapi.NewRequestFromObject("AdminService", "DatabaseCreate", &kvapi.DatabaseCreateRequest{
 			Name:       test_ServiceApi_RepX_Database,
 			Engine:     storage.DefaultDriver,
 			ReplicaNum: 3,
-		}); !rs.OK() {
-			t.Fatal(rs.StatusMessage)
+		})
+
+		if rs := sess.ac.Exec(req); !rs.OK() {
+			t.Fatal(rs.Err())
 		} else {
-			t.Logf("database create ok, meta %v", rs.Meta())
+			t.Logf("database create ok, meta %v", *rs.Data)
 		}
 
-		if rs := sess.ac.DatabaseList(&kvapi.DatabaseListRequest{}); !rs.OK() {
-			t.Fatal(rs.StatusMessage)
-		} else if len(rs.Items) != 2 {
-			t.Fatalf("database list issue %d", len(rs.Items))
+		req, _ = lynkapi.NewRequestFromObject("AdminService", "DatabaseList", &kvapi.DatabaseListRequest{})
+		if rs := sess.ac.Exec(req); !rs.OK() {
+			t.Fatal(rs.Err())
 		} else {
-			t.Logf("database list ok")
+			var data kvapi.DatabaseListResponse
+			if err := rs.Decode(&data); err != nil {
+				t.Fatal(err)
+			}
+			if len(data.Items) != 2 {
+				t.Fatalf("database list issue %d", len(data.Items))
+			} else {
+				t.Logf("database list ok")
+			}
 		}
 	}
 
-	sess.c.SetDatabase(test_ServiceApi_RepX_Database)
+	sess.c = sess.c.SetDatabase(test_ServiceApi_RepX_Database)
 
 	var tm = sess.db.dbMapMgr.getByName(test_ServiceApi_RepX_Database)
 	if tm == nil {
@@ -516,7 +527,7 @@ func testServiceApi(t *testing.T, c kvapi.Client, clients []kvapi.Client) {
 type testServiceApiRepXSession struct {
 	dirs []string
 	db   *dbServer
-	ac   kvapi.AdminClient
+	ac   lynkapi.Client
 	c    kvapi.Client
 }
 
@@ -606,7 +617,11 @@ func test_ServiceApi_RepX_Open(name string, args ...interface{}) (*testServiceAp
 	}
 	sess.c = client
 
-	ac, err := cc.NewAdminClient()
+	acc := &lynkapi.ClientConfig{
+		Addr:      cfg.Server.Bind,
+		AccessKey: cfg.Server.AccessKey,
+	}
+	ac, err := acc.NewClient()
 	if err != nil {
 		return nil, err
 	}

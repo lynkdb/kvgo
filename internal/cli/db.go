@@ -16,222 +16,32 @@ package cli
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/chzyer/readline"
+	"github.com/lynkdb/lynkapi/go/lynkapi"
+	"github.com/lynkdb/lynkapi/go/lynkcli"
 	"github.com/olekukonko/tablewriter"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/lynkdb/kvgo/v2/internal/server"
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
-	"github.com/lynkdb/kvgo/v2/pkg/storage"
 )
 
 func init() {
-	register(new(dbList))
-	register(new(dbCreate))
-	register(new(dbUpdate))
-	register(new(dbInfo))
-	register(new(dbTestData))
+	lynkcli.RegisterCommonCommand(new(dbTestData))
+
+	lynkcli.RegisterRender("admin", "database-info", DatabaseInfoRender)
 }
 
-type dbList struct{}
-
-func (dbList) Spec() baseCommandSpec {
-	return baseCommandSpec{
-		Path: "db-list",
-	}
-}
-
-func (dbList) Action(fg flagSet, l *readline.Instance) (string, error) {
-
-	req := &kvapi.DatabaseListRequest{}
-
-	rs := adminClient.DatabaseList(req)
-	if !rs.OK() {
-		return "", rs.Error()
-	}
-	if len(rs.Items) == 0 {
-		return "", fmt.Errorf("no response")
-	}
-
-	var (
-		tbuf  bytes.Buffer
-		table = tablewriter.NewWriter(&tbuf)
-	)
-
-	table.SetHeader([]string{"Name", "Spec", "Updated"})
-
-	table.SetRowLine(true)
-	table.SetAutoWrapText(false)
-	// table.EnableBorder(false)
-
-	for _, kv := range rs.Items {
-
-		var buf bytes.Buffer
-		json.Indent(&buf, kv.Value, "", "  ")
-
-		table.Append([]string{
-			string(kv.Key),
-			buf.String(),
-			time.Unix(kv.Meta.Updated/1e3, 0).Format(time.DateTime),
-		})
-	}
-
-	table.Render()
-
-	return tbuf.String(), nil
-}
-
-type dbCreate struct{}
-
-func (dbCreate) Spec() baseCommandSpec {
-	return baseCommandSpec{
-		Path: "db-create",
-	}
-}
-
-func (dbCreate) Action(fg flagSet, l *readline.Instance) (string, error) {
-
-	req := &kvapi.DatabaseCreateRequest{
-		Engine:     storage.DefaultDriver,
-		ReplicaNum: 1,
-	}
-
-	l.SetPrompt("database name: ")
-	dbName, err := l.Readline()
-	if err != nil {
-		return "", err
-	}
-	req.Name = dbName
-
-	l.SetPrompt("replica num (range 1~5, default 1): ")
-	sn, err := l.Readline()
-	if err != nil {
-		return "", err
-	}
-	if i, err := strconv.Atoi(sn); err == nil && i > 1 && i <= 5 {
-		req.ReplicaNum = uint32(i)
-	}
-
-	l.SetPrompt("size size (range 1~512GB, default 8GB): ")
-	ss, err := l.Readline()
-	if err != nil {
-		return "", err
-	}
-	if strings.HasSuffix(ss, "GB") {
-		if i, err := strconv.Atoi(ss[:len(ss)-2]); err == nil && i >= 1 && i <= 512 {
-			req.ShardSize = int64(i) << 10
-		}
-	} else if strings.HasSuffix(ss, "MB") {
-		if i, err := strconv.Atoi(ss[:len(ss)-2]); err == nil && i >= 32 && i <= 1024 {
-			req.ShardSize = int64(i)
-		}
-	}
-
-	rs := adminClient.DatabaseCreate(req)
-	if !rs.OK() {
-		return "", rs.Error()
-	}
-
-	return fmt.Sprintf("OK database %s, id %d", dbName, rs.Meta().IncrId), nil
-}
-
-type dbUpdate struct{}
-
-func (dbUpdate) Spec() baseCommandSpec {
-	return baseCommandSpec{
-		Path: "db-update",
-		Desc: "db-update <database name>",
-	}
-}
-
-func (dbUpdate) Action(fg flagSet, l *readline.Instance) (string, error) {
-
-	req := &kvapi.DatabaseUpdateRequest{}
-
-	if len(fg.varArgs) > 0 {
-		req.Name = fg.varArgs[0]
-	} else {
-		l.SetPrompt("database name: ")
-		dbName, err := l.Readline()
-		if err != nil {
-			return "", err
-		}
-		req.Name = dbName
-	}
-
-	l.SetPrompt("description: ")
-	req.Desc, err = l.Readline()
-	if err != nil {
+var DatabaseInfoRender = func(data *structpb.Struct) (string, error) {
+	var rs server.DatabaseInfo
+	if err := lynkapi.DecodeStruct(data, &rs); err != nil {
 		return "", err
 	}
 
-	l.SetPrompt("size size (range 1~512GB, default 8GB): ")
-	ss, err := l.Readline()
-	if err != nil {
-		return "", err
-	}
-	if strings.HasSuffix(ss, "GB") {
-		if i, err := strconv.Atoi(ss[:len(ss)-2]); err == nil && i >= 1 && i <= 512 {
-			req.ShardSize = int64(i) << 10
-		}
-	} else if strings.HasSuffix(ss, "MB") {
-		if i, err := strconv.Atoi(ss[:len(ss)-2]); err == nil && i >= 32 && i <= 1024 {
-			req.ShardSize = int64(i)
-		}
-	}
-
-	rs := adminClient.DatabaseUpdate(req)
-	if !rs.OK() {
-		return "", rs.Error()
-	}
-
-	return fmt.Sprintf("OK database %s, id %d", req.Name, rs.Meta().IncrId), nil
-}
-
-type dbInfo struct{}
-
-func (dbInfo) Spec() baseCommandSpec {
-	return baseCommandSpec{
-		Path: "db-info",
-		Desc: "db-info <database name>",
-	}
-}
-
-func (dbInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
-
-	req := &kvapi.SysGetRequest{
-		Name:  "db-info",
-		Limit: 10000,
-	}
-
-	var dbName string
-
-	if len(fg.varArgs) > 0 {
-		dbName = fg.varArgs[0]
-	} else {
-
-		l.SetPrompt("database name: ")
-		dbName, err = l.Readline()
-		if err != nil {
-			return "", err
-		}
-	}
-
-	req.Params = map[string]string{
-		"db_name": dbName,
-	}
-
-	rs := adminClient.SysGet(req)
-	if !rs.OK() {
-		return "", rs.Error()
-	}
-
-	if len(rs.Items) == 0 {
+	if rs.Map == nil || rs.Status == nil {
 		return "", fmt.Errorf("no response")
 	}
 
@@ -239,8 +49,8 @@ func (dbInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
 		tbuf  bytes.Buffer
 		table = tablewriter.NewWriter(&tbuf)
 
-		dbMap    kvapi.DatabaseMap
-		dbStatus kvapi.DatabaseMapStatus
+		dbMap    = rs.Map
+		dbStatus = rs.Status
 	)
 
 	table.SetHeader([]string{
@@ -253,14 +63,6 @@ func (dbInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
 	table.SetAlignment(tablewriter.ALIGN_LEFT)
 	table.SetRowLine(true)
 	table.SetAutoWrapText(false)
-
-	if err := rs.Lookup([]byte(fmt.Sprintf("db/%s/map", dbName))).JsonDecode(&dbMap); err != nil {
-		return "", err
-	}
-
-	if err := rs.Lookup([]byte(fmt.Sprintf("db/%s/status", dbName))).JsonDecode(&dbStatus); err != nil {
-		return "", err
-	}
 
 	if dbStatus.Replicas == nil {
 		dbStatus.Replicas = map[uint64]*kvapi.DatabaseMapStatus_Replica{}
@@ -332,19 +134,19 @@ func (dbInfo) Action(fg flagSet, l *readline.Instance) (string, error) {
 
 type dbTestData struct{}
 
-func (dbTestData) Spec() baseCommandSpec {
-	return baseCommandSpec{
+func (dbTestData) Spec() lynkcli.BaseCommandSpec {
+	return lynkcli.BaseCommandSpec{
 		Path: "db-test-data",
 		Desc: "db-test-data <database name> [-num N]",
 	}
 }
 
-func (dbTestData) Action(fg flagSet, l *readline.Instance) (string, error) {
+func (dbTestData) Action(fg lynkcli.FlagSet, l *readline.Instance) (string, error) {
 
 	var dbName string
 
-	if len(fg.varArgs) > 0 {
-		dbName = fg.varArgs[0]
+	if len(fg.VarArgs) > 0 {
+		dbName = fg.VarArgs[0]
 	} else {
 
 		l.SetPrompt("database name: ")

@@ -25,6 +25,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
+	"github.com/lynkdb/lynkapi/go/lynkapi"
+
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
 
@@ -61,11 +63,10 @@ type clientConn struct {
 }
 
 type adminClientConn struct {
-	_ak     string
-	cfg     *Config
-	rpcConn *grpc.ClientConn
-	ac      kvapi.KvgoAdminClient
-	err     error
+	_ak string
+	cfg *lynkapi.ClientConfig
+	ac  lynkapi.Client
+	err error
 }
 
 func (it *Config) NewClient() (kvapi.Client, error) {
@@ -107,7 +108,7 @@ func (it *Config) NewClient() (kvapi.Client, error) {
 	return dbConn.setDatabase(it.Database), nil
 }
 
-func (it *Config) NewAdminClient() (kvapi.AdminClient, error) {
+func (it *Config) NewAdminClient() (lynkapi.Client, error) {
 
 	if it.AccessKey == nil {
 		return nil, errors.New("access key not setup")
@@ -125,21 +126,25 @@ func (it *Config) NewAdminClient() (kvapi.AdminClient, error) {
 	admConn, ok := admConns[ak]
 	if !ok {
 
-		conn, err := rpcClientConnect(it.Addr, it.AccessKey, false)
+		c := &lynkapi.ClientConfig{
+			Addr:      it.Addr,
+			AccessKey: it.AccessKey,
+		}
+
+		ac, err := c.NewClient()
 		if err != nil {
 			return nil, err
 		}
 
 		admConn = &adminClientConn{
-			_ak:     ak,
-			cfg:     it,
-			rpcConn: conn,
-			ac:      kvapi.NewKvgoAdminClient(conn),
+			_ak: ak,
+			cfg: c,
+			ac:  ac,
 		}
 		admConns[ak] = admConn
 	}
 
-	return admConn, nil
+	return admConn.ac, nil
 }
 
 func (it *Config) timeout() time.Duration {
@@ -417,61 +422,6 @@ func (it *clientDeleter) SetPrevChecksum(v interface{}) kvapi.ClientDeleter {
 
 func (it *clientDeleter) Exec() *kvapi.ResultSet {
 	return it.cc.Delete(it.req)
-}
-
-func (it *adminClientConn) DatabaseList(req *kvapi.DatabaseListRequest) *kvapi.ResultSet {
-
-	ctx, fc := context.WithTimeout(context.Background(), it.cfg.timeout())
-	defer fc()
-
-	rs, err := it.ac.DatabaseList(ctx, req)
-	if err != nil {
-		return newResultSetWithClientError(err.Error())
-	}
-	return rs
-}
-
-func (it *adminClientConn) DatabaseCreate(req *kvapi.DatabaseCreateRequest) *kvapi.ResultSet {
-
-	ctx, fc := context.WithTimeout(context.Background(), it.cfg.timeout())
-	defer fc()
-
-	rs, err := it.ac.DatabaseCreate(ctx, req)
-	if err != nil {
-		return newResultSetWithClientError(err.Error())
-	}
-	return rs
-}
-
-func (it *adminClientConn) DatabaseUpdate(req *kvapi.DatabaseUpdateRequest) *kvapi.ResultSet {
-
-	ctx, fc := context.WithTimeout(context.Background(), it.cfg.timeout())
-	defer fc()
-
-	rs, err := it.ac.DatabaseUpdate(ctx, req)
-	if err != nil {
-		return newResultSetWithClientError(err.Error())
-	}
-	return rs
-}
-
-func (it *adminClientConn) SysGet(req *kvapi.SysGetRequest) *kvapi.ResultSet {
-
-	ctx, fc := context.WithTimeout(context.Background(), it.cfg.timeout())
-	defer fc()
-
-	rs, err := it.ac.SysGet(ctx, req)
-	if err != nil {
-		return newResultSetWithClientError(err.Error())
-	}
-	return rs
-}
-
-func (it *adminClientConn) Close() error {
-	if it.rpcConn != nil {
-		return it.rpcConn.Close()
-	}
-	return nil
 }
 
 func rpcClientConnect(addr string,
