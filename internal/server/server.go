@@ -15,7 +15,6 @@
 package server
 
 import (
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -31,9 +30,6 @@ import (
 	"github.com/hooto/hmetrics"
 	"github.com/hooto/htoml4g/htoml"
 	ps_cpu "github.com/shirou/gopsutil/v3/cpu"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	_ "google.golang.org/grpc/encoding/gzip"
 
 	"github.com/lynkdb/lynkapi/go/lynkapi"
 
@@ -356,6 +352,15 @@ func (it *dbServer) keyMgrSetup() error {
 }
 
 func (it *dbServer) netSetup() error {
+
+	lynkServer, err := lynkapi.NewServer(&lynkapi.ServerConfig{
+		Bind: it.cfg.Server.Bind,
+	})
+	if err != nil {
+		return err
+	}
+
+	/**
 	host, port, err := net.SplitHostPort(it.cfg.Server.Bind)
 	if err != nil {
 		return err
@@ -437,6 +442,37 @@ func (it *dbServer) netSetup() error {
 	go grpcServer.Serve(lis)
 
 	it.grpcListener = lis
+	*/
+
+	if it.api == nil {
+		it.api = &serviceApiImpl{
+			rpcServer: lynkServer.GrpcServer,
+			dbServer:  it,
+		}
+	} else {
+		it.api.rpcServer = lynkServer.GrpcServer
+	}
+
+	if it.apiInternal == nil {
+		it.apiInternal = &serviceApiInternalImpl{
+			rpcServer:      lynkServer.GrpcServer,
+			dbServer:       it,
+			serviceApiImpl: it.api,
+		}
+	} else {
+		it.apiInternal.rpcServer = lynkServer.GrpcServer
+	}
+
+	kvapi.RegisterKvgoServer(lynkServer.GrpcServer, it.api)
+	kvapi.RegisterKvgoInternalServer(lynkServer.GrpcServer, it.apiInternal)
+
+	lynkServer.Service.RegisterService(&AdminService{
+		dbServer: it,
+	})
+
+	if err := lynkServer.Run(); err != nil {
+		return err
+	}
 
 	return nil
 }
