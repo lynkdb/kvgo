@@ -2,7 +2,6 @@
 
 EXE_SERVER = bin/kvgod
 EXE_CLI = bin/kvgo
-EXE_CLIX = bin/kvgox
 APP_HOME = /opt/lynkdb/kvgo
 APP_USER = kvgo
 
