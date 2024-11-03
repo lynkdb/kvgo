@@ -282,7 +282,7 @@ func (it *clientConn) SetDatabase(name string) kvapi.Client {
 func (it *clientConn) NewReader(key []byte, keys ...[]byte) kvapi.ClientReader {
 	r := &clientReader{
 		cc:  it,
-		req: kvapi.NewReadRequest(key, keys...),
+		req: kvapi.NewReadRequest(key, keys...).SetDatabase(it.database),
 	}
 	return r
 }
@@ -290,7 +290,7 @@ func (it *clientConn) NewReader(key []byte, keys ...[]byte) kvapi.ClientReader {
 func (it *clientConn) NewRanger(lowerKey, upperKey []byte) kvapi.ClientRanger {
 	r := &clientRanger{
 		cc:  it,
-		req: kvapi.NewRangeRequest(lowerKey, upperKey),
+		req: kvapi.NewRangeRequest(lowerKey, upperKey).SetDatabase(it.database),
 	}
 	return r
 }
@@ -298,7 +298,7 @@ func (it *clientConn) NewRanger(lowerKey, upperKey []byte) kvapi.ClientRanger {
 func (it *clientConn) NewWriter(key []byte, value interface{}) kvapi.ClientWriter {
 	r := &clientWriter{
 		cc:  it,
-		req: kvapi.NewWriteRequest(key, value),
+		req: kvapi.NewWriteRequest(key, value).SetDatabase(it.database),
 	}
 	return r
 }
@@ -306,7 +306,7 @@ func (it *clientConn) NewWriter(key []byte, value interface{}) kvapi.ClientWrite
 func (it *clientConn) NewDeleter(key []byte) kvapi.ClientDeleter {
 	r := &clientDeleter{
 		cc:  it,
-		req: kvapi.NewDeleteRequest(key),
+		req: kvapi.NewDeleteRequest(key).SetDatabase(it.database),
 	}
 	return r
 }
@@ -397,6 +397,9 @@ func (it *clientWriter) SetPrevChecksum(v interface{}) kvapi.ClientWriter {
 }
 
 func (it *clientWriter) Exec() *kvapi.ResultSet {
+	if it.req.Database == "" {
+		return it.cc.Write(it.req.SetDatabase(it.cc.database))
+	}
 	return it.cc.Write(it.req)
 }
 

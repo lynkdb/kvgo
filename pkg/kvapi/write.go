@@ -33,6 +33,13 @@ func NewWriteRequest(key []byte, value interface{}) *WriteRequest {
 	return req
 }
 
+func (it *WriteRequest) SetDatabase(name string) *WriteRequest {
+	if name != "" {
+		it.Database = name
+	}
+	return it
+}
+
 func (it *WriteRequest) SetValue(value interface{}) error {
 	if value != nil {
 		it.Value, _ = rawValueEncode(value)
@@ -196,6 +203,13 @@ func (it *DeleteRequest) Valid() error {
 	}
 
 	return nil
+}
+
+func (it *DeleteRequest) SetDatabase(name string) *DeleteRequest {
+	if name != "" {
+		it.Database = name
+	}
+	return it
 }
 
 func (it *DeleteRequest) SetPrevChecksum(value interface{}) error {

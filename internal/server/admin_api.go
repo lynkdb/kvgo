@@ -471,7 +471,7 @@ func (it *AdminService) DatabaseInfo(
 
 	if !kvapi.DatabaseNameRX.MatchString(req.Name) ||
 		req.Name == sysDatabaseName {
-		return nil, lynkapi.NewClientError("invalid database name")
+		return nil, lynkapi.NewClientError("invalid database name (" + req.Name + ")")
 	}
 
 	tmap := it.dbServer.dbMapMgr.getByName(req.Name)
@@ -493,7 +493,7 @@ func (it *AdminService) DatabaseCreate(
 
 	if !kvapi.DatabaseNameRX.MatchString(req.Name) ||
 		req.Name == sysDatabaseName {
-		return nil, lynkapi.NewClientError("invalid database name " + req.Name)
+		return nil, lynkapi.NewClientError("invalid database name (" + req.Name + ")")
 	}
 
 	if tbl := it.dbServer.dbMapMgr.getByName(req.Name); tbl != nil {
@@ -543,7 +543,7 @@ func (it *AdminService) DatabaseUpdate(
 
 	if !kvapi.DatabaseNameRX.MatchString(req.Name) ||
 		req.Name == sysDatabaseName {
-		return nil, lynkapi.NewClientError("invalid database name")
+		return nil, lynkapi.NewClientError("invalid database name (" + req.Name + ")")
 	}
 
 	tmap := it.dbServer.dbMapMgr.getByName(req.Name)

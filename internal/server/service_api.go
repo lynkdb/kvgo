@@ -179,7 +179,7 @@ func (it *serviceApiImpl) Batch(
 func (it *serviceApiImpl) valid(ctx context.Context, dbName string) (*dbMap, *kvapi.ResultSet) {
 
 	if !kvapi.DatabaseNameRX.MatchString(dbName) {
-		return nil, newResultSetWithClientError("invalid database name " + dbName)
+		return nil, newResultSetWithClientError("invalid database name (" + dbName + ")")
 	}
 
 	if s := it.auth(ctx); s != nil {

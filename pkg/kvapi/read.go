@@ -44,6 +44,13 @@ func (it *ReadRequest) Valid() error {
 	return nil
 }
 
+func (it *ReadRequest) SetDatabase(name string) *ReadRequest {
+	if name != "" {
+		it.Database = name
+	}
+	return it
+}
+
 func (it *ReadRequest) SetAttrs(attrs uint64) *ReadRequest {
 	it.Attrs |= attrs
 	return it
@@ -65,6 +72,13 @@ func NewRangeRequest(lowerKey, upperKey []byte) *RangeRequest {
 		Limit:    10,
 	}
 	return req
+}
+
+func (it *RangeRequest) SetDatabase(name string) *RangeRequest {
+	if name != "" {
+		it.Database = name
+	}
+	return it
 }
 
 func (it *RangeRequest) SetLimit(v int64) *RangeRequest {
