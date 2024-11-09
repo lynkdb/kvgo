@@ -63,7 +63,7 @@ type dbServer struct {
 	cfg     Config
 	cfgFile string
 
-	grpcListener net.Listener
+	// grpcListener net.Listener
 
 	api *serviceApiImpl
 	// apiAdmin    *serviceAdminImpl
@@ -627,7 +627,7 @@ func (it *dbServer) Close() error {
 
 		it.closegw.Wait()
 
-		it.grpcListener.Close()
+		// it.grpcListener.Close()
 
 		it.dbMapMgr.iter(func(tbl *dbMap) {
 			tbl.Close()
