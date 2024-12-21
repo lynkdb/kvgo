@@ -27,7 +27,7 @@ func (it *BatchRequest) SetDatabase(name string) *BatchRequest {
 	return it
 }
 
-func (it *BatchRequest) Write(key, value []byte) *WriteRequest {
+func (it *BatchRequest) Write(key []byte, value any) *WriteRequest {
 	item := NewWriteRequest(key, value)
 	it.Items = append(it.Items, &RequestUnion{
 		Value: &RequestUnion_Write{
