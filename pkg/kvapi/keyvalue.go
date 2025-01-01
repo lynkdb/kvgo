@@ -16,10 +16,10 @@ package kvapi
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"strconv"
 
+	json "github.com/goccy/go-json"
 	"google.golang.org/protobuf/proto"
 )
 

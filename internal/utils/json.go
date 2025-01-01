@@ -15,8 +15,9 @@
 package utils
 
 import (
-	"encoding/json"
 	"io/ioutil"
+
+	json "github.com/goccy/go-json"
 )
 
 func JsonDecodeFromFile(filename string, o interface{}) error {

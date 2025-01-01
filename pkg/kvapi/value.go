@@ -15,8 +15,8 @@
 package kvapi
 
 import (
-	"encoding/json"
 	// "google.golang.org/protobuf/proto"
+	json "github.com/goccy/go-json"
 )
 
 // const (

@@ -16,11 +16,11 @@ package cli
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"strconv"
 
 	"github.com/chzyer/readline"
+	json "github.com/goccy/go-json"
 	"github.com/lynkdb/lynkapi/go/lynkcli"
 	"github.com/olekukonko/tablewriter"
 

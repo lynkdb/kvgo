@@ -22,7 +22,6 @@ import (
 	"crypto/x509/pkix"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -34,6 +33,7 @@ import (
 	"time"
 
 	"github.com/cespare/xxhash/v2"
+	json "github.com/goccy/go-json"
 
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )

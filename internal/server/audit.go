@@ -15,7 +15,6 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -24,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	json "github.com/goccy/go-json"
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
 
