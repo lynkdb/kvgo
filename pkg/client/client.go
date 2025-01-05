@@ -311,6 +311,10 @@ func (it *clientConn) NewDeleter(key []byte) kvapi.ClientDeleter {
 	return r
 }
 
+func (it *clientConn) Flush() error {
+	return nil
+}
+
 func (it *clientConn) Close() error {
 	if it.rpcConn != nil {
 		return it.rpcConn.Close()

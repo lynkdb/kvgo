@@ -339,6 +339,13 @@ func (it *dbReplica) logSync(incr, reten uint64) (uint64, error) {
 	return it.logState.Offset, nil
 }
 
+func (it *dbReplica) Flush() error {
+	if !it.close && it.store != nil {
+		return it.store.Flush()
+	}
+	return nil
+}
+
 func (it *dbReplica) Close() error {
 
 	if it.close || it.store == nil {

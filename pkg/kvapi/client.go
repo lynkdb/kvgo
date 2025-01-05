@@ -65,6 +65,7 @@ type Client interface {
 
 	SetDatabase(name string) Client
 
+	Flush() error
 	Close() error
 }
 
