@@ -8,7 +8,7 @@ APP_USER = kvgo
 PROTOC_CMD = protoc
 PROTOC_ARGS = --proto_path=./api/ --go_opt=paths=source_relative --go_out=./pkg/kvapi --go-grpc_out=./pkg/kvapi ./api/*.proto
 
-LYNKX_FITTER_CMD = lynkx-fitter
+LYNKX_FITTER_CMD = lynkapi-fitter
 LYNKX_FITTER_ARGS = pkg/kvapi
 
 .PHONY: server server-run cli cli-install cli-run install test api clean code-stats
@@ -59,7 +59,7 @@ api:
 	##  go install github.com/golang/protobuf/protoc-gen-go
 	##  go install google.golang.org/grpc/cmd/protoc-gen-go-grpc
 	##  go install github.com/hooto/htoml4g/cmd/htoml-tag-fix
-	go install github.com/lynkdb/lynkx/cmd/lynkx-fitter
+	go install github.com/lynkdb/lynkapi/cmd/lynkapi-fitter
 	$(PROTOC_CMD) $(PROTOC_ARGS)
 	$(LYNKX_FITTER_CMD) $(LYNKX_FITTER_ARGS)
 

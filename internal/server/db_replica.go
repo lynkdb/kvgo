@@ -67,6 +67,8 @@ type dbReplica struct {
 type dbReplicaStatusItem struct {
 	mapVersion uint64
 	value      int64
+	count      int64
+	keyStats   []*kvapi.DatabaseMapStatus_KeyStat
 	attr       uint64
 	updated    int64
 }

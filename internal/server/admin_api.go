@@ -15,11 +15,13 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/hooto/hlog4g/hlog"
 	"github.com/lynkdb/lynkapi/go/lynkapi"
@@ -342,6 +344,7 @@ func (it *serviceAdminImpl) auth(ctx context.Context) error {
 */
 
 type AdminService struct {
+	mu       sync.Mutex
 	dbServer *dbServer
 }
 
@@ -462,6 +465,7 @@ type DatabaseInfo struct {
 	Map         *kvapi.DatabaseMap                    `json:"map"`
 	Status      *kvapi.DatabaseMapStatus              `json:"status"`
 	IncrOffsets []*kvapi.DatabaseMapStatus_IncrOffset `json:"incr_offsets"`
+	KeyStats    []*kvapi.DatabaseMapStatus_KeyStat    `json:"key_stats"`
 }
 
 func (it *AdminService) DatabaseInfo(
@@ -479,10 +483,32 @@ func (it *AdminService) DatabaseInfo(
 		return nil, lynkapi.NewNotFoundError("database not found")
 	}
 
+	var (
+		kss = []*kvapi.DatabaseMapStatus_KeyStat{}
+		idx = map[string]*kvapi.DatabaseMapStatus_KeyStat{}
+	)
+	for _, rep := range tmap.status.Replicas {
+		for _, ks := range rep.KeyStats {
+			pks, ok := idx[string(ks.Key)]
+			if !ok {
+				pks = &kvapi.DatabaseMapStatus_KeyStat{
+					Key: ks.Key,
+				}
+				idx[string(ks.Key)] = pks
+				kss = append(kss, pks)
+			}
+			pks.Num += ks.Num
+		}
+	}
+	sort.Slice(kss, func(i, j int) bool {
+		return bytes.Compare(kss[i].Key, kss[j].Key) < 0
+	})
+
 	return &DatabaseInfo{
 		Map:         tmap.mapData,
 		Status:      &tmap.status,
 		IncrOffsets: tmap.incrMgr.Items,
+		KeyStats:    kss,
 	}, nil
 }
 
@@ -536,6 +562,27 @@ func (it *AdminService) DatabaseCreate(
 	return &tbl, nil
 }
 
+func (it *AdminService) databaseUpdate(ctx lynkapi.Context, tmap *dbMap) error {
+
+	wr := kvapi.NewWriteRequest(nsSysDatabaseSpec(tmap.data.Id), jsonEncode(tmap.data))
+	wr.Database = sysDatabaseName
+	wr.PrevVersion = tmap.meta.Version
+	wr.Attrs |= kvapi.Write_Attrs_Sync
+
+	rsDatabase, err := it.dbServer.api.Write(ctx, wr)
+	if err != nil {
+		return lynkapi.NewInternalServerError(err.Error())
+	}
+
+	if !rsDatabase.OK() {
+		return lynkapi.NewInternalServerError(rsDatabase.Error().Error())
+	}
+
+	it.dbServer.dbMapMgr.syncDatabase(rsDatabase.Meta(), tmap.data)
+
+	return nil
+}
+
 func (it *AdminService) DatabaseUpdate(
 	ctx lynkapi.Context,
 	req *kvapi.DatabaseUpdateRequest,
@@ -558,24 +605,112 @@ func (it *AdminService) DatabaseUpdate(
 	}
 
 	if chg {
-		wr := kvapi.NewWriteRequest(nsSysDatabaseSpec(tmap.data.Id), jsonEncode(tmap.data))
-		wr.Database = sysDatabaseName
-		wr.PrevVersion = tmap.meta.Version
-		wr.Attrs |= kvapi.Write_Attrs_Sync
-
-		rsDatabase, err := it.dbServer.api.Write(ctx, wr)
-		if err != nil {
-			return nil, lynkapi.NewInternalServerError(err.Error())
-		}
-
-		if !rsDatabase.OK() {
-			return nil, lynkapi.NewInternalServerError(rsDatabase.Error().Error())
+		if err := it.databaseUpdate(ctx, tmap); err != nil {
+			return nil, err
 		}
 
 		it.dbServer.auditLogger.Put("admin-api", "database %s, replica-num %d, updated",
 			tmap.data.Name, tmap.data.ReplicaNum)
+	}
 
-		it.dbServer.dbMapMgr.syncDatabase(rsDatabase.Meta(), tmap.data)
+	hlog.Printf("info", "database update : %v", tmap.data)
+
+	return tmap.data, nil
+}
+
+type DatabaseKeyStatAddRequest struct {
+	Database string `json:"database" x_attrs:"create_required"`
+	Key      string `json:"key" x_attrs:"create_required"`
+}
+
+func (it *AdminService) DatabaseKeyStatAdd(
+	ctx lynkapi.Context,
+	req *DatabaseKeyStatAddRequest,
+) (*kvapi.Database, error) {
+
+	if !kvapi.DatabaseNameRX.MatchString(req.Database) ||
+		req.Database == sysDatabaseName {
+		return nil, lynkapi.NewClientError("invalid database name (" + req.Database + ")")
+	}
+
+	if len(req.Key) == 0 {
+		return nil, lynkapi.NewClientError("key not found")
+	} else if len(req.Key) > 100 {
+		return nil, lynkapi.NewClientError("The length of the key must be less than 100")
+	}
+
+	tmap := it.dbServer.dbMapMgr.getByName(req.Database)
+	if tmap == nil || tmap.meta == nil || tmap.data == nil {
+		return nil, lynkapi.NewNotFoundError("database not found")
+	}
+
+	hit := false
+	for _, k := range tmap.data.KeyStats {
+		if bytes.Compare(k.Key, []byte(req.Key)) == 0 {
+			hit = true
+			break
+		}
+	}
+	if !hit {
+		tmap.data.KeyStats = append(tmap.data.KeyStats, &kvapi.Database_KeyStat{
+			Key: []byte(req.Key),
+		})
+		sort.Slice(tmap.data.KeyStats, func(i, j int) bool {
+			return bytes.Compare(tmap.data.KeyStats[i].Key, tmap.data.KeyStats[j].Key) < 0
+		})
+
+		if err := it.databaseUpdate(ctx, tmap); err != nil {
+			return nil, err
+		}
+
+		it.dbServer.auditLogger.Put("admin-api", "database %s, key-stat %s, updated",
+			tmap.data.Name, string(req.Key))
+	}
+
+	hlog.Printf("info", "database update : %v", tmap.data)
+
+	return tmap.data, nil
+}
+
+type DatabaseKeyStatDelRequest struct {
+	Database string `json:"database" x_attrs:"create_required"`
+	Key      string `json:"key" x_attrs:"create_required"`
+}
+
+func (it *AdminService) DatabaseKeyStatDel(
+	ctx lynkapi.Context,
+	req *DatabaseKeyStatDelRequest,
+) (*kvapi.Database, error) {
+
+	if !kvapi.DatabaseNameRX.MatchString(req.Database) ||
+		req.Database == sysDatabaseName {
+		return nil, lynkapi.NewClientError("invalid database name (" + req.Database + ")")
+	}
+
+	if len(req.Key) == 0 {
+		return nil, lynkapi.NewClientError("key not found")
+	}
+
+	tmap := it.dbServer.dbMapMgr.getByName(req.Database)
+	if tmap == nil || tmap.meta == nil || tmap.data == nil {
+		return nil, lynkapi.NewNotFoundError("database not found")
+	}
+
+	hit := false
+	for i, k := range tmap.data.KeyStats {
+		if bytes.Compare(k.Key, []byte(req.Key)) == 0 {
+			tmap.data.KeyStats = append(tmap.data.KeyStats[:i], tmap.data.KeyStats[i+1:]...)
+			hit = true
+			break
+		}
+	}
+	if hit {
+		if err := it.databaseUpdate(ctx, tmap); err != nil {
+			return nil, err
+		}
+
+		it.dbServer.auditLogger.Put("admin-api", "database %s, key-stat %s, deleted",
+			tmap.data.Name, string(req.Key))
 	}
 
 	hlog.Printf("info", "database update : %v", tmap.data)

@@ -209,6 +209,9 @@ func (it *dbReplica) write(req *kvapi.WriteRequest, cVer uint64) *kvapi.ResultSe
 			batch.Put(keyExpireEncode(req.Meta.Expired, req.Key), bsLogMeta)
 			writeSize += len(bsLogMeta)
 		}
+		if meta != nil && meta.Expired > 0 && meta.Expired != req.Meta.Expired {
+			batch.Delete(keyExpireEncode(meta.Expired, req.Key))
+		}
 	}
 
 	if kvapi.AttrAllow(req.Attrs, kvapi.Write_Attrs_Sync) {

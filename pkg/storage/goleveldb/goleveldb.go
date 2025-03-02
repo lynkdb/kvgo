@@ -165,6 +165,12 @@ func (it *engine) SizeOf(args []*storage.IterOptions) ([]int64, error) {
 	return it.db.SizeOf(opts)
 }
 
+func (it *engine) KeyStats(
+	arg *storage.IterOptions,
+) (*storage.KeyStats, error) {
+	return nil, errors.New("un-support")
+}
+
 func (it *engine) Info() *storage.Info {
 	return &storage.Info{
 		Dir:     it.opts.DataDirectory,

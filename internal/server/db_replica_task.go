@@ -15,7 +15,9 @@
 package server
 
 import (
+	"bytes"
 	"errors"
+	mrand "math/rand"
 
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 	"github.com/lynkdb/kvgo/v2/pkg/storage"
@@ -69,6 +71,7 @@ func (it *dbReplica) _task_deleteRange(ds *dbServer,
 }
 
 func (it *dbReplica) taskStatusRefresh(
+	tm *dbMap,
 	shard *kvapi.DatabaseMap_Shard, lowerKey, upperKey []byte, forceRefresh bool,
 ) error {
 	if it.close || it.store == nil {
@@ -128,6 +131,35 @@ func (it *dbReplica) taskStatusRefresh(
 		it.localStatus.storageUsed.value = rs[0] / (1 << 20)
 		it.localStatus.storageUsed.mapVersion = shard.Version
 		it.localStatus.storageUsed.updated = tn
+
+		if mrand.Intn(10) == 0 {
+			if rs, err := it.store.KeyStats(&storage.IterOptions{
+				LowerKey: keyEncode(nsKeyMeta, lowerKey),
+				UpperKey: keyEncode(nsKeyMeta, upperKey),
+			}); err == nil {
+				it.localStatus.storageUsed.count = rs.Keys
+			}
+
+			it.localStatus.storageUsed.keyStats = []*kvapi.DatabaseMapStatus_KeyStat{}
+			for _, ks := range tm.data.KeyStats {
+				if len(ks.Key) == 0 {
+					continue
+				}
+				if bytes.Compare(ks.Key, lowerKey) < 0 ||
+					bytes.Compare(ks.Key, upperKey) > 0 {
+					continue
+				}
+				if rs, err := it.store.KeyStats(&storage.IterOptions{
+					LowerKey: keyEncode(nsKeyMeta, ks.Key),
+					UpperKey: keyEncode(nsKeyMeta, append(ks.Key, 0xff)),
+				}); err == nil {
+					it.localStatus.storageUsed.keyStats = append(it.localStatus.storageUsed.keyStats, &kvapi.DatabaseMapStatus_KeyStat{
+						Key: ks.Key,
+						Num: rs.Keys,
+					})
+				}
+			}
+		}
 
 		it.localStatus.kvWriteKeys.Store(0)
 		it.localStatus.kvWriteSize.Store(0)

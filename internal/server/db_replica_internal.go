@@ -358,6 +358,9 @@ func (it *dbReplica) _writeAccept(req *kvapi.WriteProposalRequest) (*kvapi.Meta,
 			batch.Put(keyExpireEncode(pp.write.Write.Meta.Expired, pp.write.Write.Key), bsLogMeta)
 			writeSize += len(bsLogMeta)
 		}
+		if meta != nil && meta.Expired > 0 && meta.Expired != pp.write.Write.Meta.Expired {
+			batch.Delete(keyExpireEncode(meta.Expired, pp.write.Write.Key))
+		}
 	}
 
 	wopts := &storage.WriteOptions{}

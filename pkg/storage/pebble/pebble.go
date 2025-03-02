@@ -223,6 +223,21 @@ func (it *engine) SizeOf(
 	return rs, nil
 }
 
+func (it *engine) KeyStats(
+	arg *storage.IterOptions,
+) (*storage.KeyStats, error) {
+	// return &storage.KeyStats{Keys: 10}, nil
+	rs, err := it.db.ScanStatistics(nil, arg.LowerKey, arg.UpperKey, pebble.ScanStatisticsOptions{})
+	if err != nil {
+		return nil, err
+	}
+	ks := &storage.KeyStats{}
+	for _, n := range rs.Accumulated.KindsCount {
+		ks.Keys += int64(n)
+	}
+	return ks, nil
+}
+
 func (it *engine) Info() *storage.Info {
 	return &storage.Info{
 		Dir:     it.opts.DataDirectory,

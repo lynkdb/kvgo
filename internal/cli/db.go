@@ -33,6 +33,7 @@ func init() {
 	lynkcli.RegisterCommonCommand(new(dbTestData))
 
 	lynkcli.RegisterRender("admin", "database-info", DatabaseInfoRender)
+	// lynkcli.RegisterRender("admin", "database-key-stats", DatabaseKeyStatsRender)
 }
 
 var DatabaseInfoRender = func(data *structpb.Struct) (string, error) {
@@ -96,12 +97,14 @@ var DatabaseInfoRender = func(data *structpb.Struct) (string, error) {
 
 			var (
 				statusAction uint64
+				statusKeys   int64
 				statusUsed   int64
 				statusLog    uint64
 			)
 
 			if repStatus, ok := dbStatus.Replicas[rep.Id]; ok {
 				statusAction = repStatus.Action
+				statusKeys = repStatus.Keys
 				statusUsed = repStatus.Used
 				statusLog = repStatus.LogVersion
 			}
@@ -117,7 +120,8 @@ var DatabaseInfoRender = func(data *structpb.Struct) (string, error) {
 				idArrow,
 				server.ReplicaActionDisplay(rep.Action) + " : " +
 					server.ReplicaActionDisplay(statusAction),
-				fmt.Sprintf("%d : %s", rep.StoreId,
+				fmt.Sprintf("%d : %d %s", rep.StoreId,
+					statusKeys,
 					kvapi.BytesHumanDisplay(statusUsed*(1<<20))),
 				fmt.Sprintf("%d", statusLog),
 			}...), attrs...))
@@ -125,10 +129,53 @@ var DatabaseInfoRender = func(data *structpb.Struct) (string, error) {
 	}
 
 	table.Render()
-	msg := tbuf.String()
+	msg := "\n" + tbuf.String()
 
-	msg += fmt.Sprintf("\n Shards %d\n", len(dbMap.Shards))
+	msg += fmt.Sprintf(" Shards %d\n", len(dbMap.Shards))
 
+	if len(rs.KeyStats) > 0 {
+		if msg2, err := databaseInfoKeyStatsRender(rs); err == nil {
+			msg += msg2
+		}
+	}
+
+	return msg, nil
+}
+
+var databaseInfoKeyStatsRender = func(rs server.DatabaseInfo) (string, error) {
+
+	var (
+		tbuf  bytes.Buffer
+		table = tablewriter.NewWriter(&tbuf)
+	)
+
+	table.SetHeader([]string{
+		"Key", "Count",
+	})
+
+	table.SetCenterSeparator("|")
+	table.SetAlignment(tablewriter.ALIGN_LEFT)
+	table.SetRowLine(true)
+	table.SetAutoWrapText(false)
+
+	num := int64(0)
+
+	for _, ks := range rs.KeyStats {
+
+		cols := []string{
+			string(ks.Key),
+			fmt.Sprintf("%d", ks.Num),
+		}
+
+		num += ks.Num
+
+		table.Append(cols)
+	}
+
+	table.Render()
+	msg := "\n" + tbuf.String()
+
+	msg += fmt.Sprintf(" Keys %d\n", num)
 	return msg, nil
 }
 

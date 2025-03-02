@@ -172,7 +172,7 @@ func Test_Common(t *testing.T) {
 		}
 	}
 
-	{
+	{ // API::SizeOf
 		value := make([]byte, 1<<10)
 		for i := 0; i < 100000; i++ {
 			db.Put([]byte(fmt.Sprintf("size-of-key-%d", i)), value, nil)
@@ -187,6 +187,27 @@ func Test_Common(t *testing.T) {
 			t.Fatal("size-of")
 		} else {
 			t.Logf("size of %d", rs[0])
+		}
+	}
+
+	{ // API::KeyStats
+		var (
+			num   = 100 + mrand.Intn(100)
+			value = make([]byte, 1<<10)
+		)
+		for i := 0; i < num; i++ {
+			db.Put([]byte(fmt.Sprintf("key-stat-%d", i)), value, nil)
+		}
+		db.Flush()
+
+		if rs, err := db.KeyStats(&storage.IterOptions{
+			LowerKey: []byte("key-stat-"), UpperKey: []byte("key-stat-z"),
+		}); err != nil {
+			t.Fatal(err)
+		} else if rs.Keys != int64(num) {
+			t.Fatalf("key-stats %d : %d", rs.Keys, num)
+		} else {
+			t.Logf("key-stats %d", rs.Keys)
 		}
 	}
 }

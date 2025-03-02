@@ -85,12 +85,18 @@ message DatabaseMapStatus {
     uint64 version = 2;
     uint64 action = 3;
   }
+  message KeyStat {
+    bytes key = 1;
+    int64 num = 2;
+  }
   message Replica {
     uint64 map_version = 1;
     uint64 log_version = 2;
     uint64 action = 7;
     int64 used = 8;
+    int64 keys = 9;
     // map<uint64, SyncPull> pulls = 9;
+    repeated KeyStat key_stats = 14;
     int64 updated = 15;
   }
   message IncrOffset {
@@ -120,6 +126,11 @@ message SysStoreStatus {
   int64 meta_used = 17;
   int64 data_used = 18;
   int64 ttl_used = 19;
+
+  int64 log_keys = 20;
+  int64 meta_keys = 21;
+  int64 data_keys = 22;
+  int64 ttl_keys = 23;
 }
 
 message SysNodeStatus {

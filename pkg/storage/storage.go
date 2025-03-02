@@ -144,12 +144,20 @@ type Conn interface {
 	// SizeOf calculates approximate sizes of the given key ranges.
 	SizeOf(args []*IterOptions) ([]int64, error)
 
+	// KeyStats returns the count of different key kinds within the lsm for a
+	// key span [lower, upper) as well as the number of snapshot keys.
+	KeyStats(arg *IterOptions) (*KeyStats, error)
+
 	// Info
 	Info() *Info
 
 	// Close closes the DB. This will also releases any outstanding snapshot,
 	// abort any in-flight compaction and discard open transaction.
 	Close() error
+}
+
+type KeyStats struct {
+	Keys int64
 }
 
 type Info struct {

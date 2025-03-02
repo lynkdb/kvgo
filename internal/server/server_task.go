@@ -113,7 +113,7 @@ func (it *dbServer) _task_statusRefresh(tm *dbMap, mapData *kvapi.DatabaseMap, f
 			if repInst == nil {
 				continue
 			}
-			repInst.taskStatusRefresh(shard, lowerKey, upperKey, forceRefresh)
+			repInst.taskStatusRefresh(tm, shard, lowerKey, upperKey, forceRefresh)
 		}
 	}
 }

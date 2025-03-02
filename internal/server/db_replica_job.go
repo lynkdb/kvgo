@@ -93,7 +93,7 @@ func (it *dbReplica) _jobCleanTTL() error {
 	}
 
 	if batch.Len() > 0 {
-		hlog.Printf("debug", "database %s, ttl clean %d, stats %d/%d", it.dbName, batch.Len(), statsKeys, statsRawKeys)
+		hlog.Printf("info", "database %s, ttl clean %d, stats %d/%d", it.dbName, batch.Len(), statsKeys, statsRawKeys)
 		if ss := batch.Apply(nil); !ss.OK() {
 			hlog.Printf("info", "database %s, ttl clean fail %s", it.dbName, ss.Error().Error())
 			return ss.Error()

@@ -454,6 +454,8 @@ func (it *dbServer) jobStatusMergeSetup() error {
 							s.Action |= kReplicaStatus_Ready
 							s.MapVersion = shardVersion
 							s.Used = repInst.localStatus.storageUsed.value
+							s.Keys = repInst.localStatus.storageUsed.count
+							s.KeyStats = repInst.localStatus.storageUsed.keyStats
 							s.Updated = timesec()
 							s.LogVersion, _ = repInst.logSync(0, 0)
 						})
@@ -764,6 +766,11 @@ func (it *dbServer) jobStoreStatusRefresh() error {
 
 	defer it.storeMgr.updateStatusVersion()
 
+	t0 := time.Now()
+	defer func() {
+		hlog.Printf("info", "job-store status refresh in %v", time.Since(t0))
+	}()
+
 	for _, vol := range it.cfg.Storage.Stores {
 
 		if vol.StoreId == 0 {
@@ -780,30 +787,58 @@ func (it *dbServer) jobStoreStatusRefresh() error {
 			used  = int64(st.Used) / (1 << 20)
 			total = int64(st.Total) / (1 << 20)
 
-			logUsed  int64 = 0
+			logUsed int64 = 0
+			logKeys int64 = 0
+
 			metaUsed int64 = 0
+			metaKeys int64 = 0
+
 			dataUsed int64 = 0
-			ttlUsed  int64 = 0
+			// dataKeys int64 = 0
+
+			ttlUsed int64 = 0
+			ttlKeys int64 = 0
 		)
 
 		it.storeMgr.iter(vol.StoreId, func(store storage.Conn) {
 
 			sizeIter := func(ns byte) int64 {
+				tn := time.Now()
 				if rs, err := store.SizeOf([]*storage.IterOptions{
 					{
 						LowerKey: keyEncode(ns, []byte{0x00}),
 						UpperKey: keyEncode(ns, []byte{0xff}),
 					},
 				}); err == nil {
+					hlog.Printf("info", "ns %v size %d time %v", ns, rs[0]/(1<<20), time.Since(tn))
 					return rs[0] / (1 << 20)
 				}
 				return 0
 			}
 
+			keysIter := func(ns byte) int64 {
+				tn := time.Now()
+				if rs, err := store.KeyStats(&storage.IterOptions{
+					LowerKey: keyEncode(ns, []byte{0x00}),
+					UpperKey: keyEncode(ns, []byte{0xff}),
+				}); err == nil {
+					hlog.Printf("info", "ns %v keys %d time %v", ns, rs.Keys, time.Since(tn))
+					return rs.Keys
+				}
+				return 0
+			}
+
 			logUsed += sizeIter(nsKeyLog)
+			logKeys += keysIter(nsKeyLog)
+
 			metaUsed += sizeIter(nsKeyMeta)
+			metaKeys += keysIter(nsKeyMeta)
+
 			dataUsed += sizeIter(nsKeyData)
+			// dataKeys += keysIter(nsKeyData) // TODO ...
+
 			ttlUsed += sizeIter(nsKeyTtl)
+			ttlKeys += keysIter(nsKeyTtl)
 		})
 
 		it.storeMgr.setStatus(vol.UniId, vol.StoreId, func(s *kvapi.SysStoreStatus) {
@@ -811,17 +846,33 @@ func (it *dbServer) jobStoreStatusRefresh() error {
 			s.CapacityFree = total - used
 			s.Updated = timesec()
 			s.Options["fstype"] = st.Fstype
+
 			if logUsed > 0 {
 				s.LogUsed = logUsed
 			}
+			if logKeys > 0 {
+				s.LogKeys = logKeys
+			}
+
 			if metaUsed > 0 {
 				s.MetaUsed = metaUsed
 			}
+			if metaKeys > 0 {
+				s.MetaKeys = metaKeys
+			}
+
 			if dataUsed > 0 {
 				s.DataUsed = dataUsed
 			}
+			if metaKeys > 0 {
+				s.DataKeys = metaKeys
+			}
+
 			if ttlUsed > 0 {
 				s.TtlUsed = ttlUsed
+			}
+			if ttlKeys > 0 {
+				s.TtlKeys = ttlKeys
 			}
 		})
 

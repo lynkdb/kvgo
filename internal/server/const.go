@@ -217,7 +217,7 @@ var (
 const (
 	dbReplicaStatusRefreshIntervalSecond int64 = 60 //1200
 
-	jobStoreStatusRefreshIntervalSecond int64 = 10 // TODO
+	jobStoreStatusRefreshIntervalSecond int64 = 300 // TODO
 )
 
 const (

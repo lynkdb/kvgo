@@ -159,6 +159,12 @@ message Database {
   uint32 replica_num = 4;
   string desc = 5;
   int64 shard_size = 6;  // unit in MiB
+
+  message KeyStat {
+    bytes key = 1;
+  }
+
+  repeated KeyStat key_stats = 16;
 }
 
 message DatabaseListRequest {}
