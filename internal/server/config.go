@@ -60,6 +60,16 @@ type ConfigStore struct {
 	Mountpoint string `toml:"mountpoint" json:"mountpoint"`
 
 	StoreId uint64 `toml:"store_id" json:"store_id"`
+
+	statMetaUsed int64 `toml:"-" json:"-"`
+	statMetaKeys int64 `toml:"-" json:"-"`
+	statDataUsed int64 `toml:"-" json:"-"`
+
+	statLogUsed int64 `toml:"-" json:"-"`
+	statLogKeys int64 `toml:"-" json:"-"`
+
+	statTtlUsed int64 `toml:"-" json:"-"`
+	statTtlKeys int64 `toml:"-" json:"-"`
 }
 
 type ConfigStoreSetupMeta struct {

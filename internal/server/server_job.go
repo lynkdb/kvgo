@@ -759,7 +759,7 @@ func (it *dbServer) jobStoreStatusRefresh() error {
 		ver, ok = it.mum.Load(name)
 	)
 
-	if ok && ver.(int64)+jobStoreStatusRefreshIntervalSecond > tn {
+	if ok && ver.(int64)+jobStoreStatusRefresh_IntervalSecond > tn {
 		return nil
 	}
 	it.mum.Store(name, tn)
@@ -794,7 +794,6 @@ func (it *dbServer) jobStoreStatusRefresh() error {
 			metaKeys int64 = 0
 
 			dataUsed int64 = 0
-			// dataKeys int64 = 0
 
 			ttlUsed int64 = 0
 			ttlKeys int64 = 0
@@ -810,11 +809,28 @@ func (it *dbServer) jobStoreStatusRefresh() error {
 						UpperKey: keyEncode(ns, []byte{0xff}),
 					},
 				}); err == nil {
-					hlog.Printf("info", "ns %v size %d time %v", ns, rs[0]/(1<<20), time.Since(tn))
-					return rs[0] / (1 << 20)
+					hlog.Printf("debug", "ns %v size %d time %v", ns, rs[0]/(1<<20), time.Since(tn))
+					return rs[0]
 				}
 				return 0
 			}
+
+			logUsed += sizeIter(nsKeyLog)
+			metaUsed += sizeIter(nsKeyMeta)
+			dataUsed += sizeIter(nsKeyData)
+			ttlUsed += sizeIter(nsKeyTtl)
+		})
+
+		changeRate := func(prev, curr int64) bool {
+			if curr == prev {
+				return false
+			} else if prev <= 0 {
+				return true
+			}
+			return (float64(absInt64(curr-prev)) / float64(prev)) > jobStoreStatusRefresh_ChangeRate
+		}
+
+		it.storeMgr.iter(vol.StoreId, func(store storage.Conn) {
 
 			keysIter := func(ns byte) int64 {
 				tn := time.Now()
@@ -822,24 +838,50 @@ func (it *dbServer) jobStoreStatusRefresh() error {
 					LowerKey: keyEncode(ns, []byte{0x00}),
 					UpperKey: keyEncode(ns, []byte{0xff}),
 				}); err == nil {
-					hlog.Printf("info", "ns %v keys %d time %v", ns, rs.Keys, time.Since(tn))
+					hlog.Printf("debug", "ns %v keys %d time %v", ns, rs.Keys, time.Since(tn))
 					return rs.Keys
 				}
 				return 0
 			}
 
-			logUsed += sizeIter(nsKeyLog)
-			logKeys += keysIter(nsKeyLog)
+			if changeRate(vol.statLogUsed, logUsed) {
+				t0 := time.Now()
+				logKeys += keysIter(nsKeyLog)
+				hlog.Printf("info", "ns %v, keys %d, mb %d, time %v",
+					nsKeyLog, vol.statLogKeys, vol.statLogUsed, time.Since(t0))
+			}
 
-			metaUsed += sizeIter(nsKeyMeta)
-			metaKeys += keysIter(nsKeyMeta)
+			if changeRate(vol.statMetaUsed, metaUsed) {
+				t0 := time.Now()
+				metaKeys += keysIter(nsKeyMeta)
+				hlog.Printf("info", "ns %v, keys %d, mb %d, time %v",
+					nsKeyMeta, vol.statMetaKeys, vol.statMetaUsed, time.Since(t0))
+			}
 
-			dataUsed += sizeIter(nsKeyData)
-			// dataKeys += keysIter(nsKeyData) // TODO ...
-
-			ttlUsed += sizeIter(nsKeyTtl)
-			ttlKeys += keysIter(nsKeyTtl)
+			if changeRate(vol.statTtlUsed, ttlUsed) {
+				t0 := time.Now()
+				ttlKeys += keysIter(nsKeyTtl)
+				hlog.Printf("info", "ns %v, keys %d, mb %d, time %v",
+					nsKeyTtl, vol.statTtlKeys, vol.statTtlUsed, time.Since(t0))
+			}
 		})
+
+		if changeRate(vol.statLogUsed, logUsed) {
+			vol.statLogUsed = logUsed
+			vol.statLogKeys = logKeys
+		}
+
+		if changeRate(vol.statMetaUsed, metaUsed) {
+			vol.statMetaUsed = metaUsed
+			vol.statMetaKeys = metaKeys
+		}
+
+		vol.statDataUsed = dataUsed
+
+		if changeRate(vol.statTtlUsed, ttlUsed) {
+			vol.statTtlUsed = ttlUsed
+			vol.statTtlKeys = ttlKeys
+		}
 
 		it.storeMgr.setStatus(vol.UniId, vol.StoreId, func(s *kvapi.SysStoreStatus) {
 			s.CapacityUsed = used
@@ -847,32 +889,32 @@ func (it *dbServer) jobStoreStatusRefresh() error {
 			s.Updated = timesec()
 			s.Options["fstype"] = st.Fstype
 
-			if logUsed > 0 {
-				s.LogUsed = logUsed
+			if vol.statLogUsed > 0 {
+				s.LogUsed = vol.statLogUsed / (1 << 20)
 			}
-			if logKeys > 0 {
-				s.LogKeys = logKeys
-			}
-
-			if metaUsed > 0 {
-				s.MetaUsed = metaUsed
-			}
-			if metaKeys > 0 {
-				s.MetaKeys = metaKeys
+			if vol.statLogKeys > 0 {
+				s.LogKeys = vol.statLogKeys
 			}
 
-			if dataUsed > 0 {
-				s.DataUsed = dataUsed
+			if vol.statMetaUsed > 0 {
+				s.MetaUsed = vol.statMetaUsed / (1 << 20)
 			}
-			if metaKeys > 0 {
-				s.DataKeys = metaKeys
+			if vol.statMetaKeys > 0 {
+				s.MetaKeys = vol.statMetaKeys
 			}
 
-			if ttlUsed > 0 {
-				s.TtlUsed = ttlUsed
+			if vol.statDataUsed > 0 {
+				s.DataUsed = vol.statDataUsed / (1 << 20)
 			}
-			if ttlKeys > 0 {
-				s.TtlKeys = ttlKeys
+			if vol.statMetaKeys > 0 {
+				s.DataKeys = vol.statMetaKeys
+			}
+
+			if vol.statTtlUsed > 0 {
+				s.TtlUsed = vol.statTtlUsed / (1 << 20)
+			}
+			if vol.statTtlKeys > 0 {
+				s.TtlKeys = vol.statTtlKeys
 			}
 		})
 

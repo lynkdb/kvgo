@@ -150,7 +150,7 @@ var databaseInfoKeyStatsRender = func(rs server.DatabaseInfo) (string, error) {
 	)
 
 	table.SetHeader([]string{
-		"Key", "Count",
+		"Key", "Num Keys", "Size",
 	})
 
 	table.SetCenterSeparator("|")
@@ -165,6 +165,7 @@ var databaseInfoKeyStatsRender = func(rs server.DatabaseInfo) (string, error) {
 		cols := []string{
 			string(ks.Key),
 			fmt.Sprintf("%d", ks.Num),
+			kvapi.BytesHumanDisplay(ks.SizeMb * kvapi.MiB),
 		}
 
 		num += ks.Num

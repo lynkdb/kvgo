@@ -17,8 +17,9 @@ package server
 import (
 	"bytes"
 	"errors"
-	mrand "math/rand"
+	"time"
 
+	"github.com/hooto/hlog4g/hlog"
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 	"github.com/lynkdb/kvgo/v2/pkg/storage"
 )
@@ -94,7 +95,7 @@ func (it *dbReplica) taskStatusRefresh(
 			//
 		} else if !forceRefresh &&
 			it.localStatus.storageUsed.mapVersion == shard.Version &&
-			it.localStatus.storageUsed.updated+dbReplicaStatusRefreshIntervalSecond > tn &&
+			it.localStatus.storageUsed.updated+dbReplicaStatusRefresh_IntervalSecond > tn &&
 			it.localStatus.kvWriteSize.Load() < kShardSplit_CapacitySize_Fresh {
 			// testPrintf("replica %d, version diff %v, sec %d, kv-write-size %d %d",
 			// 	it.replicaId,
@@ -128,11 +129,21 @@ func (it *dbReplica) taskStatusRefresh(
 		// 	it.localStatus.kvWriteSize.Load()/(1<<20), rs[0]/(1<<20),
 		// 	string(lowerKey))
 
-		it.localStatus.storageUsed.value = rs[0] / (1 << 20)
+		ir := float64(0)
+		if r := it.localStatus.storageUsed.value; r > 0 {
+			ir = float64(absInt64((rs[0]/(1<<20))-r)) / float64(r)
+		}
+
 		it.localStatus.storageUsed.mapVersion = shard.Version
 		it.localStatus.storageUsed.updated = tn
 
-		if mrand.Intn(10) == 0 {
+		if ir > 0.05 ||
+			it.localStatus.storageUsed.countUpdated+dbReplicaStatusRefresh_KeyStatIntervalSecond < tn {
+
+			it.localStatus.storageUsed.value = rs[0] / (1 << 20)
+			it.localStatus.storageUsed.countUpdated = tn
+			t0 := time.Now()
+
 			if rs, err := it.store.KeyStats(&storage.IterOptions{
 				LowerKey: keyEncode(nsKeyMeta, lowerKey),
 				UpperKey: keyEncode(nsKeyMeta, upperKey),
@@ -149,16 +160,30 @@ func (it *dbReplica) taskStatusRefresh(
 					bytes.Compare(ks.Key, upperKey) > 0 {
 					continue
 				}
+
+				smb, err := it.store.SizeOf([]*storage.IterOptions{
+					{
+						LowerKey: keyEncode(nsKeyData, ks.Key),
+						UpperKey: keyEncode(nsKeyData, append(ks.Key, 0xff)),
+					},
+				})
+				if err != nil {
+					continue
+				}
+
 				if rs, err := it.store.KeyStats(&storage.IterOptions{
 					LowerKey: keyEncode(nsKeyMeta, ks.Key),
 					UpperKey: keyEncode(nsKeyMeta, append(ks.Key, 0xff)),
 				}); err == nil {
 					it.localStatus.storageUsed.keyStats = append(it.localStatus.storageUsed.keyStats, &kvapi.DatabaseMapStatus_KeyStat{
-						Key: ks.Key,
-						Num: rs.Keys,
+						Key:    ks.Key,
+						Num:    rs.Keys,
+						SizeMb: smb[0] / (1 << 20),
 					})
 				}
 			}
+			hlog.Printf("info", "db %s, replica key-stats refresh rep %d:%d, chg-rate %.2f, time in %v",
+				tm.data.Name, shard.Id, it.replicaId, ir, time.Since(t0))
 		}
 
 		it.localStatus.kvWriteKeys.Store(0)

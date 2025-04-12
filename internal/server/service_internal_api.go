@@ -87,7 +87,7 @@ func (it *serviceApiInternalImpl) Read(
 		ss := hit.replicas[0].store.Get(keyEncode(nsKeyData, key), nil)
 		if ss.NotFound() {
 			// TODO
-			hlog.Printf("info", "key(%s) not found", string(key))
+			hlog.Printf("debug", "key(%s) not found", string(key))
 			continue
 		}
 

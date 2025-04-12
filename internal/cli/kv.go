@@ -23,6 +23,7 @@ import (
 	json "github.com/goccy/go-json"
 	"github.com/lynkdb/lynkapi/go/lynkcli"
 	"github.com/olekukonko/tablewriter"
+	"github.com/tidwall/pretty"
 
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
@@ -30,6 +31,14 @@ import (
 func init() {
 	lynkcli.RegisterCommonCommand(new(kvRange))
 	lynkcli.RegisterCommonCommand(new(kvRead))
+}
+
+func jsonPretty(js []byte) []byte {
+	js = pretty.Pretty(js)
+	if len(js) > 0 && js[len(js)-1] == '\n' {
+		return js[:len(js)-1]
+	}
+	return js
 }
 
 type kvRange struct{}
@@ -102,11 +111,11 @@ func (kvRange) Action(fg lynkcli.FlagSet, l *readline.Instance) (string, error) 
 
 	for i, kv := range rs.Items {
 
-		js, _ := json.MarshalIndent(kv.Meta, "", "  ")
+		js, _ := json.Marshal(kv.Meta)
 
 		table.Append([]string{
 			strconv.Itoa(i + 1),
-			string(js),
+			string(jsonPretty(js)),
 			string(kv.Key),
 		})
 	}
@@ -174,8 +183,8 @@ func (kvRead) Action(fg lynkcli.FlagSet, l *readline.Instance) (string, error) {
 		kv := rs.Items[0]
 
 		//
-		js, _ := json.MarshalIndent(kv.Meta, "", "  ")
-		table.Append([]string{"Meta", string(js)})
+		js, _ := json.Marshal(kv.Meta)
+		table.Append([]string{"Meta", string(jsonPretty(js))})
 
 		//
 		table.Append([]string{"Key", string(kv.Key)})
@@ -183,9 +192,8 @@ func (kvRead) Action(fg lynkcli.FlagSet, l *readline.Instance) (string, error) {
 		//
 		if len(kv.Value) >= 2 &&
 			(kv.Value[0] == '{' || kv.Value[0] == '[') {
-			var buf bytes.Buffer
-			json.Indent(&buf, kv.Value, "", "  ")
-			table.Append([]string{"Value", buf.String()})
+			js := jsonPretty(kv.Value)
+			table.Append([]string{"Value", string(js)})
 		} else {
 			table.Append([]string{"Value", string(kv.Value)})
 		}

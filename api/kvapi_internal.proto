@@ -88,6 +88,7 @@ message DatabaseMapStatus {
   message KeyStat {
     bytes key = 1;
     int64 num = 2;
+    int64 size_mb = 3;
   }
   message Replica {
     uint64 map_version = 1;

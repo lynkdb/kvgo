@@ -498,6 +498,7 @@ func (it *AdminService) DatabaseInfo(
 				kss = append(kss, pks)
 			}
 			pks.Num += ks.Num
+			pks.SizeMb += ks.SizeMb
 		}
 	}
 	sort.Slice(kss, func(i, j int) bool {
