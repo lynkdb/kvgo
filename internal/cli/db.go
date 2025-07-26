@@ -23,6 +23,7 @@ import (
 	"github.com/lynkdb/lynkapi/go/lynkapi"
 	"github.com/lynkdb/lynkapi/go/lynkcli"
 	"github.com/olekukonko/tablewriter"
+	"github.com/olekukonko/tablewriter/tw"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/lynkdb/kvgo/v2/internal/server"
@@ -48,22 +49,28 @@ var DatabaseInfoRender = func(data *structpb.Struct) (string, error) {
 
 	var (
 		tbuf  bytes.Buffer
-		table = tablewriter.NewWriter(&tbuf)
+		table = tablewriter.NewTable(&tbuf)
 
 		dbMap    = rs.Map
 		dbStatus = rs.Status
 	)
 
-	table.SetHeader([]string{
+	table.Options(tablewriter.WithRendition(tw.Rendition{
+		Settings: tw.Settings{
+			Separators: tw.Separators{BetweenRows: tw.On},
+		},
+	}))
+
+	table.Header([]string{
 		"Shard", "Action", "Ver", "Updated",
 		"Rep ID", "Rep Action", "Rep Store", "Log",
 		"Offset"})
 
-	table.SetAutoMergeCellsByColumnIndex([]int{0, 1, 2, 3, 7})
-	table.SetCenterSeparator("|")
-	table.SetAlignment(tablewriter.ALIGN_LEFT)
-	table.SetRowLine(true)
-	table.SetAutoWrapText(false)
+	// table.SetAutoMergeCellsByColumnIndex([]int{0, 1, 2, 3, 7})
+	// table.SetCenterSeparator("|")
+	// table.SetAlignment(tablewriter.ALIGN_LEFT)
+	// table.SetRowLine(true)
+	// table.SetAutoWrapText(false)
 
 	if dbStatus.Replicas == nil {
 		dbStatus.Replicas = map[uint64]*kvapi.DatabaseMapStatus_Replica{}
@@ -149,14 +156,20 @@ var databaseInfoKeyStatsRender = func(rs server.DatabaseInfo) (string, error) {
 		table = tablewriter.NewWriter(&tbuf)
 	)
 
-	table.SetHeader([]string{
+	table.Options(tablewriter.WithRendition(tw.Rendition{
+		Settings: tw.Settings{
+			Separators: tw.Separators{BetweenRows: tw.On},
+		},
+	}))
+
+	table.Header([]string{
 		"Key", "Num Keys", "Size",
 	})
 
-	table.SetCenterSeparator("|")
-	table.SetAlignment(tablewriter.ALIGN_LEFT)
-	table.SetRowLine(true)
-	table.SetAutoWrapText(false)
+	// table.SetCenterSeparator("|")
+	// table.SetAlignment(tablewriter.ALIGN_LEFT)
+	// table.SetRowLine(true)
+	// table.SetAutoWrapText(false)
 
 	num := int64(0)
 

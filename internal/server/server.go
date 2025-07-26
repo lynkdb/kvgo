@@ -183,6 +183,7 @@ func dbServerSetup(cfgFile string, cfg Config) (*dbServer, error) {
 
 	{
 		if err := srv.dbSystemSetup(); err != nil {
+			hlog.Printf("error", "kvgo stores setup error %s", err.Error())
 			return nil, err
 		}
 

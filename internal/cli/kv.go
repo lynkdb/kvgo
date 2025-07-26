@@ -23,6 +23,7 @@ import (
 	json "github.com/goccy/go-json"
 	"github.com/lynkdb/lynkapi/go/lynkcli"
 	"github.com/olekukonko/tablewriter"
+	"github.com/olekukonko/tablewriter/tw"
 	"github.com/tidwall/pretty"
 
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
@@ -103,10 +104,16 @@ func (kvRange) Action(fg lynkcli.FlagSet, l *readline.Instance) (string, error) 
 		table = tablewriter.NewWriter(&tbuf)
 	)
 
-	table.SetHeader([]string{"#", "Meta", "Key"})
+	table.Options(tablewriter.WithRendition(tw.Rendition{
+		Settings: tw.Settings{
+			Separators: tw.Separators{BetweenRows: tw.On},
+		},
+	}))
 
-	table.SetRowLine(true)
-	table.SetAutoWrapText(false)
+	table.Header([]string{"#", "Meta", "Key"})
+
+	// table.SetRowLine(true)
+	// table.SetAutoWrapText(false)
 	// table.EnableBorder(false)
 
 	for i, kv := range rs.Items {
@@ -175,10 +182,16 @@ func (kvRead) Action(fg lynkcli.FlagSet, l *readline.Instance) (string, error) {
 
 	if len(rs.Items) == 1 {
 
-		table.SetHeader([]string{"Field", "Content"})
+		table.Header([]string{"Field", "Content"})
 
-		table.SetRowLine(true)
-		table.SetAutoWrapText(false)
+		table.Options(tablewriter.WithRendition(tw.Rendition{
+			Settings: tw.Settings{
+				Separators: tw.Separators{BetweenRows: tw.On},
+			},
+		}))
+
+		// table.SetRowLine(true)
+		// table.SetAutoWrapText(false)
 
 		kv := rs.Items[0]
 

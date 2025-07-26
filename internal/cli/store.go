@@ -24,6 +24,7 @@ import (
 	"github.com/lynkdb/lynkapi/go/lynkapi"
 	"github.com/lynkdb/lynkapi/go/lynkcli"
 	"github.com/olekukonko/tablewriter"
+	"github.com/olekukonko/tablewriter/tw"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/lynkdb/kvgo/v2/internal/server"
@@ -52,15 +53,21 @@ var StoreInfoRender = func(data *structpb.Struct) (string, error) {
 		sumFree int64
 	)
 
-	table.SetHeader([]string{
+	table.Options(tablewriter.WithRendition(tw.Rendition{
+		Settings: tw.Settings{
+			Separators: tw.Separators{BetweenRows: tw.On},
+		},
+	}))
+
+	table.Header([]string{
 		"ID", "UID", "Reps",
 		"Free", "Used/Percent", "Block (Data,Meta,Log,TTL)", "Options",
 		"Updated"})
 
-	table.SetCenterSeparator("|")
-	table.SetAlignment(tablewriter.ALIGN_LEFT)
-	table.SetRowLine(true)
-	table.SetAutoWrapText(false)
+	// table.SetCenterSeparator("|")
+	// table.SetAlignment(tablewriter.ALIGN_LEFT)
+	// table.SetRowLine(true)
+	// table.SetAutoWrapText(false)
 
 	for _, item := range rs.Items {
 
@@ -109,7 +116,7 @@ var StoreInfoRender = func(data *structpb.Struct) (string, error) {
 		})
 	}
 
-	table.SetFooter([]string{"", "", "",
+	table.Footer([]string{"", "", "",
 		kvapi.BytesHumanDisplay(sumFree * kvapi.MiB),
 		kvapi.BytesHumanDisplay(sumUsed*kvapi.MiB) + "/" +
 			fmt.Sprintf("%.2f %%", float64(sumUsed)*100/float64(sumUsed+sumFree+1)),

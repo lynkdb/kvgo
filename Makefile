@@ -42,7 +42,7 @@ cli-install: cli
 	install -m 755 ${EXE_CLI} ${APP_HOME}/${EXE_CLI}
 
 cli-run: cli
-	${EXE_CLI} etc/local.toml
+	${EXE_CLI} etc/bj1.toml
 
 server-run: server
 	${EXE_SERVER} -logtostderr true
