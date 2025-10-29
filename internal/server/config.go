@@ -43,7 +43,7 @@ type Config struct {
 	Cluster ConfigCluster `toml:"cluster" json:"cluster" desc:"Cluster Settings"`
 
 	// Data Transfer Settings
-	TransferJobs []*ConfigTransferJob `toml:"transfer_jobs" json:"transfer_jobs"`
+	TransferJobs []*ConfigTransferJob `toml:"transfer_jobs,omitempty" json:"transfer_jobs,omitempty"`
 }
 
 type ConfigStorage struct {
@@ -92,7 +92,7 @@ type ConfigServer struct {
 	ID          string                `toml:"id" json:"id"`
 	Bind        string                `toml:"bind" json:"bind"`
 	AccessKey   *hauth.AccessKey      `toml:"access_key" json:"access_key"`
-	AuthTLSCert *ConfigTLSCertificate `toml:"auth_tls_cert" json:"auth_tls_cert"`
+	AuthTLSCert *ConfigTLSCertificate `toml:"auth_tls_cert,omitempty" json:"auth_tls_cert,omitempty"`
 
 	HttpPort uint16 `toml:"http_port,omitempty" json:"http_port,omitempty"`
 

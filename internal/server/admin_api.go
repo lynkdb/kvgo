@@ -27,6 +27,7 @@ import (
 	"github.com/lynkdb/lynkapi/go/lynkapi"
 
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
+	"github.com/lynkdb/kvgo/v2/pkg/storage"
 )
 
 /**
@@ -547,6 +548,10 @@ func (it *AdminService) DatabaseCreate(
 	}
 	if !ss.OK() {
 		return nil, lynkapi.NewInternalServerError(ss.Error().Error())
+	}
+
+	if tbl.Engine == "" {
+		tbl.Engine = storage.DefaultDriver
 	}
 
 	it.dbServer.auditLogger.Put("admin-api", "database %s, engine %s, replica-num %d, created",

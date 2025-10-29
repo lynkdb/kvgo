@@ -123,6 +123,18 @@ func (it *dbServer) jobDatabaseListSetup() error {
 				return err
 			}
 
+			if tbl.Engine == "" && tbl.Name != sysDatabaseName {
+				tbl.Engine = storage.DefaultDriver
+
+				wr := kvapi.NewWriteRequest(nsSysDatabaseSpec(tbl.Id), jsonEncode(tbl))
+				wr.Database = sysDatabaseName
+
+				wr.PrevVersion = item.Meta.Version
+				if _, err := it.api.Write(nil, wr); err == nil {
+					hlog.Printf("info", "kvgo database %s, reset engine to %s", tbl.Name, tbl.Engine)
+				}
+			}
+
 			it.dbMapMgr.syncDatabase(item.Meta, &tbl)
 
 			if it.status.Uptime == 0 {
