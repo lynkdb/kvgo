@@ -15,13 +15,23 @@
 package kvrep
 
 import (
+	"fmt"
+	"sync"
+
 	"github.com/lynkdb/kvgo/v2/internal/server"
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 	"github.com/lynkdb/kvgo/v2/pkg/storage"
 	_ "github.com/lynkdb/kvgo/v2/pkg/storage/pebble"
 )
 
+var (
+	mu   sync.Mutex
+	dbId uint32
+)
+
 func NewReplica(opts *storage.Options) (kvapi.Client, error) {
+	mu.Lock()
+	defer mu.Unlock()
 
 	db, err := storage.Open(storage.DefaultDriver, opts)
 	if err != nil {
@@ -31,7 +41,8 @@ func NewReplica(opts *storage.Options) (kvapi.Client, error) {
 	scfg := &server.Config{}
 	scfg.Feature.WriteLogDisable = true
 
-	c, err := server.NewDatabase(db, "0000", "local-replica", 1, 2, scfg)
+	dbId += 1
+	c, err := server.NewDatabase(db, fmt.Sprintf("%04x", dbId), "local-replica", 1, 2, scfg)
 	if err != nil {
 		return nil, err
 	}

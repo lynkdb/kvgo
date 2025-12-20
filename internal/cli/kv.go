@@ -188,7 +188,7 @@ func (kvRead) Action(fg lynkcli.FlagSet, l *readline.Instance) (string, error) {
 			Settings: tw.Settings{
 				Separators: tw.Separators{BetweenRows: tw.On},
 			},
-		}))
+		}), tablewriter.WithRowMaxWidth(200), tablewriter.WithColumnMax(120))
 
 		// table.SetRowLine(true)
 		// table.SetAutoWrapText(false)
