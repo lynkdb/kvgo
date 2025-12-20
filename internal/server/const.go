@@ -350,6 +350,9 @@ func nsSysDatabaseMap(id string) []byte {
 }
 
 func nsSysDatabaseIncr(id string) []byte {
+	if id == "" {
+		id = "main"
+	}
 	return []byte("sys/dbincr/" + id)
 }
 

@@ -131,7 +131,7 @@ func NewDatabase(
 	defer dbReplicaMut.Unlock()
 
 	k := fmt.Sprintf("%s.%d", dbId, replicaId)
-	if dbId == sysDatabaseId {
+	if dbId == sysDatabaseId || dbId == "" {
 		k = cfg.Storage.DataDirectory
 	}
 
@@ -170,7 +170,7 @@ func NewDatabase(
 
 	if rs := dt.store.Get(keySysInstanceId, nil); rs.OK() {
 		dt.dbId = string(rs.Bytes())
-		if dt.dbId != dbId {
+		if dt.dbId != dbId && dbId != "" {
 			return nil, fmt.Errorf("database id conflict, db %s, mem %s, store info %v", dt.dbId, dbId, *dt.store.Info())
 		}
 	} else if rs.NotFound() {
