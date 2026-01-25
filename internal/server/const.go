@@ -23,7 +23,7 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 
-	hauth "github.com/hooto/hauth/go/hauth/v1"
+	hauth "github.com/hooto/hauth/go"
 
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )

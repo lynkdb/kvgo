@@ -210,7 +210,7 @@ func (it *dbReplica) _writePrepare(req *kvapi.WriteProposalRequest) (*kvapi.Meta
 	if len(it.proposals) > 10 {
 		dels := []string{}
 		for k, v := range it.proposals {
-			if (v.expired) < tn {
+			if v.expired < tn {
 				dels = append(dels, k)
 			}
 		}
@@ -277,7 +277,7 @@ func (it *dbReplica) _writeAccept(req *kvapi.WriteProposalRequest) (*kvapi.Meta,
 	defer it.proposalMu.Unlock()
 
 	pp, ok := it.proposals[string(req.Write.Key)]
-	if !ok || (pp.expired) < tn || pp.write == nil {
+	if !ok || pp.expired < tn || pp.write == nil {
 		return nil, errors.New("deny")
 	}
 
@@ -412,7 +412,7 @@ func (it *dbReplica) _deletePrepare(req *kvapi.DeleteProposalRequest) (*kvapi.Me
 	if len(it.proposals) > 10 {
 		dels := []string{}
 		for k, v := range it.proposals {
-			if (v.expired) < tn {
+			if v.expired < tn {
 				dels = append(dels, k)
 			}
 		}
@@ -466,7 +466,7 @@ func (it *dbReplica) _deleteAccept(req *kvapi.DeleteProposalRequest) (*kvapi.Met
 	defer it.proposalMu.Unlock()
 
 	pp, ok := it.proposals[string(req.Key)]
-	if !ok || (pp.expired) < tn || pp.delete == nil {
+	if !ok || pp.expired < tn || pp.delete == nil {
 		return nil, errors.New("deny")
 	}
 

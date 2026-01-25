@@ -205,6 +205,8 @@ func (it *storeManager) closeAll() error {
 }
 
 func (it *storeManager) statusIter(fn func(s *kvapi.SysStoreStatus)) int {
+	it.mu.Lock()
+	defer it.mu.Unlock()
 	for _, s := range it.status.Items {
 		fn(s)
 	}

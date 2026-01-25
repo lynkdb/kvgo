@@ -17,7 +17,7 @@ package server
 import (
 	"context"
 
-	"github.com/hooto/hauth/go/hauth/v1"
+	"github.com/hooto/hauth/go"
 	"google.golang.org/grpc/credentials"
 )
 

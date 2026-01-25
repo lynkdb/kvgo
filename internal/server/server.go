@@ -25,7 +25,7 @@ import (
 	"sync"
 	"time"
 
-	hauth "github.com/hooto/hauth/go/hauth/v1"
+	hauth "github.com/hooto/hauth/go"
 	"github.com/hooto/hlog4g/hlog"
 	"github.com/hooto/hmetrics"
 	"github.com/hooto/htoml4g/htoml"

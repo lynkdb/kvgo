@@ -36,6 +36,7 @@ import (
 
 func (it *dbServer) taskRun() {
 	tr := time.NewTimer(1e9)
+	defer tr.Stop()
 	for !it.close {
 		select {
 		case <-tr.C:

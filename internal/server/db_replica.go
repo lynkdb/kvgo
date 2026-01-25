@@ -173,13 +173,16 @@ func NewDatabase(
 		if dt.dbId != dbId && dbId != "" {
 			return nil, fmt.Errorf("database id conflict, db %s, mem %s, store info %v", dt.dbId, dbId, *dt.store.Info())
 		}
-	} else if rs.NotFound() {
-		dt.dbId = dbId
-		rs = dt.store.Put(keySysInstanceId, []byte(dt.dbId), &storage.WriteOptions{
-			Sync: true,
-		})
-	} else if !rs.OK() {
-		return nil, rs.Error()
+	} else {
+		if rs.NotFound() {
+			dt.dbId = dbId
+			rs = dt.store.Put(keySysInstanceId, []byte(dt.dbId), &storage.WriteOptions{
+				Sync: true,
+			})
+		}
+		if !rs.OK() {
+			return nil, rs.Error()
+		}
 	}
 
 	if err := dt.init(); err != nil {

@@ -1102,7 +1102,7 @@ type DatabaseCreateRequest struct {
 	Engine     string            `protobuf:"bytes,3,opt,name=engine,proto3" json:"engine,omitempty" toml:"engine,omitempty" yaml:"engine,omitempty" x_value_limits:"v2" x_enums:"v2"`
 	ReplicaNum uint32            `protobuf:"varint,4,opt,name=replica_num,json=replicaNum,proto3" json:"replica_num,omitempty" toml:"replica_num,omitempty" yaml:"replica_num,omitempty" x_value_limits:"1,1,5"`
 	Desc       string            `protobuf:"bytes,5,opt,name=desc,proto3" json:"desc,omitempty" toml:"desc,omitempty" yaml:"desc,omitempty"`
-	ShardSize  int64             `protobuf:"varint,6,opt,name=shard_size,json=shardSize,proto3" json:"shard_size,omitempty" toml:"shard_size,omitempty" yaml:"shard_size,omitempty" x_value_limits:"64,8192,524288"`    // unit in MiB
+	ShardSize  int64             `protobuf:"varint,6,opt,name=shard_size,json=shardSize,proto3" json:"shard_size,omitempty" toml:"shard_size,omitempty" yaml:"shard_size,omitempty" x_value_limits:"64,8192,524288"` // unit in MiB
 	Options    map[string]string `protobuf:"bytes,9,rep,name=options,proto3" json:"options,omitempty" toml:"options,omitempty" yaml:"options,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 }
 
@@ -1189,7 +1189,7 @@ type DatabaseUpdateRequest struct {
 	Engine     string `protobuf:"bytes,3,opt,name=engine,proto3" json:"engine,omitempty" toml:"engine,omitempty" yaml:"engine,omitempty" x_value_limits:"v2" x_enums:"v2"`
 	ReplicaNum uint32 `protobuf:"varint,4,opt,name=replica_num,json=replicaNum,proto3" json:"replica_num,omitempty" toml:"replica_num,omitempty" yaml:"replica_num,omitempty" x_value_limits:"1,1,5"`
 	Desc       string `protobuf:"bytes,5,opt,name=desc,proto3" json:"desc,omitempty" toml:"desc,omitempty" yaml:"desc,omitempty"`
-	ShardSize  int64  `protobuf:"varint,6,opt,name=shard_size,json=shardSize,proto3" json:"shard_size,omitempty" toml:"shard_size,omitempty" yaml:"shard_size,omitempty" x_value_limits:"64,8192,524288"`    // unit in MiB
+	ShardSize  int64  `protobuf:"varint,6,opt,name=shard_size,json=shardSize,proto3" json:"shard_size,omitempty" toml:"shard_size,omitempty" yaml:"shard_size,omitempty" x_value_limits:"64,8192,524288"` // unit in MiB
 }
 
 func (x *DatabaseUpdateRequest) Reset() {

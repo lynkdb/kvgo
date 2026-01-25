@@ -1,23 +1,23 @@
 module github.com/lynkdb/kvgo/v2
 
-go 1.24.0
+go 1.25.6
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/chzyer/readline v1.5.1
 	github.com/cockroachdb/pebble v1.1.5
 	github.com/goccy/go-json v0.10.5
-	github.com/hooto/hauth v0.1.3
+	github.com/hooto/hauth/go v0.1.5
 	github.com/hooto/hlog4g v0.9.5
 	github.com/hooto/hmetrics v0.0.2
 	github.com/hooto/htoml4g v0.9.5
-	github.com/lynkdb/lynkapi v0.0.9
+	github.com/lynkdb/lynkapi v0.0.10
 	github.com/olekukonko/tablewriter v1.1.0
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d
 	github.com/tidwall/pretty v1.2.1
-	google.golang.org/grpc v1.76.0
-	google.golang.org/protobuf v1.36.10
+	google.golang.org/grpc v1.78.0
+	google.golang.org/protobuf v1.36.11
 )
 
 require (
@@ -39,6 +39,7 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/hooto/hauth/go/v2 v2.0.0-20260125120444-4cbf92d8d081 // indirect
 	github.com/hooto/hflag4g v0.10.1 // indirect
 	github.com/hooto/httpsrv v0.12.5 // indirect
 	github.com/klauspost/compress v1.18.1 // indirect
@@ -66,8 +67,8 @@ require (
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
-	golang.org/x/net v0.46.0 // indirect
-	golang.org/x/sys v0.37.0 // indirect
-	golang.org/x/text v0.30.0 // indirect
+	golang.org/x/net v0.47.0 // indirect
+	golang.org/x/sys v0.40.0 // indirect
+	golang.org/x/text v0.31.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251029180050-ab9386a59fda // indirect
 )

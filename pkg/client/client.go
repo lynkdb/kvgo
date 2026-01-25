@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hooto/hauth/go/hauth/v1"
+	"github.com/hooto/hauth/go"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
