@@ -50,13 +50,17 @@ func (it *dbReplica) write(req *kvapi.WriteRequest, cVer uint64) *kvapi.ResultSe
 		return newResultSetWithServerError(err.Error())
 	}
 
+	var (
+		updated = t0.UnixMilli()
+	)
+
+	if meta != nil && meta.Expired > 0 && meta.Expired < updated {
+		meta = nil
+	}
+
 	if req.Meta == nil {
 		req.Meta = &kvapi.Meta{}
 	}
-
-	var (
-		updated = t0.UnixNano() / 1e6
-	)
 
 	if req.Meta.IncrId > 0 && kvapi.AttrAllow(req.Attrs, kvapi.Write_Attrs_InnerSync) {
 		it.incrMgr.sync("", 0, req.Meta.IncrId, req.Key)
