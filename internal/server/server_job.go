@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/hooto/hlog4g/hlog"
-	ps_disk "github.com/shirou/gopsutil/v3/disk"
+	ps_disk "github.com/shirou/gopsutil/v4/disk"
 
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 	"github.com/lynkdb/kvgo/v2/pkg/storage"

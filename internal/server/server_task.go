@@ -25,11 +25,11 @@ import (
 	"time"
 
 	"github.com/hooto/hlog4g/hlog"
-	ps_cpu "github.com/shirou/gopsutil/v3/cpu"
-	ps_disk "github.com/shirou/gopsutil/v3/disk"
-	ps_mem "github.com/shirou/gopsutil/v3/mem"
-	ps_net "github.com/shirou/gopsutil/v3/net"
-	ps_proc "github.com/shirou/gopsutil/v3/process"
+	ps_cpu "github.com/shirou/gopsutil/v4/cpu"
+	ps_disk "github.com/shirou/gopsutil/v4/disk"
+	ps_mem "github.com/shirou/gopsutil/v4/mem"
+	ps_net "github.com/shirou/gopsutil/v4/net"
+	ps_proc "github.com/shirou/gopsutil/v4/process"
 
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )

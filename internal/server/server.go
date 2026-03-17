@@ -29,7 +29,7 @@ import (
 	"github.com/hooto/hlog4g/hlog"
 	"github.com/hooto/hmetrics"
 	"github.com/hooto/htoml4g/htoml"
-	ps_cpu "github.com/shirou/gopsutil/v3/cpu"
+	ps_cpu "github.com/shirou/gopsutil/v4/cpu"
 
 	"github.com/lynkdb/lynkapi/go/lynkapi"
 
