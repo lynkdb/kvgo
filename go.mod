@@ -16,7 +16,7 @@ require (
 	github.com/shirou/gopsutil/v4 v4.26.2
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d
 	github.com/tidwall/pretty v1.2.1
-	google.golang.org/grpc v1.78.0
+	google.golang.org/grpc v1.79.3
 	google.golang.org/protobuf v1.36.11
 )
 
