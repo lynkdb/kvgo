@@ -1,355 +1,307 @@
 ## kvgo
 
-An embeddable, persistent and distributed reliable Key-Value database engine.
+An embeddable, persistent, and distributed key-value database engine, written in Go.
 
 ## Features
 
-* support both embedded and server-client running modes.
-* fast and persistent key-value storage engine based on [goleveldb](https://github.com/syndtr/goleveldb).
-* data is stored sorted by key, forward and backward query is supported over the data.
-* data is automatically compressed using the snappy.
-* support paxos-based distributed deployment and provide service via gRPC.
-* friendly and easy way to run cluster mode in daemon and systemd ([kvgo-server](https://github.com/lynkdb/kvgo-server)).
-* mount a kvgo database as a FUSE filesystem [kvgo-fs-mount](https://github.com/lynkdb/kvgo-fs-mount).
+* Embedded and server-client modes with a unified `kvapi.Client` interface
+* Storage engine based on [Pebble](https://github.com/cockroachdb/pebble) (default) or [goleveldb](https://github.com/syndtr/goleveldb)
+* Data sorted by key, supporting forward and backward range queries
+* Automatic compression using snappy (default) or zstd
+* HMAC-based authentication with role-based access control
+* Large object storage with block-based chunking
+* gRPC-based API with TLS support
+* Cluster deployment with built-in replica and sharding support
 
+## Install
+
+```bash
+go get github.com/lynkdb/kvgo/v2
+```
 
 ## Getting Started
 
-### Installing
+### Embedded Mode
 
-``` shell
-go get -u github.com/lynkdb/kvgo
-```
-
-### Opening a database in embedded mode
-
-``` go
+```go
 package main
 
 import (
-	"fmt"
+    "fmt"
 
-	"github.com/lynkdb/kvgo"
+    "github.com/lynkdb/kvgo/v2/pkg/kvapi"
+    "github.com/lynkdb/kvgo/v2/pkg/kvrep"
+    "github.com/lynkdb/kvgo/v2/pkg/storage"
 )
 
 func main() {
+    db, err := kvrep.NewReplica(&storage.Options{
+        DataDirectory: "/tmp/kvgo-demo",
+    })
+    if err != nil {
+        panic(err)
+    }
+    defer db.Close()
 
-	db, err := kvgo.Open(kvgo.ConfigStorage{
-		DataDirectory: "/tmp/kvgo-demo",
-	})
-	if err != nil {
-		panic(err)
-	}
-	defer db.Close()
-
-	if rs := db.NewWriter([]byte("key"), []byte("value")).Commit(); rs.OK() {
-		fmt.Println("OK")
-	} else {
-		fmt.Println("ER", rs.Message)
-	}
+    if rs := db.NewWriter([]byte("key"), []byte("value")).Exec(); rs.OK() {
+        fmt.Println("OK")
+    } else {
+        fmt.Println("ER", rs.ErrorMessage())
+    }
 }
 ```
 
-### Opening a database in server-client mode
+### Server-Client Mode
 
-``` go
+Start the server:
+
+```bash
+make server
+bin/kvgod -logtostderr true
+```
+
+Connect with a Go client:
+
+```go
 package main
 
 import (
-	"fmt"
+    "fmt"
 
-	"github.com/hooto/hflag4g/hflag"
-	"github.com/lynkdb/kvgo"
-)
-
-var (
-	addr      = "127.0.0.1:9100"
-	accessKey = kvgo.NewSystemAccessKey()
-	Server    *kvgo.Conn
-	tlsCert   *kvgo.ConfigTLSCertificate
-	err       error
+    "github.com/hooto/hauth/go"
+    "github.com/lynkdb/kvgo/v2/pkg/client"
 )
 
 func main() {
+    c, err := (&client.Config{
+        Addr:    "127.0.0.1:9566",
+        Database: "test",
+        AccessKey: &hauth.AccessKey{
+            Id:     "00000000",
+            Secret: "<your-secret>",
+        },
+    }).NewClient()
+    if err != nil {
+        panic(err)
+    }
+    defer c.Close()
 
-	if _, ok := hflag.ValueOK("tls_enable"); ok {
-		// openssl genrsa -out server.key 2048
-		// openssl req -new -x509 -sha256 -key server.key -out server.crt -days 3650 -subj '/CN=CommonName'
-		tlsCert = &kvgo.ConfigTLSCertificate{
-			ServerKeyFile:  "server.key",
-			ServerCertFile: "server.crt",
-		}
-	}
-
-	if err := startServer(); err != nil {
-		panic(err)
-	}
-
-	client()
-}
-
-func startServer() error {
-
-	if Server, err = kvgo.Open(kvgo.ConfigStorage{
-		DataDirectory: "/tmp/kvgo-server",
-	}, kvgo.ConfigServer{
-		Bind:        addr,
-		AccessKey:   accessKey,
-		AuthTLSCert: tlsCert,
-	}); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func client() {
-
-	clientConfig := kvgo.ClientConfig{
-		Addr:        addr,
-		AccessKey:   accessKey,
-		AuthTLSCert: tlsCert,
-	}
-
-	client, err := clientConfig.NewClient()
-	if err != nil {
-		panic(err)
-	}
-
-	if rs := client.NewWriter([]byte("demo-key"), []byte("demo-value")).Commit(); rs.OK() {
-		fmt.Println("OK")
-	} else {
-		fmt.Println("ER", rs.Message)
-	}
+    if rs := c.NewWriter([]byte("key"), []byte("value")).Exec(); rs.OK() {
+        fmt.Println("OK")
+    }
 }
 ```
 
-### Deployment in distributed reliable database cluster mode
+### CLI Tool
 
-``` go
-package main
+```bash
+make cli
+bin/kvgo etc/local.toml
+```
 
-import (
-	"fmt"
+## Data APIs
 
-	"github.com/lynkdb/kvgo"
-)
+The `kvapi.Client` interface provides two API styles: direct request and builder pattern.
 
-var (
-	accessKey = kvgo.NewSystemAccessKey()
-	mainNodes = []*kvgo.ClientConfig{
-		{
-			Addr:      "127.0.0.1:9101",
-			AccessKey: accessKey,
-		},
-		{
-			Addr:      "127.0.0.1:9102",
-			AccessKey: accessKey,
-		},
-		{
-			Addr:      "127.0.0.1:9103",
-			AccessKey: accessKey,
-		},
-	}
-)
+### Write
 
-func main() {
+```go
+// Direct request
+rs := db.Write(kvapi.NewWriteRequest([]byte("key"), []byte("value")))
 
-	if err := startCluster(); err != nil {
-		panic(err)
-	}
+// Builder pattern
+rs := db.NewWriter([]byte("key"), []byte("value")).Exec()
 
-	client()
-}
+// Write only if key does not exist
+rs := db.NewWriter([]byte("key"), []byte("value")).SetCreateOnly(true).Exec()
 
-func startCluster() error {
+// Set TTL (milliseconds)
+rs := db.NewWriter([]byte("key"), []byte("value")).SetTTL(3000).Exec()
 
-	for i, m := range mainNodes {
+// JSON encoding via builder
+rs := db.NewWriter([]byte("key"), myStruct).SetJsonValue(myStruct).Exec()
 
-		_, err := kvgo.Open(kvgo.ConfigStorage{
-			DataDirectory: fmt.Sprintf("/tmp/kvgo-cluster-%d", i),
-		}, kvgo.ConfigServer{
-			Bind:      m.Addr,
-			AccessKey: accessKey,
-		}, kvgo.ConfigCluster{
-			MainNodes: mainNodes,
-		})
-		if err != nil {
-			return err
-		}
-	}
+// Conditional write with version check
+rs := db.NewWriter([]byte("key"), []byte("new-value")).SetPrevVersion(oldVersion).Exec()
 
-	return nil
-}
-
-func client() {
-
-	clientConfig := kvgo.ClientConfig{
-		Addr:      "127.0.0.1:9102",
-		AccessKey: accessKey,
-	}
-
-	client, err := clientConfig.NewClient()
-	if err != nil {
-		panic(err)
-	}
-
-	if rs := client.NewWriter([]byte("demo-key"), []byte("demo-value")).Commit(); rs.OK() {
-		fmt.Println("OK")
-	} else {
-		fmt.Println("ER", rs.Message)
-	}
+// Auto-increment namespace
+rs := db.NewWriter([]byte("key"), []byte("value")).SetIncr(0, "ns").Exec()
+if rs.OK() {
+    fmt.Println("IncrId:", rs.Meta().IncrId)
 }
 ```
 
-Tips: use [kvgo-server](https://github.com/lynkdb/kvgo-server) to deploy the cluster in daemon and systemd.
+### Read
 
-
-## Data Write/Read APIs
-
-### Write Key-Value Data into database
-
-``` go
-var (
-	key = []byte("demo-key")
-	val = []byte("demo-value-data")
-)
-
-# general method
-if rs := db.NewWriter(key, val).Commit(); rs.OK() {
-	fmt.Println("OK")
-}
-
-# write the value of a key, only if the key does not exist
-if rs := db.NewWriter(key, val).ModeCreateSet(true).Commit(); rs.OK() {
-	fmt.Println("OK")
-}
-
-# set a timeout on key. After the timeout has expired, the key will automatically be deleted.
-# timeout setup in milliseconds
-if rs := db.NewWriter(key, val).ExpireSet(3000).Commit(); rs.OK() {
-	fmt.Println("OK")
-}
-
-# delete key/value
-if rs := db.NewWriter(key, nil).ModeDeleteSet(true).Commit(); rs.OK() {
-	fmt.Println("OK")
-}
-
-# write the new-value of a key, only if the key exist and the old value is the same as the commited check value.
-if rs := db.NewWriter(key, "new-value").PrevDataCheckSet("old-value").Commit(); rs.OK() {
-	fmt.Println("OK")
-}
-
-# write the value of a key and automatically create a auto-increment meta value.
-# the auto-increment value will keep the same if the key exist.
-if rs := db.NewWriter(key, "value").IncrNamespaceSet("def").Commit(); rs.OK() {
-	fmt.Println("OK". rs.Meta.IncrId)
-}
-
-# multi value type supports
-rs = db.NewWriter(key, []byte("value")).Commit()
-rs = db.NewWriter(key, "value").Commit()
-rs = db.NewWriter(key, 1.01).Commit()
-type StructObject struct {
-	Name string
-}
-obj := StructObject{
-	Name: "test",
-}
-rs = db.NewWriter(key, obj).Commit()
-
-```
-
-### Read or Query Key-Value Data from database
-
-``` go
-var (
-	key = []byte("demo-key")
-)
-
-# query one key-value item
-if rs := db.NewReader(key).Query(); rs.OK() {
-	fmt.Println("OK", rs.DataValue().String())
+```go
+// Single key
+rs := db.Read(kvapi.NewReadRequest([]byte("key")))
+if rs.OK() {
+    item := rs.Item()
+    fmt.Println(item.StringValue())
+    fmt.Println(item.Uint64Value())
+    fmt.Println(item.Int64Value())
+    fmt.Println(item.Float64Value())
+    fmt.Println(item.BoolValue())
 } else if rs.NotFound() {
-	fmt.Println("Not Found")
-} else {
-	fmt.Println("Error", rs.Message)
+    fmt.Println("Not Found")
 }
 
-# query multi key-value items from a key-range in forward way
-if rs := db.NewReader().
-	KeyRangeSet([]byte("00"), []byte("zz")).
-	LimitNumSet(10).Query(); rs.OK() {
-	for i, item := range rs.Items {
-		fmt.Printf("N %d, Value %s\n", i, item.DataValue().String())
-	}
-}
+// Builder with meta-only (no value data)
+rs := db.NewReader([]byte("key")).SetMetaOnly(true).Exec()
 
-# query multi key-value items from a key-range in backward way
-if rs := db.NewReader().
-	KeyRangeSet([]byte("zz"), []byte("00")).
-	ModeRevRangeSet(true).
-	LimitNumSet(10).Query(); rs.OK() {
-	for i, item := range rs.Items {
-		fmt.Printf("N %d, Value %s\n", i, item.DataValue().String())
-	}
-}
-
-# query multi key-value items by the paxos-based auto-increment log version.
-lastVersion := uint64(0)
-if rs := db.NewReader().
-	LogOffsetSet(lastVersion).
-	LimitNumSet(10).Query(); rs.OK() {
-	for i, item := range rs.Items {
-		lastVersion = item.Meta.Version
-		fmt.Printf("N %d, Version \n", i, lastVersion)
-	}
-}
-
-# get value data in multi types
-_ = rs.DataValue().Bytes()
-_ = rs.DataValue().String()
-_ = rs.DataValue().Int() # or Int8(), Int16(), Int32(), Int64()
-_ = rs.DataValue().Uint() # or Uint8(), Uint16(), Uint32(), Int64()
-_ = rs.DataValue().Bool()
-_ = rs.DataValue().Float64()
-type StructObject struct {
-	Name string
-}
-var item StructObject
-if err := rs.DataValue().Decode(&item, nil); err == nil {
-	// ...
+// JSON decode
+var obj MyStruct
+if rs.OK() {
+    rs.Item().JsonDecode(&obj)
 }
 ```
 
-## Performance
+### Range Query
 
+```go
+// Forward range
+rs := db.Range(kvapi.NewRangeRequest([]byte("a"), []byte("z")).SetLimit(100))
+if rs.OK() {
+    for _, item := range rs.Items {
+        fmt.Printf("Key: %s, Value: %s\n", item.Key, item.StringValue())
+    }
+}
 
-### test environment
+// Backward range via builder
+rs := db.NewRanger([]byte("z"), []byte("a")).SetRevert(true).SetLimit(100).Exec()
+```
 
-* CPU: Intel i7-7700 CPU @ 3.60GHz (4 cores, 8 threads)
-* SSD: Intel 760P 512GB M.2/NVMe
-* OS: CentOS 7.7.1908 x86_64
-* kvgo: version 0.2.0 (write_buffer 64MB, block_cache_size 64MB)
-* redis: version 5.0.7 (disable save the DB on disk)
-* data keys: 40 bytes each
-* data values: 1024 bytes each
+### Delete
 
-### typical performance in embed, 1 node and 3 nodes modes:
+```go
+// Direct request
+rs := db.Delete(kvapi.NewDeleteRequest([]byte("key")))
 
-![typical-benchmark](bench/kvgo_throughput_avg.svg)
+// Builder pattern
+rs := db.NewDeleter([]byte("key")).Exec()
 
+// Delete with version check
+rs := db.NewDeleter([]byte("key")).SetPrevVersion(version).Exec()
+```
 
-### kvgo vs redis in 1 node mode:
+### Batch
 
-![kvgo-vs-redis-benchmark](bench/kvgo_redis_throughput_avg.svg)
+```go
+batch := kvapi.NewBatchRequest()
+batch.Write([]byte("k1"), []byte("v1"))
+batch.Write([]byte("k2"), []byte("v2"))
+batch.Read([]byte("k1"))
+batch.Delete([]byte("k3"))
 
+resp := db.Batch(batch)
+if resp.OK() {
+    for i, rs := range resp.Items {
+        fmt.Printf("Result %d: OK=%v\n", i, rs.OK())
+    }
+}
+```
 
+### Large Object Storage
 
-## Dependent or referenced
+```go
+import "github.com/lynkdb/kvgo/v2/pkg/object"
 
-* leveldb [https://github.com/google/leveldb](https://github.com/google/leveldb)
-* goleveldb [github.com/syndtr/goleveldb](github.com/syndtr/goleveldb)
-* snappy [http://github.com/google/snappy](http://github.com/google/snappy)
-* snappy in go [https://github.com/golang/snappy](https://github.com/golang/snappy)
+oc, _ := object.NewObjectClient(db)
+
+// Upload a file
+oc.Put("path/to/remote", "/path/to/local/file")
+
+// Read (returns io.ReadSeeker)
+reader, _ := oc.Open("path/to/remote")
+```
+
+### Database Selection
+
+```go
+// Set default database on client
+db2 := db.SetDatabase("mydb")
+
+// Or per-request
+rs := db.Write(kvapi.NewWriteRequest([]byte("key"), []byte("value")).SetDatabase("mydb"))
+```
+
+## Result Types
+
+All read/write operations return `*ResultSet` with status checking:
+
+```go
+rs.OK()              // true if status == 2000
+rs.NotFound()        // true if status == 4040
+rs.Error()           // error or nil
+rs.ErrorMessage()    // "#4000 message"
+rs.Item()            // first *KeyValue
+rs.Meta()            // first item's *Meta
+rs.JsonDecode(&obj)  // JSON decode first item's value
+rs.Lookup([]byte("key")) // find item by key in range results
+```
+
+`KeyValue` value accessors: `StringValue()`, `Int64Value()`, `Uint64Value()`, `BoolValue()`, `Float64Value()`, `JsonDecode(&obj)`.
+
+## Configuration
+
+Server configuration is TOML-based (`etc/kvgo-server.toml`):
+
+```toml
+[storage]
+data_directory = "var/data"
+engine = "v2"
+
+[[storage.stores]]
+uni_id = "store-1"
+engine = "v2"
+mountpoint = "/data/kvgo"
+store_id = 2
+
+[server]
+bind = "127.0.0.1:9566"
+
+[server.access_key]
+id = "00000000"
+secret = "<your-secret>"
+status = 1
+roles = ["sa"]
+
+[[server.access_key.scopes]]
+name = "kvgo/db"
+value = "*"
+
+[performance]
+write_buffer_size = 8
+block_cache_size = 32
+
+[feature]
+compression = "snappy"
+```
+
+### Storage Options (Embedded Mode)
+
+```go
+&storage.Options{
+    DataDirectory:   "/path/to/data",
+    WriteBufferSize: 8,    // MiB, range 2-256, default 8
+    BlockCacheSize:  32,   // MiB, range 4-1024, default 32
+    MaxTableSize:    8,    // MiB, range 2-64, default 8
+    MaxOpenFiles:    500,  // range 500-10000, default 500
+    Compression:     "snappy", // "snappy" or "none"
+}
+```
+
+## Build
+
+```bash
+make all      # Build server (bin/kvgod) and CLI (bin/kvgo)
+make server   # Build server only
+make cli      # Build CLI only (excludes storage engine)
+make test     # Run tests
+make api      # Regenerate protobuf code
+```
+
+## License
+
+Licensed under the [Apache License 2.0](http://www.apache.org/licenses/LICENSE-2.0).
