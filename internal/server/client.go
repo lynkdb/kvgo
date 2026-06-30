@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hooto/hauth/go"
+	"github.com/sysinner/innerstack/v2/pkg/inauth"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/encoding/gzip"
 
@@ -146,7 +146,7 @@ func (it *internalClientConn) innerRange(req *kvapi.RangeRequest) *kvapi.ResultS
 }
 
 func rpcClientConnect(addr string,
-	key *hauth.AccessKey,
+	key *inauth.AccessKey,
 	forceNew bool) (*grpc.ClientConn, error) {
 
 	if key == nil {

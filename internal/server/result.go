@@ -15,8 +15,6 @@
 package server
 
 import (
-	"fmt"
-
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
 
@@ -31,10 +29,7 @@ func newResultSetOK() *kvapi.ResultSet {
 	return newResultSet(kvapi.Status_OK, "")
 }
 
-func newResultSetWithClientError(msg string, args ...interface{}) *kvapi.ResultSet {
-	if len(args) > 0 {
-		return newResultSet(kvapi.Status_InvalidArgument, fmt.Sprintf(msg, args...))
-	}
+func newResultSetWithClientError(msg string) *kvapi.ResultSet {
 	return newResultSet(kvapi.Status_InvalidArgument, msg)
 }
 
@@ -42,10 +37,7 @@ func newResultSetWithNotFound(msg string) *kvapi.ResultSet {
 	return newResultSet(kvapi.Status_NotFound, msg)
 }
 
-func newResultSetWithServerError(msg string, args ...interface{}) *kvapi.ResultSet {
-	if len(args) > 0 {
-		return newResultSet(kvapi.Status_ServerError, fmt.Sprintf(msg, args...))
-	}
+func newResultSetWithServerError(msg string) *kvapi.ResultSet {
 	return newResultSet(kvapi.Status_ServerError, msg)
 }
 

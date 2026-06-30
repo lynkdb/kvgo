@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sysinner/innerstack/v2/pkg/inauth"
+
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 	"github.com/lynkdb/kvgo/v2/pkg/storage"
 	_ "github.com/lynkdb/kvgo/v2/pkg/storage/pebble"
@@ -38,7 +40,7 @@ func Test_AdminAPI(t *testing.T) {
 	defer sess.release()
 
 	{
-		req, _ := lynkapi.NewRequestFromObject("AdminService", "DatabaseCreate", &kvapi.DatabaseCreateRequest{
+		req := lynkapi.NewRequest("AdminService", "DatabaseCreate", &kvapi.DatabaseCreateRequest{
 			Name:   "test",
 			Engine: storage.DefaultDriver,
 		})
@@ -48,7 +50,7 @@ func Test_AdminAPI(t *testing.T) {
 			t.Logf("database create ok, meta %v", *rs.Data)
 		}
 
-		req, _ = lynkapi.NewRequestFromObject("AdminService", "DatabaseList", &kvapi.DatabaseListRequest{})
+		req = lynkapi.NewRequest("AdminService", "DatabaseList", &kvapi.DatabaseListRequest{})
 		if rs := sess.ac.Exec(req); !rs.Status.OK() {
 			t.Fatal(rs.Status.Err())
 		} else {
@@ -66,7 +68,7 @@ func Test_AdminAPI(t *testing.T) {
 
 	{
 		time.Sleep(1e9)
-		req, _ := lynkapi.NewRequestFromObject("AdminService", "DatabaseUpdate", &kvapi.DatabaseUpdateRequest{
+		req := lynkapi.NewRequest("AdminService", "DatabaseUpdate", &kvapi.DatabaseUpdateRequest{
 			Name:       "test",
 			ReplicaNum: 2,
 			Desc:       "test",
@@ -77,7 +79,7 @@ func Test_AdminAPI(t *testing.T) {
 			t.Logf("database alter ok : %v", *rs.Data)
 		}
 
-		req, _ = lynkapi.NewRequestFromObject("AdminService", "DatabaseList", &kvapi.DatabaseListRequest{})
+		req = lynkapi.NewRequest("AdminService", "DatabaseList", &kvapi.DatabaseListRequest{})
 		if rs := sess.ac.Exec(req); !rs.Status.OK() {
 			t.Fatal(rs.Status.Err())
 		} else {
@@ -92,11 +94,33 @@ func Test_AdminAPI(t *testing.T) {
 			}
 		}
 	}
+
+	// Auth gate (AdminService.PreMethod): a wrong/unregistered access key must
+	// be rejected for every admin method, including SysInfo and DatabaseList.
+	{
+		wrongCli, err := (&lynkapi.ClientConfig{
+			Addr:      sess.addr,
+			AccessKey: inauth.NewAccessKey(), // random id/secret, not registered on the server
+		}).NewClient()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for _, method := range []string{"SysInfo", "DatabaseList", "StoreInfo"} {
+			req := lynkapi.NewRequest("AdminService", method, &struct{}{})
+			rs := wrongCli.Exec(req)
+			if rs.Status.OK() {
+				t.Fatalf("admin %s accepted with wrong access key — auth gate not enforced", method)
+			}
+			t.Logf("admin %s rejected with wrong key as expected: %s", method, rs.Status.Err())
+		}
+	}
 }
 
 type testAdminApiSession struct {
 	dbs  []*dbServer
 	dirs []string
+	addr string
 	// ac   kvapi.AdminClient
 	ac lynkapi.Client
 }
@@ -154,6 +178,7 @@ func test_AdminApi_Open(args ...interface{}) (*testAdminApiSession, error) {
 
 	sess := &testAdminApiSession{
 		dirs: []string{testDir},
+		addr: cfg.Server.Bind,
 	}
 
 	if opts["v2_vol_x"] {

@@ -25,11 +25,11 @@ import (
 	"sync"
 	"time"
 
-	hauth "github.com/hooto/hauth/go"
 	"github.com/hooto/hlog4g/hlog"
 	"github.com/hooto/hmetrics"
 	"github.com/hooto/htoml4g/htoml"
 	ps_cpu "github.com/shirou/gopsutil/v4/cpu"
+	"github.com/sysinner/innerstack/v2/pkg/inauth"
 
 	"github.com/lynkdb/lynkapi/go/lynkapi"
 
@@ -75,7 +75,7 @@ type dbServer struct {
 
 	storeMgr *storeManager
 
-	keyMgr *hauth.AccessKeyManager
+	keyMgr *inauth.AccessKeyManager
 
 	dbMapMgr *dbMapMgr
 
@@ -150,7 +150,7 @@ func dbServerSetup(cfgFile string, cfg Config) (*dbServer, error) {
 		pid:         randUint64(),
 		cfg:         cfg,
 		cfgFile:     cfgFile,
-		keyMgr:      hauth.NewAccessKeyManager(),
+		keyMgr:      inauth.NewAccessKeyManager(),
 		storeMgr:    storeMgr,
 		dbMapMgr:    newDatabaseMapMgr(&cfg, storeMgr),
 		transferMgr: newTransferManager(),
@@ -343,10 +343,10 @@ func (it *dbServer) keyMgrSetup() error {
 		return errors.New("no [server.access_key] setup")
 	}
 
-	it.keyMgr.KeySet(it.cfg.Server.AccessKey)
+	it.keyMgr.Set(it.cfg.Server.AccessKey)
 
 	for _, role := range defaultRoles {
-		it.keyMgr.RoleSet(role)
+		it.keyMgr.SetRole(role)
 	}
 
 	return nil

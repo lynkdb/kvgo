@@ -23,7 +23,7 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 
-	hauth "github.com/hooto/hauth/go"
+	"github.com/sysinner/innerstack/v2/pkg/inauth"
 
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
@@ -155,7 +155,7 @@ var (
 	defaultScopes         = []string{
 		AuthScopeDatabase,
 	}
-	defaultRoles = []*hauth.Role{
+	defaultRoles = []*inauth.Role{
 		{
 			Name:  "sa",
 			Title: "System Administrator",

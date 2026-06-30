@@ -17,6 +17,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"fmt"
 
 	"google.golang.org/grpc"
 
@@ -52,7 +53,7 @@ func (it *serviceApiImpl) Write(
 		return it.dbServer.apiWrite(req, hit), nil
 	}
 
-	return newResultSetWithServerError("db(%s) write: server not ready", req.Database), nil
+	return newResultSetWithServerError(fmt.Sprintf("db(%s) write: server not ready", req.Database)), nil
 }
 
 func (it *serviceApiImpl) Delete(
@@ -198,12 +199,7 @@ func (it *serviceApiImpl) auth(ctx context.Context) *kvapi.ResultSet {
 
 	if ctx != nil {
 
-		av, err := appAuthParse(ctx, it.dbServer.keyMgr)
-		if err != nil {
-			return newResultSet(kvapi.Status_AuthDeny, err.Error())
-		}
-
-		if err := av.SignValid(nil); err != nil {
+		if _, err := appAuthParse(ctx, it.dbServer.keyMgr); err != nil {
 			return newResultSet(kvapi.Status_AuthDeny, err.Error())
 		}
 	}

@@ -16,6 +16,7 @@ package server
 
 import (
 	"bytes"
+	"fmt"
 	"time"
 
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
@@ -81,7 +82,7 @@ func (it *dbReplica) write(req *kvapi.WriteRequest, cVer uint64) *kvapi.ResultSe
 		}
 
 		if req.PrevIncrId > 0 && req.PrevIncrId != meta.IncrId {
-			return newResultSetWithClientError("invalid prev_incr_id (req %d, prev %d)", req.PrevIncrId, meta.IncrId)
+			return newResultSetWithClientError(fmt.Sprintf("invalid prev_incr_id (req %d, prev %d)", req.PrevIncrId, meta.IncrId))
 		}
 
 		if (cVer > 0 && meta.Version == cVer) ||

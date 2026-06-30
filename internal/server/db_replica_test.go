@@ -52,7 +52,7 @@ func Test_DatabaseReplica_Task(t *testing.T) {
 	defer sess.release()
 
 	{
-		req, _ := lynkapi.NewRequestFromObject("AdminService", "DatabaseCreate", &kvapi.DatabaseCreateRequest{
+		req := lynkapi.NewRequest("AdminService", "DatabaseCreate", &kvapi.DatabaseCreateRequest{
 			Name:       test_DatabaseReplica_Task,
 			Engine:     storage.DefaultDriver,
 			ReplicaNum: 3,
@@ -65,7 +65,7 @@ func Test_DatabaseReplica_Task(t *testing.T) {
 		}
 	}
 
-	sess.c.SetDatabase(test_DatabaseReplica_Task)
+	sess.c = sess.c.SetDatabase(test_DatabaseReplica_Task)
 
 	statusRefresh := func(r int) {
 		// force update status

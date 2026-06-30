@@ -47,7 +47,7 @@ func Test_ServiceApi_RepX(t *testing.T) {
 	defer sess.release()
 
 	{
-		req, _ := lynkapi.NewRequestFromObject("AdminService", "DatabaseCreate", &kvapi.DatabaseCreateRequest{
+		req := lynkapi.NewRequest("AdminService", "DatabaseCreate", &kvapi.DatabaseCreateRequest{
 			Name:       test_ServiceApi_RepX_Database,
 			Engine:     storage.DefaultDriver,
 			ReplicaNum: 3,
@@ -59,7 +59,7 @@ func Test_ServiceApi_RepX(t *testing.T) {
 			t.Logf("database create ok, meta %v", *rs.Data)
 		}
 
-		req, _ = lynkapi.NewRequestFromObject("AdminService", "DatabaseList", &kvapi.DatabaseListRequest{})
+		req = lynkapi.NewRequest("AdminService", "DatabaseList", &kvapi.DatabaseListRequest{})
 		if rs := sess.ac.Exec(req); !rs.OK() {
 			t.Fatal(rs.Err())
 		} else {

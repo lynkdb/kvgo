@@ -39,7 +39,7 @@ func Test_DatabaseJob_LogPull(t *testing.T) {
 	defer sess.release()
 
 	{
-		req, _ := lynkapi.NewRequestFromObject("AdminService", "DatabaseCreate", &kvapi.DatabaseCreateRequest{
+		req := lynkapi.NewRequest("AdminService", "DatabaseCreate", &kvapi.DatabaseCreateRequest{
 			Name:       test_DatabaseJob_LogPull_Database,
 			Engine:     storage.DefaultDriver,
 			ReplicaNum: 2,
@@ -51,7 +51,7 @@ func Test_DatabaseJob_LogPull(t *testing.T) {
 			t.Logf("database create ok, meta %v", *rs.Data)
 		}
 
-		req, _ = lynkapi.NewRequestFromObject("AdminService", "DatabaseList", &kvapi.DatabaseListRequest{})
+		req = lynkapi.NewRequest("AdminService", "DatabaseList", &kvapi.DatabaseListRequest{})
 		if rs := sess.ac.Exec(req); !rs.OK() {
 			t.Fatal(rs.Err())
 		} else {
@@ -67,7 +67,7 @@ func Test_DatabaseJob_LogPull(t *testing.T) {
 		}
 	}
 
-	sess.c.SetDatabase(test_DatabaseJob_LogPull_Database)
+	sess.c = sess.c.SetDatabase(test_DatabaseJob_LogPull_Database)
 
 	var tm = sess.db.dbMapMgr.getByName(test_DatabaseJob_LogPull_Database)
 	if tm == nil {

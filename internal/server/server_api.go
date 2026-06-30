@@ -16,6 +16,7 @@ package server
 
 import (
 	"bytes"
+	"fmt"
 	mrand "math/rand"
 	"time"
 
@@ -40,8 +41,8 @@ func (it *dbServer) apiWrite(req *kvapi.WriteRequest, selectShard *dbMapSelectSh
 		selectShard.replicaNum > maxReplicaCap ||
 		len(selectShard.replicas)*2 < selectShard.replicaNum {
 
-		return newResultSetWithServerError("server not ready : replicas %d/%d",
-			len(selectShard.replicas), selectShard.replicaNum)
+		return newResultSetWithServerError(fmt.Sprintf("server not ready : replicas %d/%d",
+			len(selectShard.replicas), selectShard.replicaNum))
 	}
 
 	var (
@@ -90,7 +91,7 @@ func (it *dbServer) apiWrite(req *kvapi.WriteRequest, selectShard *dbMapSelectSh
 		}
 
 		if req.PrevIncrId > 0 && req.PrevIncrId != meta.IncrId {
-			return newResultSetWithClientError("invalid prev_incr_id (prev %d, req %d)", meta.IncrId, req.PrevIncrId)
+			return newResultSetWithClientError(fmt.Sprintf("invalid prev_incr_id (prev %d, req %d)", meta.IncrId, req.PrevIncrId))
 		}
 
 		if req.CreateOnly ||
@@ -197,7 +198,7 @@ func (it *dbServer) apiWrite(req *kvapi.WriteRequest, selectShard *dbMapSelectSh
 	}
 
 	if (pNum * 2) <= nCap {
-		return newResultSetWithServerError("p1 fail %d/%d", pNum, nCap)
+		return newResultSetWithServerError(fmt.Sprintf("p1 fail %d/%d", pNum, nCap))
 	}
 
 	pNum = 0
@@ -251,7 +252,7 @@ func (it *dbServer) apiWrite(req *kvapi.WriteRequest, selectShard *dbMapSelectSh
 	}
 
 	if (pNum * 2) <= nCap {
-		return newResultSetWithServerError("p2 fail %d/%d", pNum, nCap)
+		return newResultSetWithServerError(fmt.Sprintf("p2 fail %d/%d", pNum, nCap))
 	}
 
 	rs := newResultSetOK()
@@ -274,8 +275,8 @@ func (it *dbServer) apiDelete(req *kvapi.DeleteRequest, selectShard *dbMapSelect
 		selectShard.replicaNum > maxReplicaCap ||
 		len(selectShard.replicas)*2 < selectShard.replicaNum {
 
-		return newResultSetWithServerError("server not ready : replicas %d/%d",
-			len(selectShard.replicas), selectShard.replicaNum)
+		return newResultSetWithServerError(fmt.Sprintf("server not ready : replicas %d/%d",
+			len(selectShard.replicas), selectShard.replicaNum))
 	}
 
 	var (
@@ -379,7 +380,7 @@ func (it *dbServer) apiDelete(req *kvapi.DeleteRequest, selectShard *dbMapSelect
 	}
 
 	if (pNum * 2) <= nCap {
-		return newResultSetWithServerError("p1 fail %d/%d", pNum, nCap)
+		return newResultSetWithServerError(fmt.Sprintf("p1 fail %d/%d", pNum, nCap))
 	}
 
 	pNum = 0
@@ -431,7 +432,7 @@ func (it *dbServer) apiDelete(req *kvapi.DeleteRequest, selectShard *dbMapSelect
 	}
 
 	if (pNum * 2) <= nCap {
-		return newResultSetWithServerError("p2 fail %d/%d", pNum, nCap)
+		return newResultSetWithServerError(fmt.Sprintf("p2 fail %d/%d", pNum, nCap))
 	}
 
 	rs := newResultSetOK()
@@ -451,8 +452,8 @@ func (it *dbServer) apiReadShard(req *kvapi.ReadRequest, selectShard *dbMapSelec
 		selectShard.replicaNum > maxReplicaCap ||
 		len(selectShard.replicas)*2 < selectShard.replicaNum {
 
-		return newResultSetWithServerError("server not ready : replicas %d/%d",
-			len(selectShard.replicas), selectShard.replicaNum)
+		return newResultSetWithServerError(fmt.Sprintf("server not ready : replicas %d/%d",
+			len(selectShard.replicas), selectShard.replicaNum))
 	}
 
 	if len(selectShard.replicas) > 1 {

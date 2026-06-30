@@ -349,29 +349,28 @@ type AdminService struct {
 	dbServer *dbServer
 }
 
-func (it *AdminService) PreMethod(ctx context.Context) error {
+// PreMethod is the auth gate lynkapi invokes before every AdminService
+// method. Its signature MUST be (context.Context, error) — lynkapi's
+// RegisterService only registers a PreMethod with exactly two return values,
+// otherwise the hook is silently ignored and admin methods run unauthenticated.
+func (it *AdminService) PreMethod(ctx context.Context) (context.Context, error) {
 
 	if !it.dbServer.cfg.Server.IsStandaloneMode() {
-		return errors.New("runtime mode not setup")
+		return ctx, errors.New("runtime mode not setup")
 	}
 
-	if ctx != nil {
-
-		av, err := appAuthParse(ctx, it.dbServer.keyMgr)
-		if err != nil {
-			return err
-		}
-
-		if err := av.SignValid(nil); err != nil {
-			return err
-		}
-
-		if err := av.Allow(authPermSysAll); err != nil {
-			return err
-		}
+	// Fail-closed: appAuthParse returns an error on a nil/empty context, so do
+	// not guard on ctx != nil (that would skip auth entirely).
+	av, err := appAuthParse(ctx, it.dbServer.keyMgr)
+	if err != nil {
+		return ctx, err
 	}
 
-	return nil
+	if !av.Allow(authPermSysAll) {
+		return ctx, errors.New("permission denied: " + authPermSysAll)
+	}
+
+	return ctx, nil
 }
 
 type JobListRequest struct{}

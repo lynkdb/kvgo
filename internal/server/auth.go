@@ -17,7 +17,7 @@ package server
 import (
 	"context"
 
-	"github.com/hooto/hauth/go"
+	"github.com/sysinner/innerstack/v2/pkg/inauth"
 	"google.golang.org/grpc/credentials"
 )
 
@@ -26,34 +26,25 @@ const (
 	authKeyAccessKeyClient01 = "00000001"
 )
 
-func authKeyDefault() *hauth.AccessKey {
-	return &hauth.AccessKey{
+func authKeyDefault() *inauth.AccessKey {
+	return &inauth.AccessKey{
 		Id:     authKeyAccessKeySystem,
 		Secret: "<empty>",
 	}
 }
 
-func NewSystemAccessKey() *hauth.AccessKey {
-	key := hauth.NewAccessKey()
+func NewSystemAccessKey() *inauth.AccessKey {
+	key := inauth.NewAccessKey()
 	key.Id = authKeyAccessKeySystem
 	key.Roles = []string{"sa"}
-	key.Scopes = []*hauth.ScopeFilter{
-		{
-			Name:  AuthScopeDatabase,
-			Value: "*",
-		},
-	}
+	key.Scopes = []string{"*"}
 	return key
 }
 
-func newAppCredential(key *hauth.AccessKey) credentials.PerRPCCredentials {
-	return hauth.NewGrpcAppCredential(key)
+func newAppCredential(key *inauth.AccessKey) credentials.PerRPCCredentials {
+	return inauth.NewGrpcAppCredential(key)
 }
 
-func appAuthParse(ctx context.Context, keyMgr *hauth.AccessKeyManager) (*hauth.AppValidator, error) {
-	return hauth.GrpcAppValidator(ctx, keyMgr)
-}
-
-func appAuthValid(ctx context.Context, keyMgr *hauth.AccessKeyManager) error {
-	return hauth.GrpcAppCredentialValid(ctx, keyMgr)
+func appAuthParse(ctx context.Context, keyMgr *inauth.AccessKeyManager) (inauth.AppValidator, error) {
+	return inauth.NewGrpcAppValidator(ctx, keyMgr)
 }

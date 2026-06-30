@@ -21,11 +21,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hooto/hauth/go"
+	"github.com/lynkdb/lynkapi/go/lynkapi"
+	"github.com/sysinner/innerstack/v2/pkg/inauth"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-
-	"github.com/lynkdb/lynkapi/go/lynkapi"
 
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 )
@@ -49,7 +48,7 @@ var (
 type Config struct {
 	Addr      string               `toml:"addr" json:"addr"`
 	Database  string               `toml:"database,omitempty" json:"database,omitempty"`
-	AccessKey *hauth.AccessKey     `toml:"access_key" json:"access_key"`
+	AccessKey *inauth.AccessKey    `toml:"access_key" json:"access_key"`
 	Options   *kvapi.ClientOptions `toml:"options,omitempty" json:"options,omitempty"`
 }
 
@@ -432,7 +431,7 @@ func (it *clientDeleter) Exec() *kvapi.ResultSet {
 }
 
 func rpcClientConnect(addr string,
-	key *hauth.AccessKey,
+	key *inauth.AccessKey,
 	forceNew bool) (*grpc.ClientConn, error) {
 
 	if key == nil {
@@ -473,6 +472,6 @@ func rpcClientConnect(addr string,
 	return c, nil
 }
 
-func newAppCredential(key *hauth.AccessKey) credentials.PerRPCCredentials {
-	return hauth.NewGrpcAppCredential(key)
+func newAppCredential(key *inauth.AccessKey) credentials.PerRPCCredentials {
+	return inauth.NewGrpcAppCredential(key)
 }

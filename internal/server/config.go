@@ -19,7 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	hauth "github.com/hooto/hauth/go"
+	"github.com/sysinner/innerstack/v2/pkg/inauth"
 
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 	"github.com/lynkdb/kvgo/v2/pkg/storage"
@@ -91,7 +91,7 @@ type ConfigTLSCertificate struct {
 type ConfigServer struct {
 	ID          string                `toml:"id" json:"id"`
 	Bind        string                `toml:"bind" json:"bind"`
-	AccessKey   *hauth.AccessKey      `toml:"access_key" json:"access_key"`
+	AccessKey   *inauth.AccessKey     `toml:"access_key" json:"access_key"`
 	AuthTLSCert *ConfigTLSCertificate `toml:"auth_tls_cert,omitempty" json:"auth_tls_cert,omitempty"`
 
 	HttpPort uint16 `toml:"http_port,omitempty" json:"http_port,omitempty"`
@@ -121,7 +121,7 @@ type ConfigFeature struct {
 type ConfigTransferSource struct {
 	Addr      string               `toml:"addr" json:"addr"`
 	Database  string               `toml:"database" json:"database"`
-	AccessKey *hauth.AccessKey     `toml:"access_key" json:"access_key"`
+	AccessKey *inauth.AccessKey    `toml:"access_key" json:"access_key"`
 	Options   *kvapi.ClientOptions `toml:"options,omitempty" json:"options,omitempty"`
 }
 
