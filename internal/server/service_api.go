@@ -183,7 +183,7 @@ func (it *serviceApiImpl) valid(ctx context.Context, dbName string) (*dbMap, *kv
 		return nil, newResultSetWithClientError("invalid database name (" + dbName + ")")
 	}
 
-	if s := it.auth(ctx); s != nil {
+	if s := it.auth(ctx, dbName); s != nil {
 		return nil, s
 	}
 
@@ -195,12 +195,20 @@ func (it *serviceApiImpl) valid(ctx context.Context, dbName string) (*dbMap, *kv
 	return tbl, nil
 }
 
-func (it *serviceApiImpl) auth(ctx context.Context) *kvapi.ResultSet {
+func (it *serviceApiImpl) auth(ctx context.Context, dbName string) *kvapi.ResultSet {
 
 	if ctx != nil {
 
-		if _, err := appAuthParse(ctx, it.dbServer.keyMgr); err != nil {
+		av, err := appAuthParse(ctx, it.dbServer.keyMgr)
+		if err != nil {
 			return newResultSet(kvapi.Status_AuthDeny, err.Error())
+		}
+
+		// The system database is reserved for internal use (nil ctx, in-process
+		// call) and admin access gated by authPermSysAll, as admin_api.go does.
+		if dbName == sysDatabaseName && !av.Allow(authPermSysAll) {
+			return newResultSet(kvapi.Status_AuthDeny,
+				"access denied on database ("+dbName+")")
 		}
 	}
 

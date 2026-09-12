@@ -20,11 +20,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/sysinner/innerstack/v2/pkg/inauth"
 
+	"github.com/lynkdb/kvgo/v2/pkg/client"
 	"github.com/lynkdb/kvgo/v2/pkg/kvapi"
 	"github.com/lynkdb/kvgo/v2/pkg/storage"
 	_ "github.com/lynkdb/kvgo/v2/pkg/storage/pebble"
@@ -117,6 +119,132 @@ func Test_AdminAPI(t *testing.T) {
 	}
 }
 
+// H-1 regression: the system database must not be readable or writable via
+// the public data API with a non-admin (client scope) access key, while
+// admin-scope keys keep full access.
+func Test_ServiceApi_SystemDbAuth(t *testing.T) {
+
+	sess, err := test_AdminApi_Open(t, StandaloneMode, "v2_vol_x", "dir=admin-api-sysauth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.release()
+
+	req := lynkapi.NewRequest("AdminService", "DatabaseCreate", &kvapi.DatabaseCreateRequest{
+		Name:   "test_sysauth",
+		Engine: storage.DefaultDriver,
+	})
+	if rs := sess.ac.Exec(req); !rs.Status.OK() && rs.Status.Code != lynkapi.StatusCode_Conflict {
+		t.Fatal(rs.Status.Err())
+	}
+
+	// client-scoped key: granted kvgo/db only, not sys/all
+	clientKey := inauth.NewAccessKey()
+	clientKey.Roles = []string{"client"}
+	clientKey.Scopes = []string{AuthScopeDatabase}
+	if err := sess.dbs[0].keyMgr.Set(clientKey); err != nil {
+		t.Fatal(err)
+	}
+
+	cliClient, err := (&client.Config{
+		Addr:      sess.addr,
+		AccessKey: clientKey,
+	}).NewClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cliAdmin, err := (&client.Config{
+		Addr:      sess.addr,
+		AccessKey: sess.dbs[0].cfg.Server.AccessKey,
+	}).NewClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sysKey := []byte("test/h1-system-db-auth")
+
+	// client-scoped key must be denied on the system database
+	{
+		wr := kvapi.NewWriteRequest(sysKey, []byte("deny"))
+		wr.Database = sysDatabaseName
+		if rs := cliClient.Write(wr); rs.StatusCode != kvapi.Status_AuthDeny {
+			t.Fatalf("client key write to system db not denied, status %d %s",
+				rs.StatusCode, rs.ErrorMessage())
+		}
+
+		rd := kvapi.NewReadRequest(sysKey)
+		rd.Database = sysDatabaseName
+		if rs := cliClient.Read(rd); rs.StatusCode != kvapi.Status_AuthDeny {
+			t.Fatalf("client key read from system db not denied, status %d %s",
+				rs.StatusCode, rs.ErrorMessage())
+		}
+
+		rg := kvapi.NewRangeRequest(sysKey, append(bytesClone(sysKey), 0xff))
+		rg.Database = sysDatabaseName
+		if rs := cliClient.Range(rg); rs.StatusCode != kvapi.Status_AuthDeny {
+			t.Fatalf("client key range on system db not denied, status %d %s",
+				rs.StatusCode, rs.ErrorMessage())
+		}
+
+		dr := kvapi.NewDeleteRequest(sysKey)
+		dr.Database = sysDatabaseName
+		if rs := cliClient.Delete(dr); rs.StatusCode != kvapi.Status_AuthDeny {
+			t.Fatalf("client key delete on system db not denied, status %d %s",
+				rs.StatusCode, rs.ErrorMessage())
+		}
+
+		br := &kvapi.BatchRequest{
+			Database: sysDatabaseName,
+			Items: []*kvapi.RequestUnion{
+				{Value: &kvapi.RequestUnion_Write{Write: kvapi.NewWriteRequest(sysKey, []byte("deny"))}},
+			},
+		}
+		// Batch maps any valid() failure to Status_InvalidArgument, so assert
+		// on the denial message instead of the status code.
+		if rs := cliClient.Batch(br); rs.StatusCode == kvapi.Status_OK ||
+			!strings.Contains(rs.ErrorMessage(), "access denied") {
+			t.Fatalf("client key batch on system db not denied, status %d %s",
+				rs.StatusCode, rs.ErrorMessage())
+		}
+
+		t.Logf("client key denied on system db as expected")
+	}
+
+	// the same client-scoped key works on a regular database
+	{
+		wr := kvapi.NewWriteRequest(sysKey, []byte("ok"))
+		wr.Database = "test_sysauth"
+		if rs := cliClient.Write(wr); !rs.OK() {
+			t.Fatalf("client key write to regular db failed: %s", rs.ErrorMessage())
+		}
+	}
+
+	// admin-scoped key (sys/all) keeps access to the system database
+	{
+		wr := kvapi.NewWriteRequest(sysKey, []byte("admin"))
+		wr.Database = sysDatabaseName
+		if rs := cliAdmin.Write(wr); !rs.OK() {
+			t.Fatalf("admin key write to system db failed: %s", rs.ErrorMessage())
+		}
+
+		rd := kvapi.NewReadRequest(sysKey)
+		rd.Database = sysDatabaseName
+		if rs := cliAdmin.Read(rd); !rs.OK() || rs.Item() == nil ||
+			string(rs.Item().Value) != "admin" {
+			t.Fatalf("admin key read from system db failed: %s", rs.ErrorMessage())
+		}
+
+		dr := kvapi.NewDeleteRequest(sysKey)
+		dr.Database = sysDatabaseName
+		if rs := cliAdmin.Delete(dr); !rs.OK() {
+			t.Fatalf("admin key delete on system db failed: %s", rs.ErrorMessage())
+		}
+
+		t.Logf("admin key allowed on system db as expected")
+	}
+}
+
 type testAdminApiSession struct {
 	dbs  []*dbServer
 	dirs []string
@@ -137,7 +265,8 @@ func (it *testAdminApiSession) release() {
 func test_AdminApi_Open(args ...interface{}) (*testAdminApiSession, error) {
 
 	var (
-		opts = map[string]bool{}
+		opts    = map[string]bool{}
+		dirName = "admin-api"
 	)
 
 	for _, arg := range args {
@@ -146,16 +275,23 @@ func test_AdminApi_Open(args ...interface{}) (*testAdminApiSession, error) {
 		// 		t = arg.(*testing.T)
 
 		case string:
-			opts[arg.(string)] = true
+			// "dir=<name>" selects an isolated data dir: the pebble driver
+			// caches open connections by directory, so a closed session must
+			// not be reopened on the same path within one test run.
+			if s := arg.(string); strings.HasPrefix(s, "dir=") {
+				dirName = s[len("dir="):]
+			} else {
+				opts[s] = true
+			}
 		}
 	}
 
 	port := 1024 + int(randUint64()%60000)
 
-	testDir := "/tmp/kvgo-test/admin-api"
+	testDir := "/tmp/kvgo-test/" + dirName
 	if runtime.GOOS == "darwin" {
 		testDir, _ = os.UserHomeDir()
-		testDir += "/kvgo-test/admin-api"
+		testDir += "/kvgo-test/" + dirName
 	}
 	testDir = filepath.Clean(testDir)
 
