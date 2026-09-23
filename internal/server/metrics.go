@@ -15,7 +15,7 @@
 package server
 
 import (
-	"github.com/hooto/hmetrics"
+	"github.com/sysinner/innerstack/v2/pkg/inmetrics"
 )
 
 const (
@@ -29,31 +29,31 @@ const (
 )
 
 var (
-	metricCounter = hmetrics.RegisterCounterMap(
+	metricCounter = inmetrics.RegisterCounterMap(
 		"counter",
 		"The General Counter Metric",
 	)
 
-	metricGauge = hmetrics.RegisterGaugeMap(
+	metricGauge = inmetrics.RegisterGaugeMap(
 		"gauge",
 		"The General Gauge Metric",
 	)
 
-	metricLatency = hmetrics.RegisterHistogramMap(
+	metricLatency = inmetrics.RegisterHistogramMap(
 		"latency",
 		"The General Latency Metric",
-		hmetrics.NewBuckets(0.0001, 1.5, 36),
+		inmetrics.NewBuckets(0.0001, 1.5, 36),
 	)
 
-	metricHistogram = hmetrics.RegisterHistogramMap(
+	metricHistogram = inmetrics.RegisterHistogramMap(
 		"histogram",
 		"The General Histogram Metric",
-		hmetrics.NewBuckets(0.0001, 1.5, 36),
+		inmetrics.NewBuckets(0.0001, 1.5, 36),
 	)
 
-	metricComplex = hmetrics.RegisterComplexMap(
+	metricComplex = inmetrics.RegisterComplexMap(
 		"complex",
 		"The General Complex Metric",
-		hmetrics.NewBuckets(0.0001, 1.5, 36),
+		inmetrics.NewBuckets(0.0001, 1.5, 36),
 	)
 )

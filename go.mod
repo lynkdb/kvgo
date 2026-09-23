@@ -8,13 +8,12 @@ require (
 	github.com/cockroachdb/pebble v1.1.5
 	github.com/goccy/go-json v0.10.6
 	github.com/hooto/hlog4g v0.9.5
-	github.com/hooto/hmetrics v0.0.2
 	github.com/hooto/htoml4g v0.9.5
 	github.com/lynkdb/lynkapi v0.0.16
 	github.com/olekukonko/tablewriter v1.1.4
 	github.com/shirou/gopsutil/v4 v4.26.8
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d
-	github.com/sysinner/innerstack/v2 v2.0.0-alpha.8
+	github.com/sysinner/innerstack/v2 v2.0.0-alpha.11
 	github.com/tidwall/pretty v1.2.1
 	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12
@@ -22,8 +21,6 @@ require (
 
 require (
 	github.com/DataDog/zstd v1.5.7 // indirect
-	github.com/ServiceWeaver/weaver v0.24.6 // indirect
-	github.com/andybalholm/brotli v1.2.4 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
@@ -41,7 +38,6 @@ require (
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hooto/hflag4g v0.10.1 // indirect
-	github.com/hooto/httpsrv v0.13.1 // indirect
 	github.com/klauspost/compress v1.20.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect

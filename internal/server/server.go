@@ -26,7 +26,7 @@ import (
 	"time"
 
 	"github.com/hooto/hlog4g/hlog"
-	"github.com/hooto/hmetrics"
+	"github.com/sysinner/innerstack/v2/pkg/inmetrics"
 	"github.com/hooto/htoml4g/htoml"
 	ps_cpu "github.com/shirou/gopsutil/v4/cpu"
 	"github.com/sysinner/innerstack/v2/pkg/inauth"
@@ -231,7 +231,7 @@ func dbServerSetup(cfgFile string, cfg Config) (*dbServer, error) {
 			(srv.cfg.Server.PprofEnable || srv.cfg.Server.MetricsEnable) {
 
 			if srv.cfg.Server.MetricsEnable {
-				http.HandleFunc("/metrics", hmetrics.HttpHandler)
+				http.HandleFunc("/metrics", inmetrics.HttpHandler)
 			}
 
 			ln, err := net.Listen("tcp", fmt.Sprintf(":%d", srv.cfg.Server.HttpPort))
